@@ -1,0 +1,3 @@
+# One file per Reference note
+
+Each Reference note (NPC, location, faction, item) is its own markdown file (e.g. `npcs/sera.md`), not a section in a shared page. We deviate from the brief's literal recommendation of `NPCs (single page, current and past)` because the brief's *other* requirements — `[[Sera]]` links, backlinks ("who references Sera?"), per-entity frontmatter, semantic search — depend on file-level identity. Shea's anti-friction concern is honored by what the agent defaults to *writing* (a one-line entry created on a single keypress, no template), not by collapsing storage. Cost: more files; mitigated by lazy creation and conventional folders (`npcs/`, `locations/`, `factions/`, `items/`).
