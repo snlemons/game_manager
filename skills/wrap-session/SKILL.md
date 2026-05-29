@@ -1,16 +1,332 @@
 ---
 name: wrap-session
-description: Read a session's in-play notes, draft the log, propose new Threads, Consequences, Reference notes, Beat updates, and Adventure status changes, and regenerate campaign.md. Stub in slice 1 of v0.1 — not yet implemented.
+description: Read a session's in-play notes, draft the Log, propose new Threads, Consequences, Reference notes, Beat updates, and Adventure status changes, resolve ambiguity with the GM, write approved changes, and regenerate campaign.md. Use when the GM invokes `/wrap-session`, asks to wrap a session, says the session is over and they want to extract structure from their notes, or wants to turn in-play notes into a canonical Log.
 ---
 
 # /wrap-session
 
-**Status: not yet implemented.**
+You are completing a TTRPG **Session** for a **GM**. The campaign repo is the current working directory (or a directory the GM names). This workflow is the **Post-session extraction** moment — where messy **In-play notes** become canonical content: a written **Log**, new and updated **Reference notes**, opened and closed **Threads**, new **Consequences**, **Beat** deliveries and proposals, **Adventure** status transitions, and a regenerated **Campaign overview** (`campaign.md`).
 
-This slash command will, in a future slice, read `sessions/YYYY-MM-DD-session-N/notes.md`, draft `log.md`, propose Threads, Consequences, Reference-note updates, Beat deliveries, and Adventure status transitions for GM approval, and regenerate `campaign.md`.
+Follow the domain vocabulary defined in the campaign repo's `CLAUDE.md` and the plugin's `CONTEXT.md`: **GM**, **PC**, **NPC**, **Campaign**, **Adventure**, **Atlas**, **Reference note**, **Session**, **Brief**, **In-play notes**, **Log**, **Thread**, **Consequence**, **Beat**, **Campaign overview**, **Post-session extraction**. Don't drift to synonyms the glossary explicitly avoids (no "DM", "module" for non-published adventures, "hook" for Thread, "seed" for Beat, "recap"/"summary" for Log, "fact"/"event" for Consequence, etc.).
 
-Respond to the GM with exactly:
+## Locate the campaign repo
 
-> `/wrap-session` is not yet implemented. It will land in a later slice of `ttrpg-gm` v0.1. See the repo's issues for status.
+The campaign repo has this shape (per ADR-0002, ADR-0005, ADR-0007, ADR-0012):
 
-Do not create or modify any files. Do not attempt to run the workflow.
+```
+<campaign>/
+├── CLAUDE.md
+├── campaign.md
+├── .claude/rules/
+├── adventures/<name>/        # each with frontmatter status: introduced|active|completed|abandoned
+├── npcs/        locations/   factions/   items/
+├── threads/                  # status: open | closed | decayed
+├── consequences/
+├── beats/                    # status: pending | delivered | dropped
+└── sessions/YYYY-MM-DD-session-N/
+                  ├── brief.md      (read for context if present)
+                  ├── notes.md      (input — never modified)
+                  └── log.md        (output — written by this skill)
+```
+
+If the current working directory is not a campaign repo (no `campaign.md`, no `sessions/`, no `CLAUDE.md` for the campaign), ask the GM where their campaign repo is before proceeding. Don't guess.
+
+Honor `.claude/rules/sessions.md` and `.claude/rules/adventures.md` if present — they describe campaign-local conventions.
+
+## Step 1 — Select the target session
+
+The default target is the **latest session that has a non-empty `notes.md` and no `log.md`**. Resolve as follows:
+
+1. List `sessions/`. Sort directories lexicographically by name (`YYYY-MM-DD-session-N` sorts correctly by date then number).
+2. Scan from newest to oldest. The target is the first session where `notes.md` exists and is non-empty and `log.md` does **not** exist.
+3. If no such session exists, check whether the latest session has `log.md` already. If so, this is a **re-run candidate** — see "Re-run guard" below.
+4. If `sessions/` is empty or no session has `notes.md`, tell the GM there is nothing to wrap and stop.
+
+If the GM names a specific session explicitly (e.g., "wrap session 4" or a directory path), use that instead of the default. Confirm the resolved directory back to the GM before reading.
+
+### Re-run guard (confirm-before-overwrite)
+
+Before doing any work, check whether the target session already has a `log.md`:
+
+- **No `log.md`:** proceed normally.
+- **`log.md` exists:** STOP. Show the GM the existing `log.md` path and ask explicitly: *"A `log.md` already exists for this session. The GM may have hand-edited it, or this is a re-run after corrections. Overwrite the Log and re-propose extractions?"* Do not proceed without an explicit yes. If the GM declines, exit without writing anything. If yes, continue — and when you reach the write step, dedup proposed Threads / Consequences / Beats / Reference notes against what already exists in the repo so the re-run does not create duplicates (see "Dedup" under Step 2).
+
+If `notes.md` does not exist or is empty for the chosen session, tell the GM and stop. There is nothing to extract.
+
+## Step 2 — Multi-pass extraction
+
+Read `notes.md` in full. Also read these for context (do not modify):
+
+- `brief.md` for the same session if present — tells you what the GM was planning, including pending Beats they hoped to land and the scratchpad. **Scratchpad items are a primary source of new Beat candidates** (ADR-0009).
+- The prior session's `log.md` if present — gives you continuity for what was already established.
+- `campaign.md` — current state snapshot, useful for cross-checking what's already active or open.
+- Active `adventures/<name>/adventure.md` files — to evaluate status transitions and adventure relevance.
+- Existing `threads/`, `consequences/`, `beats/`, and Reference-note files you might be updating or matching against (lazy-read; list directories first, then read files when an extraction candidate plausibly matches by name).
+
+Run the extraction in **this exact order**. Each pass uses prior-pass context (ADR-0011).
+
+### Pass 1 — Adventure relevance and status transitions
+
+For every `adventures/<name>/` directory, decide whether `notes.md` indicates a status change:
+
+- `introduced → active` — the party began running this adventure this session. Sets `started:` to the session's date (the `YYYY-MM-DD` from the session directory name).
+- `active → completed` — the party resolved this adventure. Sets `completed:` to the session date.
+- `active → abandoned` — the party walked away or the GM is dropping it. Sets `completed:` to the session date (per ADR-0007, abandoned still records a completion date with abandoned semantics).
+- New adventure not yet in `adventures/` but clearly started this session — propose creating `adventures/<slug>/adventure.md` with `status: active`, `started: <session date>`, and other dates left null.
+
+If multiple adventures appear in notes, evaluate each independently. Don't infer transitions from vague references — require a load-bearing event in the notes (party accepts the job; final boss falls; party explicitly walks away).
+
+### Pass 2 — New Reference notes
+
+For each NPC, location, faction, or item mentioned in `notes.md` that does not already have a file in `npcs/`, `locations/`, `factions/`, or `items/`:
+
+- Propose creating a one-line Reference note (ADR-0003: default content is a one-liner; the GM never fills out a form).
+- Filename: lowercase slug of the name (e.g., `npcs/sera.md`, `locations/the-broken-mines.md`).
+- Body: one sentence stating who/what they are and how they appeared this session. Add `[[wiki links]]` for any related Reference notes that exist or are also being proposed.
+- If the notes reference a thing whose **name is missing or unclear** (e.g., "the blacksmith said…" with no name), do NOT invent a name — defer to ambiguity clarification (Step 3).
+
+Match conservatively. "The captain" in this session is the same as `npcs/captain-marra.md` only if the notes make that link explicit or the prior Log establishes it. When in doubt, flag for clarification.
+
+### Pass 3 — Updates to existing Reference notes
+
+For each existing Reference note whose entry appears in `notes.md` with new information (changed disposition, new title, new location, new fact), propose an update:
+
+- Show the GM the existing one-liner / current content and the proposed addition or replacement.
+- Prefer **append** (additional sentence at end) for accreted facts; prefer **edit** for changes that contradict the existing line (e.g., "Sera moved from the village to the city").
+- Don't lose existing GM-authored content. If you would overwrite GM prose, flag it for review with both versions visible.
+
+### Pass 4 — New Threads and Thread closures
+
+A **Thread** is a hook the GM should be reminded about — a promise, an unresolved question, a foreshadowed danger; future-facing (CONTEXT.md, ADR-0004).
+
+- **New Threads:** for each promise the party made, unresolved question raised, or piece of foreshadowing dropped in notes that does not already match an open Thread, propose creating `threads/<slug>.md` with frontmatter `status: open`, `created: <session date>`, `closed: ~`. Body: one or two sentences describing what's open and why it matters.
+- **Thread closures:** for each existing open Thread that the session's events resolved (the promise was kept, the question was answered, the foreshadowed danger landed and is done), propose updating that file's frontmatter to `status: closed`, `closed: <session date>`. Include a one-line note in the body explaining how it closed.
+
+If something in the notes *could* be a Thread or *could* be just narrative color (a one-off rumor, a flavor mention), defer to ambiguity clarification — do not silently include or exclude.
+
+### Pass 5 — New Consequences
+
+A **Consequence** is a persistent fact about the world resulting from the party's actions; past-facing; it doesn't close (CONTEXT.md, ADR-0004).
+
+- For each load-bearing change the party caused this session (the captain owes them a favor, the bridge is destroyed, the cult knows their faces), propose creating `consequences/<slug>.md` with frontmatter `created: <session date>`. Body: one sentence stating the persistent fact, using `[[wiki links]]` for any Reference notes it touches.
+- Do not double-write the same fact as both a Thread and a Consequence. If the party owes the favor (future obligation), it's a Thread. If the captain owes them a favor (persistent world fact), it's a Consequence. If both framings apply, propose both and explain the split to the GM.
+
+### Pass 6 — Beat deliveries and dropped Beats
+
+For each Beat currently in `beats/` with `status: pending`:
+
+- **Delivered** — the session landed the Beat (the planned moment played out). Propose updating frontmatter to `status: delivered`, `delivered: <session date>`. Optionally update `linked_pcs:` / `linked_npcs:` if the session clarified who was involved.
+- **Dropped** — the session made the Beat obsolete (the NPC is dead, the location is gone, the GM signaled they're abandoning it). Propose updating to `status: dropped`. Leave `delivered:` null.
+- **Untouched** — pending Beats not addressed this session stay pending. Do not propose changes.
+
+Use the prior `brief.md` (if present) as a hint to which Beats the GM intended to land. The notes' content is the source of truth for whether they actually landed.
+
+### Pass 7 — New Beat candidates
+
+Propose new Beats from:
+
+- The prior `brief.md`'s **GM scratchpad** — items the GM jotted as "if X then Y", "land this next time", name picks they want to use. These are the canonical promotion path (ADR-0009).
+- Notes phrases like "I want to set up X next session", "remind me to land Y", "save Z for later".
+
+Propose each as `beats/<slug>.md` with frontmatter `status: pending`, `created: <session date>`, `delivered: ~`, and optional `linked_pcs:` / `linked_npcs:` lists if the scratchpad scoped them. Body: one or two sentences stating the intent. If the Beat is scoped to a specific Adventure, include a `[[wiki link]]` to that Adventure in the body so backlinks resolve (ADR-0009).
+
+### Pass 8 — Log draft
+
+Draft `log.md` as a clean narrative rewrite of `notes.md`. The Log is the canonical, human-readable record of what happened — what future Briefs will read.
+
+**Drop mechanical noise:**
+
+- Roll outcomes, DCs, HP totals, initiative order, spell slots, ability checks unless the *outcome* is load-bearing.
+- Snack-break asides, real-world tangents, table chatter.
+- Lookup pauses ("checking the rules on grappling"), retcons resolved at the table.
+
+**Preserve load-bearing events:**
+
+- Promises made by the party (these become Threads).
+- Consequences caused by the party (these become Consequences).
+- Beats that landed (these match Beat deliveries).
+- NPCs met or whose stance shifted.
+- Locations entered, left, or changed.
+- Information learned that future Briefs will reference.
+
+**Voice:** third-person past tense, narrative prose. Section headings if the session had clear scene breaks; otherwise flowing paragraphs. Use `[[wiki links]]` for Reference notes so backlinks resolve. The Log is for the GM (and the agent's future-Brief reads), not for the players — secrets and NPC motivations the players don't know are fine to include.
+
+The Log should be readable as a standalone narrative by someone catching up on the campaign. Length scales with what happened — a quiet session is a short Log; a pivotal session is a longer one. No fixed minimum.
+
+### Dedup (applies across passes; matters most on re-runs)
+
+Before proposing any new Thread / Consequence / Beat / Reference note, match against existing files:
+
+- **Name match:** case-insensitive, light normalization (strip leading "the", collapse whitespace, hyphenate). Match candidate name against existing filenames and the first-heading title inside each file.
+- **Recent provenance:** for Threads/Consequences/Beats, prefer files whose `created:` (or the session referenced in their body) is recent — within the last few sessions. A new Thread proposal that name-matches an existing **open** Thread created last session is almost certainly the same Thread; treat as a no-op or as an update rather than a new file.
+- **On ambiguous match:** do not silently dedup. Flag it for ambiguity clarification ("`threads/deliver-the-letter.md` already exists from session 4; this looks like the same Thread — update or new?").
+
+The goal is that re-running `/wrap-session` against the same `notes.md` (after the GM corrected something downstream) produces zero spurious duplicates.
+
+## Step 3 — Ambiguity clarification (BEFORE the proposed-wrap review)
+
+Surface every unresolved question to the GM **before** showing the proposed wrap. The review screen must contain only proposals the agent is confident about (ADR-0011 — "no `[ambiguous]` markers in the proposed-wrap").
+
+Typical ambiguity buckets:
+
+- **Missing names** — "An unnamed blacksmith appears in the notes. Provide a name, or skip creating a Reference note?"
+- **Unclear classification** — "The party promised to 'look into' the missing caravan. Thread (active obligation), or narrative color (passing comment)?"
+- **Status interpretation** — "Sera 'wasn't pleased' with the party. Update her disposition to hostile, wary, or leave unchanged?"
+- **Thread-vs-Consequence framing** — "'The cult knows their faces.' Read this as a Thread (the party owes themselves caution next time) or a Consequence (persistent world fact)? Or both?"
+- **Dedup matches** — "`threads/deliver-the-letter.md` already exists. Is this the same Thread, an update, or a new one?"
+- **Adventure transitions** — "The party left the Sunless Citadel mid-arc to chase another lead. Mark Sunless Citadel as `abandoned`, or keep `active` because they might return?"
+- **Beat deliveries on the edge** — "The 'Sera reveals the locket' Beat was set up but the reveal didn't quite land. Delivered, still pending, or dropped?"
+
+Present the questions as a short numbered list. The GM answers in whatever form is easiest (numbered replies, free prose). Apply each resolution back into the extraction set:
+
+- New names update Reference-note proposals (filename and body).
+- Classification answers move items between Thread / Consequence / Beat / "neither — drop it".
+- Dedup answers convert "new file" proposals into "update existing" proposals.
+- Adventure-transition answers change or drop the proposed frontmatter update.
+
+If the GM's resolution surfaces **new** ambiguities (e.g., "actually call her Sera — and she's the same Sera from the Lost Mines, not a new one"), loop: ask the follow-up questions, then refold. Don't proceed to review until the question list is empty.
+
+If there are no ambiguities, say so and move to Step 4 directly. Don't manufacture questions to look thorough.
+
+## Step 4 — Single proposed-wrap review
+
+Present **one** grouped diff-style review with all approved-set proposals, in this order:
+
+1. **Log** — full preview of the drafted `log.md` (rendered in a fenced markdown block labelled with the target path). The GM can edit inline.
+2. **Reference-note changes** — collapsed list (name + create/update + one-line summary), expandable per item on request. Example formatting:
+
+   ```
+   Reference-note changes (4):
+   - CREATE npcs/sera.md — "Sera, blacksmith of the village, met session 5."
+   - CREATE locations/the-broken-mines.md — "Abandoned silver mines north of the village."
+   - UPDATE npcs/captain-marra.md — append: "Now owes the party a favor (session 5)."
+   - UPDATE npcs/orin.md — change disposition to wary.
+   ```
+
+3. **Thread operations** — new Threads and closures, one line each.
+4. **Consequence operations** — new Consequences, one line each.
+5. **Beat operations** — deliveries (`pending → delivered`), drops (`pending → dropped`), new Beat candidates (`pending`), one line each.
+6. **Adventure status changes** — each Adventure with proposed status transition and the date(s) being set.
+7. **`campaign.md` regeneration** — a preview of the regenerated Campaign overview (collapsed by default; expandable). State explicitly which sections will change.
+
+At the bottom, ask exactly: *"Approve all, edit / reject specific items, or cancel?"* Accept these response shapes:
+
+1. **Approve all** → proceed to Step 5 and write everything.
+2. **Approve with edits** — the GM marks specific items: edit the Log (inline rewrites accepted), edit a proposed Reference note, drop a proposed Thread, change a proposed Beat's `linked_pcs`, etc. Apply edits, re-present the affected sections, ask again.
+3. **Reject per-item** — GM lists items to drop entirely (e.g., "skip the new Beat for Orin"). Remove from the approved set, re-present, ask again.
+4. **Cancel** → write nothing, leave the filesystem unchanged, exit cleanly.
+
+Do **not** write anything to disk until the GM gives an explicit "approve" (or "approve all" / "looks good, ship it" / equivalent). Loop until approved or cancelled.
+
+## Step 5 — Write approved changes
+
+Once approved, perform all writes. Order doesn't matter for correctness (files are independent) but a sensible order helps the GM read git diffs later:
+
+1. **Write `log.md`** to `sessions/YYYY-MM-DD-session-N/log.md`. Overwrite if confirmed in the re-run guard.
+2. **Create or update Reference notes** under `npcs/`, `locations/`, `factions/`, `items/`. Create parent directories if missing.
+3. **Create or update Threads** under `threads/`. Frontmatter shape:
+
+   ```yaml
+   ---
+   status: open                 # open | closed | decayed
+   created: 2026-05-29          # YYYY-MM-DD of the session that opened it
+   closed: ~                    # null until status transitions to closed/decayed
+   ---
+   ```
+
+   On closure, set `status: closed` (or `decayed` if that's the disposition) and `closed: <session date>`.
+
+4. **Create Consequences** under `consequences/`. Frontmatter shape:
+
+   ```yaml
+   ---
+   created: 2026-05-29
+   ---
+   ```
+
+5. **Create or update Beats** under `beats/`. Frontmatter shape:
+
+   ```yaml
+   ---
+   status: pending              # pending | delivered | dropped
+   created: 2026-05-29
+   delivered: ~                 # null until status transitions to delivered
+   linked_pcs: []               # optional
+   linked_npcs: []              # optional
+   ---
+   ```
+
+   On delivery, set `status: delivered`, `delivered: <session date>`. On drop, set `status: dropped` and leave `delivered:` null.
+
+6. **Update Adventure frontmatter** in `adventures/<name>/adventure.md` (or the adventure's main file). Only touch the fields that changed:
+
+   - `introduced → active`: set `status: active`, set `started: <session date>` if currently null. Leave `order:` alone — it's ingest-era data.
+   - `active → completed`: set `status: completed`, set `completed: <session date>`.
+   - `active → abandoned`: set `status: abandoned`, set `completed: <session date>` (per ADR-0007).
+   - New adventure: write the full file with the GM-approved name, slug, and minimal frontmatter (`status: active`, `started: <session date>`, other dates null).
+
+7. **Regenerate `campaign.md`** at the campaign root. Rewrite the whole file from current state. Sections, in this order (mirroring the template and ADR-0007):
+
+   - Header: campaign name, system (carry from existing `campaign.md` frontmatter or H1 — do not invent if missing; tell the GM).
+   - **Active adventures** — bulleted list of `status: active` adventures with one-line current state pulled from each `adventure.md`.
+   - **Open threads** — every Thread with `status: open`, one line each, most-recent first.
+   - **Recent significant consequences** — Consequences ordered by `created:` descending, top 5–10 (whatever fits on a glance-readable screen). Don't dump the entire history.
+   - **Party location** — derived from the just-written Log's closing state, with `[[wiki link]]` to the location's Reference note. If unclear, say so plainly ("Party location not stated in this session's Log.") — do not guess.
+   - **Pending beats** — every Beat with `status: pending`, one line each.
+
+   Preserve the agent-maintained header comment from the template ("This file is agent-maintained…"). If the existing `campaign.md` has GM hand-edits that conflict with regenerated content, the regeneration overwrites (ADR-0007: "Manual GM edits to `campaign.md` are reconciled (or overwritten with warning) at next regeneration"). Surface this warning to the GM in the closing message if hand-edits were detected and overwritten.
+
+**Do not modify `notes.md`.** It is the source of truth and stays unchanged (ADR-0005, ADR-0011).
+
+**Do not run `git commit`.** Ongoing git ownership belongs to the GM (ADR-0011).
+
+## Step 6 — Closing message
+
+Tell the GM, concisely:
+
+- A **count summary** of what changed. Example:
+
+  > Wrap complete for session 5 (2026-05-29):
+  > - Log written: `sessions/2026-05-29-session-5/log.md`
+  > - 3 new Reference notes (2 NPCs, 1 location)
+  > - 1 Reference note updated
+  > - 2 Threads opened, 1 closed
+  > - 1 Consequence added
+  > - 1 Beat delivered, 2 new Beat candidates
+  > - Adventure status: *The Broken Mines* → `active`
+  > - `campaign.md` regenerated
+
+- If the regenerated `campaign.md` overwrote hand-edits, say so explicitly.
+- A **suggested commit message**, presented in a fenced code block for easy copy:
+
+  ```
+  Wrap session 5 (2026-05-29)
+  ```
+
+  (Or richer if there's a clearly load-bearing change to call out — e.g., `Wrap session 5: Broken Mines active, Captain Marra owes a favor`.)
+
+- A **prompt to commit**, framed as the GM's action. Example: "Run `git status` to review, then commit when you're ready. The plugin doesn't auto-commit (ADR-0011)."
+
+Do **not** run `git commit`. Do **not** run `git add` (the GM may want to stage selectively). The plugin's job ends here.
+
+## Quick reference: which ADR governs what
+
+- **ADR-0003** — Reference notes are one file per item; default content is a one-liner.
+- **ADR-0004** — Threads and Consequences are per-file with status frontmatter, created via Post-session extraction. This is the lifecycle reference for both kinds.
+- **ADR-0005** — Session is a directory of three documents. `notes.md` is input, `log.md` is output, `notes.md` is never modified.
+- **ADR-0007** — Adventure frontmatter (`status`, `started`, `completed`) and the agent-maintained `campaign.md` — you regenerate it at the end.
+- **ADR-0009** — Beats are GM-authored or proposed by `/wrap-session`; status `pending | delivered | dropped`; brief-scratchpad items are a primary creation path.
+- **ADR-0011** — This skill's primary spec: sequence, ambiguity-before-review, single-batch grouped review, no auto-commit, encourage-the-commit closing message.
+- **ADR-0012** — Honor `.claude/rules/sessions.md` and `.claude/rules/adventures.md` when present.
+
+## What to avoid
+
+- Don't modify `notes.md` under any circumstance.
+- Don't auto-commit. Don't run `git add` or `git commit` or `git push`.
+- Don't write the Log or any extracted file before the GM approves.
+- Don't put `[ambiguous]` markers in the proposed-wrap review — clarify before review (ADR-0011).
+- Don't invent NPC names, dates, or facts the notes don't support. If the notes don't say, the wrap doesn't say.
+- Don't double-write the same fact as both a Thread and a Consequence without explaining the split.
+- Don't use the words "DM", "module" (for non-published adventures), "hook" (for Thread), "seed" (for Beat), "recap" / "summary" (for Log), "fact" / "event" (for Consequence). Use the glossary.
+- Don't surface every pending Beat in the closing summary — only ones whose status changed.
+- Don't dump the entire campaign's Consequence history into `campaign.md`. Keep "Recent significant consequences" glance-readable.
