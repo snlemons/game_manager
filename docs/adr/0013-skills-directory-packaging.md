@@ -5,21 +5,27 @@ The plugin (see [ADR-0002](./0002-plugin-and-per-campaign-repos.md)) ships as a 
 ## Repo layout
 
 ```
-ttrpg-gm/                          # → ~/.claude/skills/ttrpg-gm/
+ttrpg-gm/                              # → ~/.claude/skills/ttrpg-gm/
 ├── skills/
-│   ├── ingest.md                  # /ingest workflow
-│   ├── prep-session.md            # /prep-session workflow
-│   └── wrap-session.md            # /wrap-session workflow
+│   ├── ingest/
+│   │   └── SKILL.md                   # /ingest workflow
+│   ├── prep-session/
+│   │   └── SKILL.md                   # /prep-session workflow
+│   └── wrap-session/
+│       └── SKILL.md                   # /wrap-session workflow
 ├── templates/
-│   ├── CLAUDE.md.template         # root CLAUDE.md scaffolded into campaigns
-│   ├── rules/
-│   │   ├── sessions.md.template
-│   │   └── adventures.md.template
+│   ├── CLAUDE.md.template             # root CLAUDE.md scaffolded into campaigns
+│   ├── .claude/
+│   │   └── rules/
+│   │       ├── sessions.md.template
+│   │       └── adventures.md.template
 │   └── campaign.md.template
-├── CONTEXT.md                     # this project's glossary
-├── docs/adr/                      # this project's ADRs
+├── CONTEXT.md                         # this project's glossary
+├── docs/adr/                          # this project's ADRs
 └── README.md
 ```
+
+Each skill is a directory containing a `SKILL.md` file with frontmatter (`name`, `description`) — the standard Claude Code skill convention. The template path mirror (`templates/.claude/rules/`) reflects the campaign-side layout the templates are scaffolded into.
 
 The plugin's own `CONTEXT.md` and `docs/adr/` stay in the plugin repo. The plugin scaffolds *different* files (the templates above) into campaign repos — scaffolded files contain rules verbatim, not links back to plugin docs, so campaign repos remain self-contained.
 
