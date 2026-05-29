@@ -1,0 +1,26 @@
+# {{CAMPAIGN_NAME}} — Campaign Overview
+
+*This file is agent-maintained. It snapshots the campaign's current state in glance-readable form and is rewritten by `/wrap-session` and `/ingest`. Manual edits will be reconciled (or overwritten with warning) at the next regeneration. For editorial campaign notes (themes, pitch, house rules), use a separate file the agent doesn't touch.*
+
+- **Campaign:** {{CAMPAIGN_NAME}}
+- **System:** {{CAMPAIGN_SYSTEM}}
+
+## Active adventures
+
+*None yet. Populated by `/ingest` or by `/wrap-session` as adventures become `active`.*
+
+## Open threads
+
+*None yet. Threads are created by post-session extraction in `/wrap-session`.*
+
+## Recent significant consequences
+
+*None yet. Consequences are created by post-session extraction in `/wrap-session`.*
+
+## Party location
+
+*Not set. Populated as sessions are run and the party moves through the world.*
+
+## Pending beats
+
+*None yet. Beats are GM-authored or proposed by `/wrap-session`.*
