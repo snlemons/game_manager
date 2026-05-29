@@ -1,0 +1,66 @@
+---
+paths: ["adventures/**/*.md"]
+---
+
+# Adventure conventions
+
+An Adventure is a story arc the party runs inside this campaign. May be a published module (e.g. *Curse of Strahd*) or homebrew. Each adventure is its own directory under `adventures/`.
+
+Avoid: "module" (reserve for *published* adventures only), "arc," "quest."
+
+## Directory structure
+
+```
+adventures/<name>/
+├── adventure.md          # the adventure's own page: frontmatter + prose
+├── <scene-or-chapter>.md # optional subordinate notes
+└── ...
+```
+
+- `<name>` is a slug (lowercase, hyphenated). Match the human-facing title closely so `[[wiki links]]` resolve naturally (e.g. `adventures/curse-of-strahd/` for *Curse of Strahd*).
+- `adventure.md` is the canonical page for the adventure. Other markdown files in the directory are subordinate (chapters, scenes, locations bound to the adventure).
+- NPCs, locations, factions, and items introduced by the adventure live in the campaign's top-level `npcs/`, `locations/`, `factions/`, `items/` directories — not nested under the adventure. The adventure references them via `[[wiki links]]`; backlinks tell you which adventure introduced or uses them.
+
+## Frontmatter schema
+
+`adventure.md` carries frontmatter that drives queries and the campaign overview. Required and optional fields:
+
+```yaml
+---
+status: introduced                   # required: introduced | active | completed | abandoned
+order: 3                             # ingest-era only: reliable GM-supplied sequence
+introduced: ~                        # real-world date; null when unknown
+started: ~                           # real-world date; null when unknown
+completed: ~                         # real-world date; null when unknown
+in_world_duration: ~                 # optional, free-form prose (e.g. "3 in-game months")
+real_world_duration: ~               # optional, free-form prose (e.g. "~6 sessions")
+---
+```
+
+- `status` is the only universally-required field.
+- `order` is meaningful for **ingest-era** adventures (history the GM is importing without precise dates). For **session-tracked** adventures (started after the campaign was scaffolded), `order` is unnecessary — sequence is derivable from `started`.
+- Dates are real-world dates. Use `~` (YAML null) when unknown. The agent never asks the GM to invent dates.
+- Durations are narrative annotations. Treat as prose, not structured time. Use whichever axis the GM remembers; both are optional.
+
+## Status transitions
+
+```
+introduced  ──►  active  ──►  completed
+                   │
+                   └────►  abandoned
+```
+
+- **`introduced`** — the adventure exists in this campaign's history but the party hasn't begun running it yet. (Or, for ingest-era history, it's a placeholder until the GM confirms it started.)
+- **`active`** — the party is currently running this adventure. Sets `started` (or carries an ingest-era null).
+- **`completed`** — finished, resolved. Sets `completed` date.
+- **`abandoned`** — the party walked away or the GM dropped it. Status persists as historical record; sets `completed` date with `abandoned` semantics.
+
+`/wrap-session` proposes status transitions based on `notes.md` content; the GM approves them as part of the wrap review. Don't change status outside the wrap workflow without a deliberate reason.
+
+## Multiple active adventures
+
+A campaign may have more than one `status: active` adventure at a time. Briefs surface all active adventures; the campaign overview lists them.
+
+## Linking
+
+Reference an adventure from anywhere via `[[Adventure Name]]` (matching `adventure.md` title or the directory slug). Beats scoped to an adventure use `[[wiki links]]` from the Beat to the adventure (or vice versa); backlinks resolve scoping at query time.

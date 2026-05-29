@@ -1,0 +1,62 @@
+---
+paths: ["sessions/**/*.md"]
+---
+
+# Session conventions
+
+A Session is the unit of play. Each session lives in its own directory:
+
+```
+sessions/YYYY-MM-DD-session-N/
+```
+
+- `YYYY-MM-DD` is the real-world date of the session.
+- `N` is the session number within the campaign (1-indexed, monotonically increasing).
+- The directory name is the sort key. Don't rename historical session directories.
+
+## The three documents
+
+Each session directory contains three documents with distinct lifecycles, audiences, and edit semantics. All three are preserved indefinitely.
+
+### `brief.md` — pre-session
+
+- **Written by:** `/prep-session`, once, at the start of the session's life.
+- **Edited by:** the GM, freely, before the session.
+- **Read during play.**
+- **Preserved after play** as evidence of GM intent.
+- **Not regenerated.** Re-running `/prep-session` against an existing brief confirms-before-overwrite.
+
+The brief includes a recap of last session, active adventures, open threads, beats to weave in, NPCs and locations the party may encounter, items in play, recent consequences, and a GM scratchpad. The scratchpad is GM-owned — foreshadowing reminders, name picks, "if they go north, then..." branches.
+
+### `notes.md` — in-play
+
+- **Written by:** the GM, during the session.
+- **Format:** messy, unstructured, free-form. Whatever the GM types or pastes during play.
+- **The source of truth for what happened.**
+- **Preserved unchanged** after the session.
+- **Read by `/wrap-session`** to produce the log and propose Threads, Consequences, Reference notes, and Beat updates.
+
+Do not impose structure on `notes.md` during or after play. Capture stays unstructured; structure emerges in `/wrap-session`.
+
+### `log.md` — post-session
+
+- **Drafted by:** `/wrap-session`, from `notes.md`.
+- **Approved/edited by:** the GM, during the wrap workflow.
+- **The canonical, human-readable record** of what happened.
+- **What future briefs read** for "what happened last time."
+
+**Do not edit `log.md` outside of `/wrap-session`.** The wrap workflow draft-then-approve cycle is what makes the log canonical. Hand-editing later breaks the chain of provenance from `notes.md` to `log.md` and can desync the log from extracted Threads, Consequences, and Reference-note updates. If something in the log is wrong, fix it through `/wrap-session` re-run (confirm-before-overwrite) or correct the downstream Reference note instead.
+
+## Reading order
+
+When orienting to a past session, read in this order:
+
+1. `log.md` — the narrative of what happened.
+2. `notes.md` — only if you need raw provenance (e.g., to re-extract something).
+3. `brief.md` — only if you need to know what the GM was planning going in.
+
+Future briefs and the campaign overview consult `log.md`, never `notes.md`.
+
+## Session-scoped artifacts
+
+Handouts, maps, recording snippets, or other session-specific files may live alongside the three documents in the same directory. They don't have prescribed names.
