@@ -1,6 +1,6 @@
 ---
 name: ingest
-description: Extract structure from existing TTRPG campaign notes into a scaffolded campaign repo. In slice 2 of v0.1, two phases are implemented — the scaffolder (writes the root CLAUDE.md, .claude/rules/sessions.md, .claude/rules/adventures.md, and a campaign.md placeholder into the target directory, then runs git init and an initial commit) and a single-doc per-doc extraction loop (bounded-skim plus full read of one markdown source doc, propose Reference notes, an Adventure if doc is adventure-shaped, Threads, and Consequences, present a per-doc diff, and write GM-approved items). Survey, multi-doc dedup, cross-doc learning, and wrap-up phases are stubs in this slice.
+description: Extract structure from existing TTRPG campaign notes into a scaffolded campaign repo. In slice 3 of v0.1, three phases are implemented — the scaffolder (writes the root CLAUDE.md, .claude/rules/sessions.md, .claude/rules/adventures.md, and a campaign.md placeholder into the target directory, then runs git init and an initial commit), the survey phase (discover input docs, bounded-skim each, propose one-line descriptions diff-style for GM edit, propose a processing order, confirm both with the GM), and a single-doc per-doc extraction loop (bounded-skim plus full read of one markdown source doc, propose Reference notes, an Adventure if doc is adventure-shaped, Threads, and Consequences, present a per-doc diff, and write GM-approved items). Multi-doc dedup, cross-doc learning, and wrap-up phases are stubs in this slice.
 ---
 
 # /ingest
@@ -10,11 +10,11 @@ description: Extract structure from existing TTRPG campaign notes into a scaffol
 The full workflow has four phases:
 
 1. **Scaffold** — write the plugin's templates into the target directory, `git init`, and make an initial commit. **(Implemented in slice 1.)**
-2. **Survey** — discover input docs, propose a one-line description per doc, confirm processing order with the GM. *(Stub — not yet implemented.)*
+2. **Survey** — discover input docs, bounded-skim each, propose a one-line description per doc as an editable diff-style list, propose a processing order (world info → adventures → session-shaped), confirm both with the GM. **(Implemented in slice 3.)**
 3. **Per-doc extraction loop** — for each doc, extract Reference notes, adventure metadata, Threads, and Consequences; present a per-doc proposed diff; the GM approves; corrections inform the next doc. **(Single-doc case implemented in slice 2; multi-doc dedup and cross-doc learning are still stubs.)**
 4. **Wrap-up** — prompt for any missing `order:` values on ingest-era adventures and regenerate `campaign.md`. *(Stub — not yet implemented.)*
 
-In this slice, phases 1 and 3-single-doc run. The other phases respond "not yet implemented" if the GM tries to advance past them.
+In this slice (slice 3), phases 1, 2, and 3 run. Phase 4 responds "not yet implemented" if the GM tries to advance past it.
 
 Follow the domain vocabulary defined in the plugin's `CONTEXT.md` and the campaign repo's `CLAUDE.md`: **GM**, **PC**, **NPC**, **Campaign**, **Adventure**, **Atlas**, **Reference note**, **Session**, **Brief**, **In-play notes**, **Log**, **Thread**, **Consequence**, **Beat**, **Campaign overview**. Don't drift to synonyms the glossary explicitly avoids (no "DM", "module" for non-published adventures, "hook" for Thread, "seed" for Beat, "story"/"game" for Campaign, "world" for Atlas, etc.).
 
@@ -93,13 +93,98 @@ Tell the GM, concisely:
 
 Do **not** auto-advance into the survey phase. End the scaffold phase here and wait for the GM to decide whether to proceed.
 
-## Phase 2: Survey (stub)
+## Phase 2: Survey
 
-If the GM asks to continue past the scaffold with **multiple** source docs (e.g. "now ingest these docs", "run the survey", or points at an input directory containing more than one markdown doc), respond:
+The survey phase runs **before** the per-doc extraction loop whenever the input directory contains **more than one** markdown doc. Its purpose, per ADR-0008, is to pre-label every doc with a GM-confirmed one-line description and to fix a processing order — both of which steer extraction in Phase 3.
 
-> The `/ingest` survey phase is not yet implemented. It will land in a later slice of `ttrpg-gm` v0.1. For now, you can ingest a single markdown doc at a time via the per-doc extraction loop, or wait for the multi-doc survey to ship.
+The single-doc case is degenerate: with exactly one markdown doc the input has no ordering question and only one description to confirm, so the survey collapses into Phase 3 Step 1 directly. Do not run a separate survey screen for a single-doc input.
 
-Do not list, read, or skim multi-doc input directories beyond the count of markdown files. Do not propose descriptions for any but the single-doc case (Phase 3). Do not write any further files in the survey path.
+### Step 0: Pre-flight checks
+
+Before doing anything visible:
+
+1. **Campaign repo state.** The same campaign-repo invariants from Phase 3 Step 0 apply (`CLAUDE.md`, `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, `campaign.md` present; no half-finished prior ingest). If the repo isn't scaffolded or has uncommitted ingest artefacts, stop with the same message Phase 3 uses. Don't survey on top of a broken repo.
+2. **Input directory state.** List the input directory (flat; ADR-0006 — no recursion).
+   - Count markdown files (`*.md`). If zero, tell the GM: *"No markdown docs in this input directory. Nothing to survey."* Stop.
+   - If exactly one, do **not** run the survey. Drop straight into Phase 3 Step 1 (the single-doc degenerate case). Do not present a one-item editable list or ask about processing order — there's nothing to order.
+   - If more than one, collect the absolute paths of every markdown doc and continue. Note non-markdown files separately for the closing summary; do not read or process them.
+
+### Step 1: Bounded skim of every discovered doc
+
+For each markdown doc found, read **only** the first heading and the first ~200 words (ADR-0008's "bounded skim"). Do not full-read. Hold the skim text in memory for description-drafting; discard before Phase 3 starts its full reads, so each doc's full read in Phase 3 is unconstrained by earlier skim residue.
+
+If a doc has no heading or is shorter than ~200 words, work with what's there. Don't pad. Don't infer content beyond what's visible in the skim.
+
+### Step 2: Propose a one-line description per doc
+
+For each doc, draft a single-line description that classifies the doc and summarizes what it appears to be about, in the same shape Phase 3 Step 1 uses for the single-doc case. Use these classifications and keep the vocabulary aligned with CONTEXT.md:
+
+- *"Adventure: <short description>."* — the doc reads as a story arc the party would run (published-module-shaped, homebrew-arc-shaped, or a coherent set of scenes tied to a goal).
+- *"World info: <short description>."* — Reference-note-dump-shaped (gods, calendar, regions, recurring NPCs) with no Adventure structure.
+- *"Session log: <short description>."* — past-facing narrative of one session's events.
+- *"Mixed / ambiguous: <surface the ambiguity>."* — the skim doesn't disambiguate (could be Adventure or world info; could be a Session log or a Reference-note dump).
+
+ADR-0008 explicitly prefers surfaced ambiguity over confident wrong commits. If the skim is genuinely unclear, say so in the description rather than guessing — Phase 3 will resolve it once the GM clarifies.
+
+### Step 3: Present descriptions as an editable diff-style list
+
+Show the GM the full list of docs with their proposed descriptions, in a diff-style review screen. Use whatever review affordance Claude Code provides; if no diff preview is available, present an inline numbered list with the relative path and the proposed description on each line. Example formatting:
+
+```
+Survey: 4 markdown docs found.
+
+  1. lost-mines.md         — Adventure: a published-module-shaped writeup of the Lost Mines arc.
+  2. faerun-gods.md        — World info: notes on the gods and calendar of Faerun, no Adventure structure.
+  3. session-1-notes.md    — Session log: the party's first delve into the Citadel, written as narrative.
+  4. campaign-overview.md  — Mixed / ambiguous: could be world info or campaign-meta notes; not enough in the skim to tell.
+
+Non-markdown files (skipped): art/map.png, art/sera.jpg.
+```
+
+Then ask explicitly: *"Edit any descriptions, accept the list as-is, or cancel?"* Accept these response shapes:
+
+1. **Accept** → record the descriptions verbatim and continue to Step 4.
+2. **Edit** → the GM rewrites one or more descriptions (by number, by filename, or by quoting the proposed line). Apply edits to the in-memory list, re-present the affected lines, ask again. Loop until the GM accepts or cancels.
+3. **Cancel** → write nothing, leave the filesystem unchanged, exit cleanly (still report the non-markdown skip summary).
+
+GM-corrected descriptions replace the proposed ones verbatim and become the steering input each doc's full read uses in Phase 3 — don't silently re-classify a doc later in extraction. If Phase 3's full read reveals the GM-confirmed description was wrong, surface that to the GM and re-confirm before continuing.
+
+### Step 4: Propose a processing order
+
+Once descriptions are accepted, propose a processing order over the same list. The default order, per ADR-0008, is **world info first, adventures next, session-shaped docs last**. Within each band, preserve the GM-confirmed list order from Step 3 (their order is closer to their mental model than the filesystem order or a re-sort by name).
+
+For docs whose accepted description is *"Mixed / ambiguous: …"*, slot them after world info and before adventures by default — Phase 3 will resolve the ambiguity per-doc, and that's the safest place to do so (world context is in, adventure-shaped extraction hasn't started yet). Surface this placement explicitly in the proposal so the GM can move it if they know better.
+
+Present the proposed order as a numbered list with each doc's relative path and accepted description. Example:
+
+```
+Proposed processing order:
+
+  1. faerun-gods.md        — World info: notes on the gods and calendar of Faerun.
+  2. campaign-overview.md  — Mixed / ambiguous: could be world info or campaign-meta notes.
+  3. lost-mines.md         — Adventure: a published-module-shaped writeup of the Lost Mines arc.
+  4. session-1-notes.md    — Session log: the party's first delve into the Citadel.
+
+Rule: world info → adventures → session-shaped. Mixed/ambiguous docs are slotted after world info by default.
+```
+
+Then ask explicitly: *"Confirm the order, adjust it, or cancel?"* Accept these response shapes:
+
+1. **Confirm** → freeze the order and continue to Step 5.
+2. **Adjust** → the GM gives a revised order (renumbering, moving items, removing items they decided to skip). Apply the adjustment, re-present, ask again. Loop until confirmed or cancelled.
+3. **Cancel** → write nothing, exit cleanly.
+
+If the GM removes a doc entirely during ordering, drop it from the survey set — Phase 3 will not process it. Note removed docs in the closing summary so it's visible they were skipped on purpose.
+
+### Step 5: Hand off to Phase 3
+
+Once the GM confirms the order, hand off these **survey results** to Phase 3:
+
+- **Doc list**, in confirmed processing order. Each entry is the doc's absolute path and the GM-confirmed one-line description.
+- **Skipped doc list** (any docs the GM removed during ordering, plus the non-markdown files), preserved only for the closing summary at the end of Phase 3.
+- An empty **carried-forward lessons** set (Phase 3's cross-doc learning will populate it as each doc's review completes; see Phase 3 Step 0b — implementation lands when the multi-doc per-doc loop ships).
+
+Do not auto-advance into Phase 3's per-doc reading. Tell the GM the survey is complete and Phase 3 will begin with doc #1 on confirmation. This gives the GM a chance to break out before any full read of a source doc happens.
 
 ## Phase 3: Per-doc extraction loop
 
@@ -354,7 +439,7 @@ Do not regenerate `campaign.md`. Do not prompt for `order:` values. Per-doc extr
 - **ADR-0004** — Threads and Consequences are per-file. Threads have `status: open | closed | decayed`. Consequences have valid YAML frontmatter and persist (no status).
 - **ADR-0006** — v0.1 input is flat-directory local markdown only; non-markdown is skipped, no recursion.
 - **ADR-0007** — Adventure frontmatter schema (`status` required, `order` optional/ingest-era, dates optional/nullable, durations free-form prose). The agent never invents dates.
-- **ADR-0008** — Ingest's full workflow is survey + per-doc + wrap-up; slice 2 implements the per-doc loop for the single-doc case. Bounded skim plus GM-edited description steers extraction.
+- **ADR-0008** — Ingest's full workflow is survey + per-doc + wrap-up; slice 3 implements the survey phase and slice 2 implements the per-doc loop for the single-doc case. Bounded skim plus GM-edited descriptions plus GM-confirmed processing order steer extraction.
 - **ADR-0009** — Beats are GM-authored only; ingest does **not** create them.
 - **ADR-0011** — Plugin doesn't own ongoing git operations beyond the scaffold commit.
 - **ADR-0013** — Skill packaging (`skills/<name>/SKILL.md`); templates live under `templates/`.
