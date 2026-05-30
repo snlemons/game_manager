@@ -72,6 +72,7 @@ Placeholder substitutions to apply to template content before writing:
 
 - `{{CAMPAIGN_NAME}}` → the GM-supplied campaign name, verbatim.
 - `{{CAMPAIGN_SYSTEM}}` → the GM-supplied system, verbatim.
+- `{{CAMPAIGN_PATH}}` → the resolved absolute path of the target campaign directory (e.g. `/Users/sofia/Documents/my-campaign`), **without** a trailing slash. The template uses this to bake absolute-path permission rules into `.claude/settings.json` (with a leading `/` already present in the template so the result is the `//absolute/path` form Claude Code's permission matcher requires). This makes permission grants survive any cwd or project-root resolution oddities. The cost is that moving the campaign directory invalidates the paths — the GM would need to regenerate or hand-edit `.claude/settings.json` after a move.
 
 Create intermediate directories as needed (notably `.claude/rules/`). Do not write any other files in this slice. In particular, do not create empty `npcs/`, `locations/`, `adventures/`, `sessions/`, `threads/`, `consequences/`, or `beats/` directories — they appear when content first lands in them, not before.
 
