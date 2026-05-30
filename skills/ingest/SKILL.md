@@ -307,7 +307,7 @@ Identify:
 - **Adventure-shape**: does this doc describe a story arc the party will run (a coherent set of scenes, locations, or stages tied together by a goal)? If yes, plan an `adventures/<slug>/adventure.md` file with ADR-0007 frontmatter. If no (it's a Reference note dump, world info, or session-narrative), don't fabricate an Adventure.
 - **Threads**: explicit unresolved hooks the party *knows about* — promises the party made, questions they asked, dangers they were warned about. Future-facing, party-aware. ADR-0004 governs file shape and status frontmatter. Only extract Threads that the doc actually surfaces as party-aware; don't invent them.
 - **Consequences**: explicit persistent facts about the world resulting from prior action ("the temple was destroyed", "the lord owes the party a favor"). Past-facing. Same provenance bar as Threads — only what the doc says.
-- **Beats**: GM-prepped scenes the party doesn't yet know about — unchecked encounter lists, planned scenes, per-PC personal hooks ("for Darius: a test of discipline"), adventure-tagged scene ideas, "if X then Y" contingent deliveries. Future-facing, GM-authored. ADR-0009 frontmatter: `status: pending`, `created: ~` (null — ingest doesn't know when the GM wrote the prep down), optional `linked_pcs` / `linked_npcs` / `linked_adventures` / `linked_locations` populated from whatever the source attributes. *Threads vs Beats test*: if the party knows about it, it's a Thread; if it's the GM's prep, it's a Beat. When the source is ambiguous about awareness, default to Beat and the GM can re-classify in the per-doc review.
+- **Beats**: GM-prepped scenes the party doesn't yet know about — unchecked encounter lists, planned scenes, per-PC personal hooks ("for Darius: a test of discipline"), adventure-tagged scene ideas, "if X then Y" contingent deliveries. Future-facing, GM-authored. ADR-0009 frontmatter: `status: pending`, `created: ~` (null — ingest doesn't know when the GM wrote the prep down), optional `linked_pcs` / `linked_npcs` / `linked_adventures` / `linked_locations` populated from the source per the rules in the **Beat shape** subsection of Step 3 below. *Threads vs Beats test*: if the party knows about it, it's a Thread; if it's the GM's prep, it's a Beat. When the source is ambiguous about awareness, default to Beat and the GM can re-classify in the per-doc review. **Populate `linked_*` fields conservatively at extraction time** — `linked_adventures` and `linked_locations` are what `/prep-session` will use to surface Beats relevantly; leaving them empty at ingest forces a downstream manual backfill. Empty is still preferable to wrong, but a confident link the source clearly supports is exactly what these fields are for. See the Beat shape subsection for the proximity heuristics.
 
 **Date honesty for lifecycle objects.** Same principle as ADR-0007 for Adventures: the agent never invents dates. For every Thread, Consequence, and Beat extracted during ingest, `created:` is left null unless the source doc explicitly provides a date the agent can attribute. Do **not** use the ingest date as a stand-in for an unknown source date — Consequences ingested from past adventures are not "created today"; they came into being whenever those past sessions happened. Future Briefs and `campaign.md` regens handle null `created:` values by falling back to slug or insertion order; that's intentional. Dates get filled in precisely going forward by `/wrap-session`.
 
@@ -419,6 +419,88 @@ publicly declared he owes them one.
 ```
 
 Note: `/wrap-session` going forward writes `created:` to the session date precisely. Only ingest-era Consequences carry null `created:`.
+
+#### Beat shape (ADR-0009)
+
+One file per Beat, in `beats/`. Filename is a slug of a short descriptive name. Frontmatter:
+
+```yaml
+---
+status: pending                      # required: pending | delivered | dropped
+created: ~                           # null for ingest unless source supplies a real date
+linked_pcs: []                       # optional: PC canonical names this Beat is for or about
+linked_npcs: []                      # optional: NPC canonical names this Beat involves
+linked_adventures: []                # optional: Adventure slugs this Beat belongs to
+linked_locations: []                 # optional: Location slugs this Beat is set at or about
+---
+```
+
+For ingest-era Beats, `status` is always `pending` (a `delivered` or `dropped` Beat is past-tense and would be a Consequence or simply not-extracted; ADR-0009's status semantics are future-facing). `created:` follows the date-honesty rule above.
+
+Body is one or two sentences describing the GM's prep — the scene, the encounter, the news to drop, the hook to land — with `[[wiki links]]` to relevant Reference notes mentioned inside the prep.
+
+##### Populating `linked_*` at extraction time
+
+These four fields exist specifically so `/prep-session` can surface a Beat in the right tier for the next session (ADR-0009 surfacing-at-scale design: Beats with `linked_adventures` overlapping active Adventures, `linked_pcs` overlapping focus PCs, or `linked_locations` near the party are surfaced in full; everything else is summarised in counts). Beats extracted without `linked_*` populated end up in the "unlinked, review and tag" tier and force the GM into a manual backfill. **Populate them at extraction time when the source clearly supports it.** Be conservative: empty is honest; wrong is harmful.
+
+Use these rules, in order:
+
+1. **`linked_adventures` — strong rule, adventure-shaped doc.** If the current doc is being ingested as `adventures/<slug>/` (the GM-confirmed description from Phase 2 / Step 1 classified it as an Adventure), every Beat extracted from it gets `linked_adventures: [<slug>]` automatically. The Beat lives inside the GM's prep for that Adventure; the link is structural, not inferred.
+
+2. **`linked_adventures` — weak rule, world-info doc.** If the current doc is world-info-shaped and a Beat-shaped passage explicitly names an Adventure (by title, by wiki link like `[[Lost Mines]]`, or by the Adventure's slug) inside the Beat's own paragraph, bullet, or the enclosing heading section, link to that Adventure. Match against:
+   - Adventures already present in `adventures/` in the campaign repo.
+   - Adventures being created from earlier docs in this same `/ingest` run (use the slug the earlier doc landed at).
+   - Adventures being created from this same doc (rare for a world-info doc, but possible).
+
+   If multiple Adventures are named in proximity to the Beat (e.g., a "scenes I might drop in" section that references three Adventures), surface as an ASK in Step 4a alongside the Beat: *"Beat 'lost letter from Iarno' was extracted near mentions of both `lost-mines` and `cragmaw-castle`. Link to which? (one, both, neither)"* Don't guess.
+
+3. **`linked_locations` — proximity rule.** Locations mentioned in the Beat's own paragraph or bullet are linked. "Same paragraph / same bullet / same scene block" is the "near" radius — narrower than the Adventure-proximity rule because locations are often listed in a roster the GM would expect specifically tagged.
+
+   Match against:
+   - Reference notes already present in `locations/` in the campaign repo.
+   - Locations being created from earlier docs in this same `/ingest` run.
+   - Locations being created (proposed as CREATE in Step 3) from this same doc.
+
+   If a location name matches multiple existing Reference notes after slugification (e.g., "the keep" could be `locations/sundered-keep.md` or `locations/ravenloft-keep.md`), surface as an ASK in Step 4a — same shape as the dedup ASKs.
+
+4. **`linked_locations` — heading rule.** If a Beat-shaped passage sits under a heading that names a location (e.g., `### The Sunless Citadel\n- random encounter table\n- ...`), link the Beat to that location even if the Beat's own bullet doesn't repeat the name. The enclosing heading is the GM's implicit scope tag.
+
+5. **`linked_pcs` — explicit attribution.** Link a PC only when the Beat content explicitly names the PC as the target or subject — common patterns: *"for Darius: …"*, *"Darius's hook: …"*, *"when Sera dreams: …"*. Match against the campaign's PCs (Phase 3 has access to existing `CLAUDE.md` and any party roster the GM has authored; otherwise, the PC names will surface as ASKs at review time if there's no roster yet). Generic mentions ("the party", "one of the PCs") do not justify a link.
+
+6. **`linked_npcs` — content-mention rule.** Link an NPC when the NPC is the actor or subject inside the Beat's content (an NPC delivers news, an NPC encounter, an NPC's death). Match against:
+   - Reference notes already in `npcs/`.
+   - NPCs being created from earlier docs in this same `/ingest` run.
+   - NPCs being created from this same doc.
+
+   Conservative: a passing name-drop without role context is not enough. The NPC has to *do* or *be* something in the Beat.
+
+7. **Default to empty list, not omission.** If a field has no confident link, write it as `[]` in frontmatter — the YAML key is preserved so `/prep-session` and `/wrap-session` can read it without conditional logic, and the GM can see at a glance that the field was considered and left empty rather than forgotten.
+
+8. **All linked-field values are slugs**, using the same slugification rule used for Reference note dedup (lowercase, ASCII-fold accents, strip leading "the ", collapse whitespace and punctuation to single hyphens, trim leading/trailing hyphens). For `linked_pcs` where no `pcs/` folder yet exists, use the PC's canonical name slugified the same way; `/prep-session` will resolve.
+
+##### Carried-forward lessons for Beat linkage
+
+The Step 5b carried-forward lessons set tracks linkage decisions just like dedup decisions. If the GM corrects a `linked_*` field at review (e.g., "Beat 'Rulf's body' should link to `cragmaw-hideout`, not `cragmaw-castle`"), record it. Subsequent docs that propose similar Beats with the same ambiguity get the GM's correction applied automatically (with the lesson surfaced at the top of the next doc's review, per Step 0b).
+
+##### Example: `beats/dream-of-the-veiled-court.md`
+
+```markdown
+---
+status: pending
+created: ~
+linked_pcs: [sera]
+linked_npcs: []
+linked_adventures: [lost-mines]
+linked_locations: [phandalin]
+---
+
+# Sera's dream of the Veiled Court
+
+When [[Sera]] sleeps in [[Phandalin]], drop a fragment of the [[Veiled Court]]
+dream — silver masks turning toward her, one of them speaking her mother's name.
+```
+
+(In this example the source doc was the `lost-mines.md` adventure writeup, so `linked_adventures: [lost-mines]` is the strong-rule link. The Beat text names Sera explicitly — `linked_pcs: [sera]`. It names Phandalin in the Beat's own paragraph — `linked_locations: [phandalin]`. The Veiled Court is mentioned but not as an NPC role — `linked_npcs: []` because it's a faction wiki link, not an NPC subject.)
 
 ### Step 3b: Cross-doc dedup
 
@@ -901,6 +983,7 @@ End cleanly. Do not loop back into Phase 3.
 - Don't ask the GM to fill out forms or pick from long lists. Capture-now-structure-later (ADR-0004).
 - Don't invent dates, NPC names, or campaign details the source doc didn't provide.
 - Don't extract a Thread for content the party isn't aware of in the source doc — that's a Beat (ADR-0009 path #4; the Thread/Beat awareness test). When the source is ambiguous, default to Beat and surface to the GM for re-classification.
+- Don't leave a Beat's `linked_adventures` empty when the source doc is itself adventure-shaped — the structural link is unambiguous and skipping it forces a downstream manual backfill (this is the issue-#15 regression). Conversely, don't *guess* a link the source doesn't support: if two Adventures or two Locations are equally near a Beat, surface as ASK at review per Step 3's Beat shape rules.
 - Don't synthesize `sessions/YYYY-MM-DD-session-N/` directories from source docs (ADR-0005 — Sessions are created by `/prep-session`).
 - Don't recurse into input subdirectories (ADR-0006 — flat directory only in v0.1).
 - Don't silently overwrite an existing Reference note. Confident dedup matches propose **updates** (which the GM approves); ambiguous matches surface as yes/no questions; Adventure name collisions still stop and ask. The agent never picks identity silently.
@@ -918,6 +1001,6 @@ End cleanly. Do not loop back into Phase 3.
 - **ADR-0006** — v0.1 input is flat-directory local markdown only; non-markdown is skipped, no recursion.
 - **ADR-0007** — Adventure frontmatter schema (`status` required, `order` optional/ingest-era, dates optional/nullable, durations free-form prose) and the agent-maintained `campaign.md` Campaign overview shape that Phase 4 Step 2 composes. The agent never invents dates.
 - **ADR-0008** — Ingest's full workflow is survey + per-doc + wrap-up; slice 4 implements all four phases (survey, per-doc loop with cross-doc dedup and learning, and wrap-up with the bulk order prompt, `campaign.md` composer, and follow-up commit). Bounded skim plus GM-edited descriptions plus GM-confirmed processing order steer extraction.
-- **ADR-0009** — Beats are GM-authored. Ingest is the fourth creation path (source docs are the GM's prior authoring). Extract Beat-shaped content (encounter lists, planned scenes, per-PC hooks, adventure-tagged ideas). Threads vs Beats is the party-awareness test: party knows → Thread; GM prep → Beat. Phase 4's `campaign.md` lists pending Beats explicitly. Brief-time relevance filtering is a future enhancement.
+- **ADR-0009** — Beats are GM-authored. Ingest is the fourth creation path (source docs are the GM's prior authoring). Extract Beat-shaped content (encounter lists, planned scenes, per-PC hooks, adventure-tagged ideas). Threads vs Beats is the party-awareness test: party knows → Thread; GM prep → Beat. Populate `linked_adventures`, `linked_locations`, `linked_pcs`, `linked_npcs` at extraction time per the proximity rules in Step 3's Beat shape subsection — these fields feed `/prep-session`'s tiered surfacing and leaving them empty forces a manual backfill. Phase 4's `campaign.md` lists pending Beats explicitly.
 - **ADR-0011** — Plugin doesn't own ongoing git operations beyond `/ingest`'s two bookend commits (the scaffolder's initial commit and Phase 4's follow-up commit). `/wrap-session` and every workflow downstream of `/ingest` does not auto-commit. The follow-up commit is `/ingest`'s symmetric bookend, not a precedent for steady-state auto-commit.
 - **ADR-0013** — Skill packaging (`skills/<name>/SKILL.md`); templates live under `templates/`.
