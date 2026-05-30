@@ -14,6 +14,7 @@ From the repo root:
 Or a single test file:
 
     pytest tests/test_ingest_scaffolding.py -v
+    pytest tests/test_wrap_session_idempotency.py -v
 
 Requirements:
 
@@ -31,8 +32,8 @@ landed and the pattern is settled.
 ## Conventions established here
 
 - Tests live under `tests/` at the repo root.
-- Fixtures live under `tests/fixtures/`. Each fixture's purpose is
-  documented in `tests/fixtures/README.md`.
+- Fixtures live under `tests/fixtures/<feature_name>/`. Each fixture's
+  purpose is documented in `tests/fixtures/README.md` where applicable.
 - `tests/conftest.py` exposes session-scoped `repo_root`,
   `templates_dir`, and `fixtures_dir` path fixtures so test files
   don't recompute paths.
@@ -42,6 +43,11 @@ landed and the pattern is settled.
   parseability, JSON validity, enum membership against the canonical
   set in `CONTEXT.md` / ADRs, git-repo shape. They never assert
   specific extractor prose, specific NPC counts, or LLM-phrased text.
+- Per-test data shared across cases lives in plain `for candidate in
+  (...)` loops inside a single `def test_*`, preserving per-case
+  diagnostic context through assertion-message f-strings. Reserve
+  `@pytest.mark.parametrize` for cases the suite genuinely treats as
+  independent tests.
 - Domain vocabulary in test names and fixture content follows
   `CONTEXT.md` (Adventure, Reference note, Beat, Thread, Consequence,
   Campaign overview).
@@ -78,12 +84,45 @@ What is asserted:
   the six scaffolded paths and nothing else, and `git status` is
   clean.
 
-### Why a reference scaffolder, not a real `/ingest` invocation?
+### `test_wrap_session_idempotency.py` — issue #9
 
-The full `/ingest` workflow has four phases. Only Phase 1 (scaffold)
-is purely deterministic — Phases 2–4 (survey, per-doc extraction,
-wrap-up) are LLM-driven. Invoking the LLM from a unit test would mean
-either:
+Verifies the **external behavior** of `/wrap-session` against a
+fixture campaign repo, against the three acceptance criteria from
+issue #9:
+
+1. **No duplicates on re-run.** Re-running `/wrap-session` against
+   the same `notes.md` after corrections does not create new files
+   for Threads, Consequences, Beats, or Reference notes that already
+   exist under a matching name. Tested by exercising the dedup
+   normalization spec from `skills/wrap-session/SKILL.md` Step 2
+   "Dedup" against the fixture's existing lifecycle objects.
+2. **Confirm-before-overwrite of an existing `log.md`.** The re-run
+   guard (`skills/wrap-session/SKILL.md` Step 1 "Re-run guard") is
+   exercised by simulating the staging-then-cancel path: a proposed
+   `log.md` is staged under `.ttrpg-staging/wrap/` and then the
+   staging directory is removed (the "cancel" outcome). The existing
+   `log.md` must be byte-identical before and after.
+3. **Deterministic `campaign.md` regeneration.** Composing
+   `campaign.md` from identical campaign state twice produces
+   byte-identical content. Tested via a reference composer that
+   mirrors the section ordering specified in ADR-0007 and SKILL.md
+   Step 5 #7.
+
+The fixture under `tests/fixtures/wrap_session_idempotency/` is a
+small post-ingest campaign repo with a populated `notes.md` in
+`sessions/2026-05-29-session-5/`. It stores its `.claude/` subtree
+under `dot_claude/`; the test harness renames that on copy into
+`tmp_path` to escape harness sandboxing on nested `.claude/` paths.
+Future tests handling scaffolded `.claude/` content can reuse the
+same trick.
+
+### Why reference implementations, not real skill invocations?
+
+Both `/ingest` and `/wrap-session` are multi-phase LLM-driven skills.
+Only some phases (e.g., `/ingest` Phase 1 scaffold, `/wrap-session`
+dedup normalization, `/wrap-session` `campaign.md` composition) are
+purely deterministic — the rest are LLM-driven. Invoking the LLM
+from a unit test would mean either:
 
 - A real model call per test run (slow, flaky, requires auth and
   network, non-hermetic), or
@@ -91,40 +130,29 @@ either:
   exercise the actual skill — the canned answers would be doing the
   asserting).
 
-Phase 1 in isolation covers most of the issue #8 acceptance criteria
-on its own (file structure, frontmatter validity, `git init` +
-commit). For those criteria, a reference Python implementation of
-Phase 1 plus structural assertions gives full, hermetic coverage. The
-reference scaffolder is intentionally a thin near-translation of
-SKILL.md Phase 1 Steps 1–3 — if the SKILL.md spec changes shape, the
-reference scaffolder must change with it, and the test will catch any
+For the deterministic phases, reference Python implementations plus
+structural assertions give full, hermetic coverage. Each reference
+implementation is intentionally a thin near-translation of the
+relevant `SKILL.md` step — if the spec changes shape, the reference
+implementation must change with it, and the test will catch any
 silent drift between spec and behavior.
 
-### Coverage gap (carried for a future test)
+## Coverage gaps (carried for future tests)
 
-One acceptance criterion from issue #8 is **not** covered by this
-test:
+**From issue #8:** Dedup correctness — a named recurring entity
+across two source docs should land as exactly one Reference-note file
+(`npcs/sera.md`) regardless of which doc is processed first. This
+lives in the LLM-driven extraction loop (SKILL.md Phase 3 Steps 2 and
+3b) and is not testable by a reference implementation. The fixture
+for this future test is in place at `tests/fixtures/ingest_inputs/` —
+two markdown docs both naming **Sera** the village blacksmith of
+Phandalin. When an LLM-driven integration test gets added (e.g., a
+`claude --print`-based runner), the assertions are straightforward.
 
-- **Dedup correctness**: a named recurring entity across two source
-  docs should land as exactly one Reference-note file
-  (`npcs/sera.md`) regardless of which doc is processed first.
-
-This criterion lives entirely inside the LLM-driven extraction loop
-(SKILL.md Phase 3 Steps 2 and 3b). It is not testable by a reference
-implementation because the extraction step is not deterministic.
-
-The fixture for this future test is already in place at
-`tests/fixtures/ingest_inputs/` — two markdown docs, one
-Adventure-shaped and one world-info-shaped, both naming **Sera** the
-village blacksmith of Phandalin. When the maintainer adds an
-LLM-driven integration test (e.g., a `claude --print`-based runner
-that invokes `/ingest` headlessly against this fixture), the
-assertions for it are straightforward: after the run, the campaign
-target should contain exactly one `npcs/sera.md`, and that file's
-body should mention Phandalin's forge.
-
-The fixture is preserved here so the input contract is fixed now,
-even though the integration test is deferred. Changes to the dedup
-behavior in `/ingest` SKILL.md should drive matching updates to this
-fixture (or an explicit decision that the existing fixture remains
-representative).
+**From issue #9:** End-to-end LLM-driven `/wrap-session` invocation
+isn't covered. The current suite tests the *specification* the skill
+encodes — dedup normalization, the staging-then-cancel invariant,
+the regeneration ordering — not the LLM agent's compliance with that
+specification. A genuine end-to-end test would need a reliably-
+installed Claude Code CLI, canned approval responses for the GM
+prompts, and tolerance for LLM non-determinism in extracted prose.
