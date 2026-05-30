@@ -83,6 +83,8 @@ The workflow where, after a session, the agent reads in-play session notes and p
 
 **Campaign-local override** is the rule that resolves Atlas-vs-campaign conflicts: a campaign's own content is authoritative within that campaign, even when it contradicts the Atlas. "Waterdeep was destroyed in this campaign" wins over the Atlas's thriving Waterdeep, without disturbing the Atlas itself or other campaigns that reference it. The override is by-name lookup at the Reference note level; granularity (full-replace vs fact-level merge) is not yet decided.
 
+**Menu of next-session options** is a working term (not a new lifecycle object) for the forward-looking surface shared by `campaign.md` and the Brief in open-world / sandbox campaigns: the set of arcs and threads the party could plausibly pick up next session. It draws from `status: active` Adventures (could-continue), `status: introduced` Adventures (could-start), and recent open Threads that could become a session focus. **Available Adventures** is similarly informal — it covers both `active` and `introduced` Adventures, the union the menu reads from. Neither term implies a new Adventure status; the lifecycle (`introduced → active → completed | abandoned`) is unchanged. If these terms harden in practice into something the agent needs to reason about beyond rendering, promote them to a glossary entry then.
+
 ## Example dialogue
 
 > **GM**: I want to ingest *Curse of Strahd* into my Faerûn campaign.

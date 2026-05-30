@@ -743,9 +743,9 @@ The carried-forward lessons set from Phase 3 is irrelevant here; the order promp
 
 Replace the campaign-root `campaign.md` (currently the Phase 1 placeholder or a prior Phase 4 output) with a generated overview per ADR-0007.
 
-This composer's section shape and tone must match `/wrap-session`'s Step 5.7 (`skills/wrap-session/SKILL.md`) so the two produce a consistent campaign overview from the same campaign state. Skills don't share code; consistency is by alignment of these specs. If the two drift, treat that as a documentation bug to fix in both places. Slice-4 ingest differs from `/wrap-session` regen in two visible ways, both flowing from what's true at ingest time:
+This composer's section shape and tone must match `/wrap-session`'s Step 5.7 (`skills/wrap-session/SKILL.md`) so the two produce a consistent campaign overview from the same campaign state. Skills don't share code; consistency is by alignment of these specs. If the two drift, treat that as a documentation bug to fix in both places. Ingest differs from `/wrap-session` regen in two visible ways, both flowing from what's true at ingest time:
 
-- Ingest lists **every** Adventure (ordered by `order:`), not only `status: active` ones. At ingest time, "the campaign's whole history through today" is what the GM is finalizing; restricting to active Adventures would hide most of what just got written. `/wrap-session` shows only active Adventures because by then the static history is established and the GM cares about what's live.
+- Ingest retains an additional `## Adventures` section that lists **every** Adventure (ordered by `order:`), not only `status: active` or `status: introduced` ones. At ingest time, "the campaign's whole history through today" is what the GM is finalizing; the full history is load-bearing context the wrap-session composer doesn't need to repeat session-to-session. The menu-led "Where the party might go next session" section still leads the file (same shape as `/wrap-session`); the full Adventures list follows the menu as a history surface.
 - Ingest treats every Consequence as "recent significant" (because there is no session-tracked recency yet; everything just landed). `/wrap-session` filters Consequences by recency.
 
 #### Sections, in this order
@@ -762,21 +762,43 @@ Write `campaign.md` from scratch. Do not preserve manual GM edits to the prior `
 - **Status:** active
 - **Last event:** {{TODAY_YYYY-MM-DD}} (ingest)
 
+## Where the party might go next session
+
+<!-- The forward-looking menu the GM is orienting against. Sub-buckets below. -->
+
+<!-- Active arcs, if any. Omit this sub-bucket entirely (no header, no bullets) if no Adventures have status: active. -->
+**Active arcs — could continue any of these:**
+
+- **[[<Adventure title>]]** — one-line current state.
+- ...
+
+**Introduced Adventures the party could pick up:**
+
+- **[[<Adventure title>]]** — one-line hook/state. *(order N)* if `order:` is set, else no parenthetical.
+- ...
+
+*Or, if there are no `status: introduced` Adventures: "_None._"*
+
+**Recent open Threads that could become a session focus:**
+
+- **[[<Thread title>]]** — one-line excerpt.
+- ...
+
+*Or, if there are no session-driver Threads: "_None._"*
+
+**Party location:** <best-effort short prose, derived from the most recently active or highest-`order:` Adventure; or "Party location not yet established — GM to update." per the rules below>
+
 ## Adventures
 
-<every Adventure, ordered by `order:` ascending with null-order Adventures at the end, one bullet each>
+<every Adventure, ordered by `order:` ascending with null-order Adventures at the end, one bullet each — full campaign history, ingest-specific surface>
 
 ## Open threads
 
-<every Thread with `status: open`, one bullet each>
+<every Thread with `status: open`, one bullet each — full list; the menu above is a curated subset>
 
 ## Recent significant consequences
 
 <every Consequence, one bullet each>
-
-## Party location
-
-<best-effort short prose, derived from the most recently active Adventure>
 
 ## Pending beats
 
@@ -784,6 +806,8 @@ Write `campaign.md` from scratch. Do not preserve manual GM edits to the prior `
 
 *Or, if there are none: "_None yet._"*
 ```
+
+The "Where the party might go next session" section leads the file (replacing the older standalone "Party location" section). It handles zero, one, or many `status: active` Adventures equally, and it surfaces the open-world / sandbox menu of introduced-Adventure options as a first-class concern (issue #13, ADR-0007). The ingest-specific full **Adventures** history section follows the menu — see "Ingest differs from `/wrap-session`" above for why it's retained at ingest time but not in `/wrap-session`'s regen.
 
 The header comment paragraph (the italics block) is preserved verbatim from the template — it tells the GM the file is agent-maintained, which is true for both Phase 4 and future `/wrap-session` regens.
 
@@ -794,9 +818,28 @@ The header comment paragraph (the italics block) is preserved verbatim from the 
 - **Status:** always `active` at the end of a fresh ingest. The campaign object as a whole doesn't have a status frontmatter in v0.1; this line is human-readable text. If the GM later abandons the whole campaign, that becomes a manual edit (and gets overwritten by future regens unless `/wrap-session` learns a Campaign-status field, which is out of scope here).
 - **Last event:** today's date in `YYYY-MM-DD` (the ingest date), suffixed `(ingest)`. After a `/wrap-session` run lands, that workflow will replace this line with the wrapped session's date.
 
+#### Where the party might go next session
+
+This menu-led section is the file's lead surface. Render it in this order, with the sub-headings shown:
+
+1. **Active arcs (conditional sub-bucket).** If any `adventures/<slug>/adventure.md` has frontmatter `status: active`, render the bold sub-heading *"Active arcs — could continue any of these:"* followed by one bullet per active Adventure. Each bullet: `- **[[<Adventure title>]]** — <one-line current state pulled from the Adventure's own file>.` If **no** Adventures have `status: active`, omit this sub-bucket entirely (no heading, no empty bullet list) — the menu falls straight through to "Introduced Adventures." This is the open-world / no-active case (issue #13).
+
+2. **Introduced Adventures the party could pick up.** Always render the bold sub-heading *"Introduced Adventures the party could pick up:"* For every Adventure with `status: introduced`, render one bullet: `- **[[<Adventure title>]]** — <one-line hook/state>. *(order N)*` (the `*(order N)*` parenthetical is shown only if `order:` is set; omit it otherwise). Order Adventures by `order:` ascending, with null-`order:` Adventures alphabetical by slug after numbered ones. If the campaign has zero `status: introduced` Adventures, render `_None._` under the sub-heading so the GM sees the agent looked.
+
+3. **Recent open Threads that could become a session focus.** Render the bold sub-heading *"Recent open Threads that could become a session focus:"* This is a **curated subset** of `status: open` Threads — the ones substantial enough to drive a session, not every reminder. Filter heuristic: include Threads whose body suggests an arc-in-waiting (a place to investigate, a person to confront, an obligation big enough to organize a session around); exclude flavor-only reminders. When uncertain, lean toward including a Thread rather than dropping it — the GM scans the menu and ignores misses cheaply. Order: descending by `created:` (most recent first; slug asc as tiebreak when dates tie or are null). Render each as `- **[[<Thread title>]]** — <one-line body excerpt>.` (same excerpt rules as the "Open threads" section below). If no Threads qualify, render `_None._`.
+
+4. **Party location.** A single line at the end of the menu: `**Party location:** <prose>` — a piece of context, not the framing. Derive as follows:
+   1. Among `status: active` Adventures, pick the one with the **highest `order:`** (the most recently started, per ADR-0007's "ingest-era ordering"). If multiple Adventures tie or none are active, fall back to the highest-`order:` Adventure overall regardless of status. If `order:` is null across the board, fall back to the alphabetically-last Adventure slug — and explicitly call this out in the prose ("best-effort guess; no `order:` set").
+   2. Read that Adventure's `adventure.md` body for any explicit location reference: a wiki link to a `locations/<slug>.md` file is the strongest signal; failing that, a clearly-named place mentioned in prose.
+   3. If a location is identifiable, write: *"The party is at [[<Location>]], most recently engaged with [[<Adventure>]]."* (Or a close variant; this is prose, not a template — match the campaign's tone if the GM's input docs had a clear voice.)
+   4. If no location is identifiable but an Adventure is, write: *"The party's most recent activity is [[<Adventure>]]; current location not stated in source docs — GM to update."*
+   5. If neither is identifiable (zero Adventures, or all are introduced-status with no location prose), write: *"Party location not yet established — GM to update."*
+
+   Do **not** invent a location. ADR-0007 is clear: the agent never asks the GM to invent facts it doesn't have.
+
 #### Adventures
 
-List **every** Adventure in the campaign, in this order:
+This is the ingest-specific full-history section that follows the menu (see "Ingest differs from `/wrap-session`" above for why it's retained at ingest time only). List **every** Adventure in the campaign, in this order:
 
 1. Sort by `order:` ascending. Null-order Adventures (those the GM skipped at Step 1) go after numbered ones, in alphabetical slug order.
 2. For each Adventure, render a bullet:
@@ -854,18 +897,6 @@ Same excerpt rules as Threads. Order: descending by `created:` when set; for ing
 At ingest time, this list shows **every** Consequence. Do not truncate to a top-N. Future `/wrap-session` runs filter to most-recent-N for glance-readability; ingest's "everything just landed" semantics mean truncation would hide the just-ingested history the GM is about to commit.
 
 If there are zero Consequences, write `*None._`.
-
-#### Party location
-
-Best-effort short prose, one or two sentences. Derive as follows:
-
-1. Among `status: active` Adventures, pick the one with the **highest `order:`** (the most recently started, per ADR-0007's "ingest-era ordering"). If multiple Adventures tie or none are active, fall back to the highest-`order:` Adventure overall regardless of status. If `order:` is null across the board, fall back to the alphabetically-last Adventure slug — and explicitly call this out in the prose ("best-effort guess; no `order:` set").
-2. Read that Adventure's `adventure.md` body for any explicit location reference: a wiki link to a `locations/<slug>.md` file is the strongest signal; failing that, a clearly-named place mentioned in prose.
-3. If a location is identifiable, write: *"The party is at [[<Location>]], most recently engaged with [[<Adventure>]]."* (Or a close variant; this is prose, not a template — match the campaign's tone if the GM's input docs had a clear voice.)
-4. If no location is identifiable but an Adventure is, write: *"The party's most recent activity is [[<Adventure>]]; current location not stated in source docs — GM to update."*
-5. If neither is identifiable (zero Adventures, or all are introduced-status with no location prose), write: *"Party location not yet established — GM to update."*
-
-Do **not** invent a location. The "best-effort" framing in the issue spec explicitly carves out a placeholder for the GM to fill in. ADR-0007 is clear: the agent never asks the GM to invent facts it doesn't have.
 
 #### Pending beats
 

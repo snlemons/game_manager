@@ -5,9 +5,9 @@
 - **Campaign:** {{CAMPAIGN_NAME}}
 - **System:** {{CAMPAIGN_SYSTEM}}
 
-## Active adventures
+## Where the party might go next session
 
-*None yet. Populated by `/ingest` or by `/wrap-session` as adventures become `active`.*
+*Not yet established. Populated by `/ingest` or by `/wrap-session` from active and introduced Adventures, session-driver Threads, and party location.*
 
 ## Open threads
 
@@ -16,10 +16,6 @@
 ## Recent significant consequences
 
 *None yet. Consequences are created by post-session extraction in `/wrap-session`.*
-
-## Party location
-
-*Not set. Populated as sessions are run and the party moves through the world.*
 
 ## Pending beats
 

@@ -46,13 +46,20 @@ When the campaign has many pending Beats — common immediately after `/ingest` 
 **Tiers, evaluated per pending Beat:**
 
 - **In-focus — shown in full.** Hits at least one of:
-  - `linked_adventures` overlaps `status: active` Adventures, or
-  - `linked_pcs` overlaps the PCs the agent identifies as in focus (prior Log foregrounded them, active Adventures reference them, or they're named in an open Thread / pending Beat already being surfaced), or
-  - `linked_locations` overlaps locations "near" the party's current location (same location, one step away in the Reference-note graph, or named as a likely next stop by an active Adventure's geography), or
+  - `linked_adventures` overlaps any Adventure in the **in-focus Adventure set** (defined below), or
+  - `linked_pcs` overlaps the PCs the agent identifies as in focus (prior Log foregrounded them, in-focus Adventures reference them, or they're named in an open Thread / pending Beat already being surfaced), or
+  - `linked_locations` overlaps locations "near" the party's current location (same location, one step away in the Reference-note graph, or named as a likely next stop by an in-focus Adventure's geography), or
   - `linked_npcs` overlaps NPCs the party may encounter (the same set the Brief's NPCs section is computing — a secondary signal in support of the three primary tiers).
-  - As a legacy fallback, a Beat with no `linked_*` fields populated but that is backlinked from an active Adventure file (via `[[wiki link]]`) is also in-focus. That backlink predated the `linked_*` frontmatter; honor it.
+  - As a legacy fallback, a Beat with no `linked_*` fields populated but that is backlinked from an in-focus Adventure file (via `[[wiki link]]`) is also in-focus. That backlink predated the `linked_*` frontmatter; honor it.
 
   In-focus Beats render in the "Beats to weave in (optional, weave in if possible)" section as full bullets with a short `*(scope: …)*` hint identifying the signal that hit.
+
+  **In-focus Adventure set.** The original rule keyed on `status: active` Adventures only, which broke for open-world / sandbox campaigns where the party has multiple available arcs and none currently running (issue #13). The set now includes:
+
+  - every Adventure with `status: active`, **and**
+  - every Adventure with `status: introduced` that the Brief surfaced in its **"Menu of next-session options"** section.
+
+  The menu is the open-world equivalent of "this arc might come up next session," so its Beats should be in scope. `introduced` Adventures not in the menu remain out of focus on the Adventure signal — they're available in principle, but the GM hasn't elevated them to next-session candidates. `completed` and `abandoned` Adventures are never in-focus.
 
 - **Out-of-focus, linked but not in focus — counted only.** At least one `linked_*` field is populated, but none of the populated fields overlap any in-focus signal. The Brief renders a single count line with a one-line breakdown by scope (e.g., *"Plus 14 more pending Beats linked to other Adventures / PCs / locations not in focus this session (6 in Curse of Strahd, 5 around Neverwinter, 3 elsewhere)"*).
 

@@ -13,22 +13,41 @@
 
 ## Active adventures
 Bulleted list of `status: active` adventures with one-line state.
+(Empty / `_None._` is normal in open-world campaigns between arcs —
+see "Menu of next-session options" below.)
+
+## Menu of next-session options
+The forward-looking menu of arcs and threads the party could pick up
+next session. Three sub-buckets:
+  - `status: introduced` Adventures the party could plausibly start,
+    one line each.
+  - Open Threads that could become a session focus (a curated subset
+    of the full Open threads list — the ones substantial enough to
+    drive a session), one line each.
+  - A pointer back to active arcs if any exist ("any of the active
+    adventures above could continue") so the GM sees the full menu
+    in one place.
+Empty buckets render `_None._` under their sub-heading. This section
+is the open-world surface — single-arc campaigns will often show
+"continue [active arc]" plus a short list; sandbox campaigns will
+show a wider menu.
 
 ## Open threads (likely to surface)
 Threads with `status: open` whose context is likely relevant.
 
 ## Beats to weave in (optional)
-Pending Beats relevant to active adventures or campaign-wide.
-Explicitly framed as optional — land 0–N this session.
+Pending Beats relevant to in-focus Adventures (active OR introduced
+and in the menu above) or campaign-wide. Explicitly framed as
+optional — land 0–N this session. Surfacing is tiered (ADR-0009).
 
 ## NPCs the party may encounter
-Filtered by relevance: active adventure's NPCs + locally-relevant recurring NPCs.
+Filtered by relevance: in-focus adventure's NPCs + locally-relevant recurring NPCs.
 
 ## Locations
 Where the party is now and where they're likely heading.
 
 ## Items in play that might matter
-PCs' inventory items that interact with active adventures or open threads.
+PCs' inventory items that interact with in-focus adventures or open threads.
 
 ## Recent significant consequences
 Consequences likely to come up given current location/adventure.
@@ -37,6 +56,8 @@ Consequences likely to come up given current location/adventure.
 Empty section. GM-owned. Foreshadowing reminders, NPC name picks,
 "if they go north, then…" branches.
 ```
+
+The "Menu of next-session options" section was added after dogfooding hit the open-world case (issue #13): a campaign with several `introduced` Adventures available and none currently `active` had nothing forward-looking in the Brief beyond "Last time" and an empty "Active adventures" section. The menu makes available Adventures and session-driver Threads first-class without adding a campaign-mode flag or new Adventure status values — the same Brief shape serves single-arc, multi-arc, and no-active-arc campaigns.
 
 ## Interaction shape in v0.1
 

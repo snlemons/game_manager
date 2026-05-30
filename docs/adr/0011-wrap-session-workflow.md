@@ -6,7 +6,7 @@
 
 1. **Read** `sessions/YYYY-MM-DD-session-N/notes.md`.
 2. **Multi-pass extraction** (each pass uses prior context):
-   - Adventure-relevance and status changes.
+   - Adventure-relevance and status changes. **The session may touch zero, one, or multiple Adventures** — the agent does not assume a single current focus. A pure-exploration session that didn't engage any arc produces no Adventure status changes (and the agent does not invent one to justify the wrap). A session that engaged multiple arcs is evaluated per Adventure: each may transition status independently, or just accrete progress without transitioning. The status enum (`introduced | active | completed | abandoned`) is unchanged; the detection logic just stops assuming there's exactly one Adventure in play. This handles single-arc, multi-arc, and open-world / sandbox sessions equally (issue #13).
    - New Reference notes (NPCs, locations, factions, items).
    - Updates to existing Reference notes.
    - New Threads and Thread closures.

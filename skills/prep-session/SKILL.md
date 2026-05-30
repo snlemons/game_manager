@@ -97,8 +97,10 @@ Read enough of the repo to seed every Brief section. Be thorough but don't dump 
 
 ### Other state to pull
 
-- **Active Adventures:** every `adventures/<name>/` whose frontmatter `status: active`. Read each adventure's main file (e.g., `<name>.md` or `overview.md`) for a one-line summary of current state.
+- **Active Adventures:** every `adventures/<name>/` whose frontmatter `status: active`. Read each adventure's main file (e.g., `<name>.md` or `overview.md`) for a one-line summary of current state. The set may be empty (open-world / sandbox campaigns between arcs) — that's a normal state, not an error to flag (issue #13).
+- **Introduced Adventures (menu candidates):** every `adventures/<name>/` whose frontmatter `status: introduced`. Read each adventure's main file for a one-line hook/state. This is the menu of next-session options the party could pick up. In single-arc campaigns this list is usually short or empty; in sandbox campaigns it can be large. If the campaign has 10+ introduced Adventures, surface them all — the GM owns curation, and the Brief showing them is the point of the menu. Order: ascending by `order:` if set, then alphabetical by slug.
 - **Open Threads:** every file in `threads/` with frontmatter `status: open`. Filter to those plausibly relevant to current active Adventures, recent location, or the party's current trajectory. If unsure about relevance, include it — false positives are cheaper than missed reminders.
+- **Session-driver Threads (menu candidates):** the subset of open Threads substantial enough to drive a session focus, not just flavor reminders. Used in the "Menu of next-session options" section (see Step 3). When uncertain, include rather than drop — the GM scans cheaply.
 - **Pending Beats:** every file in `beats/` with frontmatter `status: pending`. Read frontmatter `linked_pcs` / `linked_npcs` / `linked_adventures` / `linked_locations` and use backlinks (Beats referenced by `[[wiki link]]` from an active Adventure file) to scope. **Don't surface all pending Beats in the Brief** — they are filtered into tiers (see "Tiered Beat surfacing" below). Long-running campaigns commonly have many pending Beats after `/ingest`; an unfiltered list defeats the Brief's purpose (ADR-0009).
 - **Recent significant Consequences:** files in `consequences/` ordered by recency (creation/modified date or a `created:` frontmatter field if present), filtered to those likely to come up given current location/Adventure. Don't list every Consequence in the campaign — pick the ones that interact with what's about to happen.
 - **NPCs the party may encounter:** Reference notes from `npcs/` that are linked from active Adventures or the prior session's Log, plus locally-relevant recurring NPCs (those tied to the party's current location).
@@ -114,20 +116,20 @@ Per ADR-0009, the Brief filters pending Beats by relevance instead of listing th
 
 **Inputs computed earlier in Step 2:**
 
-- `ACTIVE_ADVENTURES` — slugs / names of every Adventure with `status: active`.
-- `IN_FOCUS_PCS` — PCs the prior session's Log foregrounded (named in the recap), PCs the active Adventures explicitly reference, and PCs named in any **open** Thread or **pending** Beat the agent is also surfacing. When focus is ambiguous, default to **all PCs** rather than dropping Beats — false positives are cheaper than missed reminders (the same principle the Threads bullet uses).
-- `NEAR_LOCATIONS` — the party's current location, locations one step away in the Reference-note graph (locations linked from the current location's Reference note, or that link to it), and locations the active Adventures' geography names as the party's likely next stops. If the current location is unknown (e.g., the prior Log didn't pin it down), treat `NEAR_LOCATIONS` as empty — don't guess — and Beats with `linked_locations` fall through to the out-of-focus tier on the location signal alone.
+- `IN_FOCUS_ADVENTURES` — the union of (a) every Adventure with `status: active` and (b) every Adventure with `status: introduced` that the Brief is surfacing in its "Menu of next-session options" section (see Step 3). This is the **in-focus Adventure set** per the broadened ADR-0009 rule: active arcs the party may continue, plus introduced arcs the GM is putting on the menu for this session — both classes are "this might come up next." `introduced` Adventures not in the menu are not in-focus on the Adventure signal; `completed` and `abandoned` Adventures are never in-focus. This broadening was added for open-world / sandbox campaigns where the active set may be empty but several introduced arcs are available (issue #13).
+- `IN_FOCUS_PCS` — PCs the prior session's Log foregrounded (named in the recap), PCs the in-focus Adventures explicitly reference, and PCs named in any **open** Thread or **pending** Beat the agent is also surfacing. When focus is ambiguous, default to **all PCs** rather than dropping Beats — false positives are cheaper than missed reminders (the same principle the Threads bullet uses).
+- `NEAR_LOCATIONS` — the party's current location, locations one step away in the Reference-note graph (locations linked from the current location's Reference note, or that link to it), and locations the in-focus Adventures' geography names as the party's likely next stops. If the current location is unknown (e.g., the prior Log didn't pin it down), treat `NEAR_LOCATIONS` as empty — don't guess — and Beats with `linked_locations` fall through to the out-of-focus tier on the location signal alone.
 - `ENCOUNTERABLE_NPCS` — the same set you compute for the "NPCs the party may encounter" Brief section.
 
 **Per-Beat classification.** For each Beat with `status: pending`:
 
 1. **In-focus — show in full.** The Beat hits at least one of these signals:
-   - `linked_adventures` overlaps `ACTIVE_ADVENTURES`, **or**
+   - `linked_adventures` overlaps `IN_FOCUS_ADVENTURES`, **or**
    - `linked_pcs` overlaps `IN_FOCUS_PCS`, **or**
    - `linked_locations` overlaps `NEAR_LOCATIONS`, **or**
    - `linked_npcs` overlaps `ENCOUNTERABLE_NPCS` (secondary signal — Beats tied to an NPC the party is likely to encounter are clearly in focus, even though ADR-0009 doesn't enumerate this tier separately).
 
-   Also treat as in-focus any Beat that has **no `linked_*` fields populated but is backlinked from an active Adventure file** (a `[[wiki link]]` from that Adventure's main file). That backlink is the older scoping convention from before the `linked_*` frontmatter existed; honor it so legacy Beats still surface.
+   Also treat as in-focus any Beat that has **no `linked_*` fields populated but is backlinked from an in-focus Adventure file** (a `[[wiki link]]` from that Adventure's main file). That backlink is the older scoping convention from before the `linked_*` frontmatter existed; honor it so legacy Beats still surface.
 
 2. **Out-of-focus, linked but not in focus — counted only.** The Beat has at least one `linked_*` field populated, but none of the populated fields overlap any in-focus signal. These get counted with a one-line breakdown by what they're linked to (see Step 3).
 
@@ -138,7 +140,7 @@ Per ADR-0009, the Brief filters pending Beats by relevance instead of listing th
 **Tie-breaks and edge cases:**
 
 - A Beat with multiple populated `linked_*` fields counts as in-focus if **any one** signal hits. Don't require all to hit.
-- A Beat whose `linked_adventures` names a `status: introduced` (not yet started) Adventure is **not** in focus on that signal — the strategy keys on active Adventures. If the GM is using this prep to start that Adventure, they'll be transitioning it to `active` (typically via the prior session's `/wrap-session`); the next prep will then surface its Beats.
+- A Beat whose `linked_adventures` names a `status: introduced` Adventure is **in focus** if that Adventure is in the Brief's "Menu of next-session options" — the menu marks the GM's intent that the arc could come up. If the introduced Adventure is *not* in the menu (e.g., the GM has many introduced arcs and this one isn't on the table this session), the Beat is out-of-focus on the Adventure signal alone. Other signals (PC / location / NPC) can still bring it in-focus.
 - A Beat that's in focus on multiple signals still appears once in the in-focus list. Don't duplicate.
 - When the in-focus list is empty but unlinked or out-of-focus counts are non-zero, still render the section with the counts and the triage nudge — the GM needs to know Beats exist and weren't surfaced (the "agent looked and found nothing surfaceable" signal).
 
@@ -180,6 +182,29 @@ prior session log yet)".>
 
 - **<Adventure name>** — one-line current state.
 - ...
+
+<!-- If no Adventures have status: active, render `_None._` under this heading. Open-world / sandbox campaigns between arcs may legitimately have zero active Adventures — the "Menu of next-session options" section below is then the forward-looking surface. -->
+
+## Menu of next-session options
+
+<!-- Forward-looking menu the party could pick up next session (issue #13). The set of `status: introduced` Adventures the GM is putting on the table this session feeds the `IN_FOCUS_ADVENTURES` set the Beats section uses. -->
+
+**Introduced Adventures the party could pick up:**
+
+- **[[<Adventure name>]]** — one-line hook/state. *(order N)* if `order:` is set; omit otherwise.
+- ...
+
+<!-- If no `status: introduced` Adventures, render `_None._` under this sub-heading. -->
+
+**Open Threads that could become a session focus:**
+
+- **[[<Thread name>]]** — one-line reminder.
+- ...
+
+<!-- A curated subset of the full Open threads list — the ones substantial enough to drive a session, not flavor reminders. Render `_None._` if none qualify. -->
+
+<!-- If at least one Adventure was listed under "Active adventures" above, append this line: -->
+_Or continue any of the active adventures above._
 
 ## Open threads (likely to surface)
 
@@ -231,6 +256,8 @@ _Plus <BEATS_UNLINKED_TOTAL> pending Beats with no `linked_*` tags — review an
 
 ### Drafting rules
 
+- **Order matters: draft "Menu of next-session options" before classifying Beats.** The introduced Adventures listed in the menu feed `IN_FOCUS_ADVENTURES` for the tiered Beat surfacing — the menu is the GM-facing surface and the in-focus signal simultaneously. If you change the menu (add or drop an introduced Adventure), reclassify Beats whose `linked_adventures` references the changed slugs.
+- **Active adventures, Menu of next-session options, and Open threads are three distinct sections.** Don't collapse them. The menu is the forward-looking summary the GM scans first; "Active adventures" is the steady-state ongoing list; "Open threads" is the full reminder set. Sandbox campaigns may show `_None._` under "Active adventures" while the menu is rich — that's the open-world case rendering correctly, not a bug.
 - **Beats section heading must include the "optional, weave in if possible" framing** (ADR-0009). Don't shorten to just "Beats."
 - **Render Beats per the tiered surfacing classification.** The "Beats to weave in" section shows in-focus Beats in full as bullets (with a short `*(scope: …)*` hint identifying which signal hit), then a count line for out-of-focus linked Beats (with a one-line breakdown by scope), then a count line for unlinked Beats (with the "review and tag" nudge). Skip empty count lines; render `_None._` if all three are empty. Never dump every pending Beat into the Brief — that's exactly the wall of text ADR-0009 fixed.
 - **GM scratchpad starts empty.** Do not pre-populate it with prompts, examples, or boilerplate beyond the HTML comment hint. The comment is fine; any content beyond the comment is not.
