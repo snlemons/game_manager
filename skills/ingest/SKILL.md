@@ -202,6 +202,8 @@ Once the GM confirms the order, hand off these **survey results** to Phase 3:
 - **Skipped doc list** (any docs the GM removed during ordering, plus the non-markdown files), preserved only for the closing summary at the end of Phase 3.
 - An empty **carried-forward lessons** set (Phase 3's cross-doc learning will populate it as each doc's review completes; see Phase 3 Step 0b).
 
+Then **delete the survey staging files** — `.ttrpg-staging/survey-descriptions.md` and `.ttrpg-staging/survey-order.md`. They've served their purpose (the GM's edits are now captured in the in-memory hand-off above). If `.ttrpg-staging/` is now empty, remove the directory; if other workflows have staged content there, leave the directory alone. This way, Phase 3 cancel paths and Phase 4 hold paths don't have to worry about lingering survey artifacts.
+
 Do not auto-advance into Phase 3's per-doc reading. Tell the GM the survey is complete and Phase 3 will begin with doc #1 on confirmation. This gives the GM a chance to break out before any full read of a source doc happens.
 
 ## Phase 3: Per-doc extraction loop
