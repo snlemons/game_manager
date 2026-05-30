@@ -27,14 +27,27 @@ Heuristics for an item being Beat-shaped in a source doc: unchecked encounter li
 
 `/prep-session` includes a "Beats to weave in (optional)" section listing pending Beats relevant to the current campaign context. Framed as optional — the GM picks 0–N to land per session.
 
-## Surfacing at scale (open)
+## Surfacing at scale (implemented)
 
-When the campaign has many pending Beats — common immediately after `/ingest` of a long-running campaign with prepped encounter content — the original "list all pending Beats in the Brief" rule doesn't scale. The Brief becomes a wall and the GM tunes it out, defeating the purpose. A relevance-filtered tiered surfacing strategy is needed:
+When the campaign has many pending Beats — common immediately after `/ingest` of a long-running campaign with prepped encounter content — the original "list all pending Beats in the Brief" rule doesn't scale. The Brief becomes a wall and the GM tunes it out, defeating the purpose. `/prep-session` filters pending Beats through relevance tiers; only the **in-focus** ones land in the Brief as full bullets, and the rest are summarized as counts so they're acknowledged without overwhelming the GM.
 
-- Beats with `linked_adventures` overlapping `status: active` Adventures → shown in full in the Brief.
-- Beats with `linked_pcs` overlapping PCs the agent identifies as in focus → shown in full.
-- Beats with `linked_locations` near the party's current location → shown in full.
-- Everything else → count + breakdown summary so the Beats are acknowledged but don't overwhelm.
-- Unlinked Beats → counted with a "review and tag" nudge so the GM can prioritize triage.
+**Tiers, evaluated per pending Beat:**
 
-The `linked_adventures` / `linked_locations` frontmatter fields exist specifically to support this filtering. Implementation of the surfacing strategy is a future enhancement (filed as an issue).
+- **In-focus — shown in full.** Hits at least one of:
+  - `linked_adventures` overlaps `status: active` Adventures, or
+  - `linked_pcs` overlaps the PCs the agent identifies as in focus (prior Log foregrounded them, active Adventures reference them, or they're named in an open Thread / pending Beat already being surfaced), or
+  - `linked_locations` overlaps locations "near" the party's current location (same location, one step away in the Reference-note graph, or named as a likely next stop by an active Adventure's geography), or
+  - `linked_npcs` overlaps NPCs the party may encounter (the same set the Brief's NPCs section is computing — a secondary signal in support of the three primary tiers).
+  - As a legacy fallback, a Beat with no `linked_*` fields populated but that is backlinked from an active Adventure file (via `[[wiki link]]`) is also in-focus. That backlink predated the `linked_*` frontmatter; honor it.
+
+  In-focus Beats render in the "Beats to weave in (optional, weave in if possible)" section as full bullets with a short `*(scope: …)*` hint identifying the signal that hit.
+
+- **Out-of-focus, linked but not in focus — counted only.** At least one `linked_*` field is populated, but none of the populated fields overlap any in-focus signal. The Brief renders a single count line with a one-line breakdown by scope (e.g., *"Plus 14 more pending Beats linked to other Adventures / PCs / locations not in focus this session (6 in Curse of Strahd, 5 around Neverwinter, 3 elsewhere)"*).
+
+- **Unlinked — counted with a "review and tag" nudge.** No `linked_*` fields populated and no active-Adventure backlink. The Brief renders a count line plus the nudge so the GM can triage later (e.g., *"Plus 3 pending Beats with no `linked_*` tags — review and tag them so future prep can surface them when relevant"*).
+
+**Empty cases.** If the in-focus list is empty but a count line is non-zero, render the count line(s) and skip the bullets — the GM still needs to know Beats exist and weren't surfaced. If everything is empty, render `_None._` under the heading. The "optional, weave in if possible" framing is preserved in either case.
+
+**Why this works as a Brief-time concern only.** The Beat lifecycle (`pending → delivered | dropped`) is unchanged. The frontmatter schema is unchanged. The `campaign.md` (Campaign overview) still lists every pending Beat — it's the state snapshot, not a curated reading list (see the `/ingest` campaign-overview composer's note on this). Only the Brief filters. Future prep automatically re-evaluates relevance when the in-focus set shifts (a new Adventure becomes active, the party moves, a new PC enters focus), so out-of-focus Beats surface when the time comes without GM intervention.
+
+**Implementation lives in `skills/prep-session/SKILL.md`** under "Tiered Beat surfacing" (Step 2) and the Beats-section template + drafting rules in Step 3.

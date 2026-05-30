@@ -99,7 +99,7 @@ Read enough of the repo to seed every Brief section. Be thorough but don't dump 
 
 - **Active Adventures:** every `adventures/<name>/` whose frontmatter `status: active`. Read each adventure's main file (e.g., `<name>.md` or `overview.md`) for a one-line summary of current state.
 - **Open Threads:** every file in `threads/` with frontmatter `status: open`. Filter to those plausibly relevant to current active Adventures, recent location, or the party's current trajectory. If unsure about relevance, include it — false positives are cheaper than missed reminders.
-- **Pending Beats:** every file in `beats/` with frontmatter `status: pending`. Use backlinks (Beats referenced by `[[wiki link]]` from an active Adventure file) to scope. Campaign-wide pending Beats with no Adventure scope are also candidates.
+- **Pending Beats:** every file in `beats/` with frontmatter `status: pending`. Read frontmatter `linked_pcs` / `linked_npcs` / `linked_adventures` / `linked_locations` and use backlinks (Beats referenced by `[[wiki link]]` from an active Adventure file) to scope. **Don't surface all pending Beats in the Brief** — they are filtered into tiers (see "Tiered Beat surfacing" below). Long-running campaigns commonly have many pending Beats after `/ingest`; an unfiltered list defeats the Brief's purpose (ADR-0009).
 - **Recent significant Consequences:** files in `consequences/` ordered by recency (creation/modified date or a `created:` frontmatter field if present), filtered to those likely to come up given current location/Adventure. Don't list every Consequence in the campaign — pick the ones that interact with what's about to happen.
 - **NPCs the party may encounter:** Reference notes from `npcs/` that are linked from active Adventures or the prior session's Log, plus locally-relevant recurring NPCs (those tied to the party's current location).
 - **Locations:** the party's current location and likely next locations, drawn from the prior Log's closing state and the active Adventure's geography.
@@ -107,6 +107,47 @@ Read enough of the repo to seed every Brief section. Be thorough but don't dump 
 - **`campaign.md`** at the campaign root — the **Campaign overview** is the agent-maintained snapshot of current state (ADR-0007); use it to cross-check what counts as "active" / "current".
 
 Honor `.claude/rules/sessions.md` and `.claude/rules/adventures.md` if present — they describe campaign-local conventions.
+
+### Tiered Beat surfacing
+
+Per ADR-0009, the Brief filters pending Beats by relevance instead of listing them all. Apply the tiers below **after** you've loaded active Adventures, the party's current location, and the cast of PCs and NPCs the party may encounter (you need those signals to score relevance). The output is two lists and two counts that Step 3 renders into the "Beats to weave in" section.
+
+**Inputs computed earlier in Step 2:**
+
+- `ACTIVE_ADVENTURES` — slugs / names of every Adventure with `status: active`.
+- `IN_FOCUS_PCS` — PCs the prior session's Log foregrounded (named in the recap), PCs the active Adventures explicitly reference, and PCs named in any **open** Thread or **pending** Beat the agent is also surfacing. When focus is ambiguous, default to **all PCs** rather than dropping Beats — false positives are cheaper than missed reminders (the same principle the Threads bullet uses).
+- `NEAR_LOCATIONS` — the party's current location, locations one step away in the Reference-note graph (locations linked from the current location's Reference note, or that link to it), and locations the active Adventures' geography names as the party's likely next stops. If the current location is unknown (e.g., the prior Log didn't pin it down), treat `NEAR_LOCATIONS` as empty — don't guess — and Beats with `linked_locations` fall through to the out-of-focus tier on the location signal alone.
+- `ENCOUNTERABLE_NPCS` — the same set you compute for the "NPCs the party may encounter" Brief section.
+
+**Per-Beat classification.** For each Beat with `status: pending`:
+
+1. **In-focus — show in full.** The Beat hits at least one of these signals:
+   - `linked_adventures` overlaps `ACTIVE_ADVENTURES`, **or**
+   - `linked_pcs` overlaps `IN_FOCUS_PCS`, **or**
+   - `linked_locations` overlaps `NEAR_LOCATIONS`, **or**
+   - `linked_npcs` overlaps `ENCOUNTERABLE_NPCS` (secondary signal — Beats tied to an NPC the party is likely to encounter are clearly in focus, even though ADR-0009 doesn't enumerate this tier separately).
+
+   Also treat as in-focus any Beat that has **no `linked_*` fields populated but is backlinked from an active Adventure file** (a `[[wiki link]]` from that Adventure's main file). That backlink is the older scoping convention from before the `linked_*` frontmatter existed; honor it so legacy Beats still surface.
+
+2. **Out-of-focus, linked but not in focus — counted only.** The Beat has at least one `linked_*` field populated, but none of the populated fields overlap any in-focus signal. These get counted with a one-line breakdown by what they're linked to (see Step 3).
+
+3. **Unlinked — counted with a "review and tag" nudge.** The Beat has no `linked_*` fields populated and isn't backlinked from any active Adventure. The Brief should acknowledge the count and nudge the GM to triage tags later, so future prep can use the relevance signal.
+
+**Don't apply the tiers to delivered or dropped Beats** — they aren't candidates for the Brief at all (ADR-0009 lifecycle).
+
+**Tie-breaks and edge cases:**
+
+- A Beat with multiple populated `linked_*` fields counts as in-focus if **any one** signal hits. Don't require all to hit.
+- A Beat whose `linked_adventures` names a `status: introduced` (not yet started) Adventure is **not** in focus on that signal — the strategy keys on active Adventures. If the GM is using this prep to start that Adventure, they'll be transitioning it to `active` (typically via the prior session's `/wrap-session`); the next prep will then surface its Beats.
+- A Beat that's in focus on multiple signals still appears once in the in-focus list. Don't duplicate.
+- When the in-focus list is empty but unlinked or out-of-focus counts are non-zero, still render the section with the counts and the triage nudge — the GM needs to know Beats exist and weren't surfaced (the "agent looked and found nothing surfaceable" signal).
+
+Carry these results into Step 3:
+
+- `BEATS_IN_FOCUS` — list of Beats to render in full (ordered by `created:` ascending so freshly-ingested prep keeps source-doc order).
+- `BEATS_OUT_OF_FOCUS_BY_SCOPE` — a small map from scope (`linked_adventures` name, `linked_pcs` name, etc.) to count, used for the breakdown line.
+- `BEATS_OUT_OF_FOCUS_TOTAL` — total count across out-of-focus linked Beats.
+- `BEATS_UNLINKED_TOTAL` — count of unlinked pending Beats.
 
 ### Refresh `campaign.md` from the just-read state
 
@@ -147,8 +188,20 @@ prior session log yet)".>
 
 ## Beats to weave in (optional, weave in if possible)
 
-- **<Beat name>** — one-line intent. Optional — land 0–N this session.
+<!-- In-focus Beats (BEATS_IN_FOCUS) — show in full. Ordered by `created:` ascending. -->
+- **<Beat name>** [[beats/<slug>]] — one-line intent. *(scope: <one of: active Adventure name | PC name | location name | NPC name>)*
 - ...
+
+<!-- Out-of-focus linked Beats — counted only. Skip this line if BEATS_OUT_OF_FOCUS_TOTAL == 0. -->
+_Plus <BEATS_OUT_OF_FOCUS_TOTAL> more pending Beats linked to other Adventures / PCs / locations not in focus this session (<short breakdown by scope, e.g., "2 in Curse of Strahd, 1 for Darius, 3 elsewhere">). Browse `beats/` if you want to weave one in deliberately._
+
+<!-- Unlinked Beats — counted with triage nudge. Skip this line if BEATS_UNLINKED_TOTAL == 0. -->
+_Plus <BEATS_UNLINKED_TOTAL> pending Beats with no `linked_*` tags — review and tag them so future prep can surface them when relevant._
+
+<!-- If BEATS_IN_FOCUS is empty AND both counts above are zero, render `_None._` under this heading. -->
+<!-- If BEATS_IN_FOCUS is empty but a count line is non-zero, render the count line(s) and skip the bullets. -->
+<!-- Framing stays "optional, weave in if possible" — land 0–N this session. -->
+
 
 ## NPCs the party may encounter
 
@@ -179,11 +232,34 @@ prior session log yet)".>
 ### Drafting rules
 
 - **Beats section heading must include the "optional, weave in if possible" framing** (ADR-0009). Don't shorten to just "Beats."
+- **Render Beats per the tiered surfacing classification.** The "Beats to weave in" section shows in-focus Beats in full as bullets (with a short `*(scope: …)*` hint identifying which signal hit), then a count line for out-of-focus linked Beats (with a one-line breakdown by scope), then a count line for unlinked Beats (with the "review and tag" nudge). Skip empty count lines; render `_None._` if all three are empty. Never dump every pending Beat into the Brief — that's exactly the wall of text ADR-0009 fixed.
 - **GM scratchpad starts empty.** Do not pre-populate it with prompts, examples, or boilerplate beyond the HTML comment hint. The comment is fine; any content beyond the comment is not.
 - **Every section appears, even when empty.** If there are no open Threads, the section reads `_None._` (or similar terse marker) under its heading. Don't silently omit sections — the GM needs to know the agent looked and found nothing.
 - **Use `[[wiki links]]` for Reference notes** (NPCs, locations, factions, items, Threads, Consequences, Beats) so backlinks resolve. Bare names in bullets are fine as the link target.
 - **Don't invent content.** If you don't have a fact, don't put it in the Brief. If a section needs the GM to fill something in, say so plainly rather than guessing.
 - The Brief is for the GM's eyes, not the party's. It can reference secrets, NPC motivations, planned reveals.
+
+### Worked example: tiered Beats section
+
+Say a campaign has 22 pending Beats. 4 have `linked_adventures` populated (two of which point at active Adventures); all 22 have `linked_locations` (after the GM's tagging pass). The party is at `[[Phandalin]]`, the active Adventures are `[[Lost Mines of Phandelver]]` and `[[Cult of the Reborn Flame]]`, and `IN_FOCUS_PCS = {Darius, Sera}` from the prior Log.
+
+Classifying the 22 Beats might produce: 5 in-focus (3 hit `linked_locations`, 2 hit `linked_adventures`), 14 out-of-focus linked (other locations / other Adventures), 3 still unlinked because the GM's tag pass missed them. The Beats section then renders roughly:
+
+```markdown
+## Beats to weave in (optional, weave in if possible)
+
+- **Old Owl Well rumor at the inn** [[beats/old-owl-well-rumor]] — bard drops the name; sets up the side trail. *(scope: location — Phandalin)*
+- **Sera's locket reveal** [[beats/sera-locket-reveal]] — when she next short-rests in a temple. *(scope: PC — Sera)*
+- **Goblin ambush from the south road** [[beats/goblin-ambush-south-road]] — combat opener if they leave town. *(scope: Adventure — Lost Mines of Phandelver)*
+- **Cult sigil chalked on a door** [[beats/cult-sigil-on-door]] — silent escalation reminder. *(scope: Adventure — Cult of the Reborn Flame)*
+- **Darius's old commander recognizes him** [[beats/darius-old-commander]] — passing in the street. *(scope: PC — Darius)*
+
+_Plus 14 more pending Beats linked to other Adventures / PCs / locations not in focus this session (6 in Curse of Strahd, 5 around Neverwinter, 3 elsewhere). Browse `beats/` if you want to weave one in deliberately._
+
+_Plus 3 pending Beats with no `linked_*` tags — review and tag them so future prep can surface them when relevant._
+```
+
+This is the desired output shape. The framing stays "optional, weave in if possible" — the GM lands 0–N this session.
 
 ## Step 4 — Diff-style review via staging file
 
@@ -233,7 +309,7 @@ Tell the GM:
 
 - **ADR-0005** — Session is a directory of three documents; `/prep-session` writes `brief.md` once, doesn't regenerate, confirm-before-overwrite on re-run.
 - **ADR-0007** — `campaign.md` is the current-state snapshot; adventure frontmatter (`status`, `order`, `started`) drives "what's active".
-- **ADR-0009** — Beats are GM-authored, status `pending|delivered|dropped`; Brief surfaces pending Beats as "weave in if possible".
+- **ADR-0009** — Beats are GM-authored, status `pending|delivered|dropped`; Brief surfaces pending Beats as "weave in if possible," tiered by relevance (in-focus shown in full; out-of-focus and unlinked counted).
 - **ADR-0010** — Brief section order and propose-then-edit interaction (this skill's primary spec).
 - **ADR-0011** — Logs are written by `/wrap-session`; future Briefs read the prior `log.md`.
 - **ADR-0012** — Path-scoped rules live in `.claude/rules/`; honor `sessions.md` and `adventures.md` when present.
