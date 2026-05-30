@@ -43,10 +43,37 @@ Don't repeat the pre-flight if the campaign root is already determined in this r
 
 ## Step 1 — Determine session number and date
 
-1. List `sessions/` (under the campaign root). The next **session number** is `1 + max(N)` across existing `sessions/YYYY-MM-DD-session-N/` directory names. If `sessions/` is empty or absent, N = 1.
-2. The default **date** is today's date in `YYYY-MM-DD`. If the GM has indicated a different planned date for the next session, use that instead — but confirm with the GM before using a non-default date.
-3. The target directory is `sessions/YYYY-MM-DD-session-N/`.
-4. **State the planned target path** in chat before any other work, so the GM has an obvious moment to override the date if they're prepping ahead. Format: *"Prepping session N for YYYY-MM-DD → `sessions/YYYY-MM-DD-session-N/`. Say a different date (e.g., `for 2026-06-12`) if you're scheduling ahead."* Then continue with the rest of the workflow. Don't pause for confirmation if today's-date is what the GM wants — they just don't reply with a date override.
+### Step 1a: Determine session number
+
+List `sessions/` (under the campaign root). Sort directories by session number. Then:
+
+- **If `sessions/` is empty or absent**: N = 1.
+- **If the highest-numbered existing session has a `log.md`** (it was played and wrapped): N = max + 1. This is a new upcoming session.
+- **If the highest-numbered existing session has NO `log.md`** (it was prepped but never wrapped — typically because the GM is re-running prep before playing): N = max. **Target the existing session and revise its Brief**, don't create a new one. The Step 4 staging review will surface the existing `brief.md`'s content, and the re-run guard further down handles confirm-before-overwrite. Tell the GM in chat: *"Found `sessions/YYYY-MM-DD-session-N/` with a Brief but no Log — re-prepping the existing session instead of creating a new one. Cancel if you wanted a different session."*
+
+Edge cases:
+- The highest-numbered session has a `notes.md` with content but no `log.md` — the GM started playing but hasn't wrapped. Treat as "re-prep the existing session" but warn explicitly: *"This session has in-play notes but no Log. Re-running prep will revise the Brief, not the notes. Continue?"* Wait for explicit confirmation.
+- Skipped session numbers (e.g., session 3 exists but session 2 doesn't). Don't try to fill gaps — N = max + 1 if max is logged, max if not.
+
+### Step 1b: Ask the GM for the date
+
+Ask explicitly, even if you have a default in mind: *"What date should this session be filed under? (Today is YYYY-MM-DD. Reply with `today`, a specific date in `YYYY-MM-DD` form, or e.g. `next saturday`.)"* Accept these response shapes:
+
+- `today` (or empty / no override mentioned) → use today's date in `YYYY-MM-DD`.
+- An explicit `YYYY-MM-DD` → use it verbatim.
+- A relative phrase (`tomorrow`, `next saturday`, `friday`) → resolve to a date and confirm it back: *"That resolves to YYYY-MM-DD — proceed?"* Wait for confirmation before continuing.
+- Anything that doesn't parse → tell the GM what you understood and ask them to clarify.
+
+When re-prepping an existing session (Step 1a determined N = max with no Log), the date is **already encoded in the existing directory name** — don't ask, just use it. Tell the GM: *"Using the existing session's date (YYYY-MM-DD) from its directory name."*
+
+### Step 1c: State the planned target path
+
+Before moving to Step 2, state the resolved target in chat:
+
+- New session: *"Prepping new session N for YYYY-MM-DD → will create `sessions/YYYY-MM-DD-session-N/` on approval."*
+- Re-prep of existing: *"Re-prepping existing session N → `sessions/YYYY-MM-DD-session-N/`. The current Brief will be replaced after your edit-and-approve in Step 4."*
+
+Then continue without pausing. The Step 4 review is the GM's chance to back out.
 
 ### Re-run guard (confirm-before-overwrite)
 
