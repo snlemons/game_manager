@@ -91,7 +91,7 @@ Tell the GM, concisely:
 - the four files that were written,
 - the initial commit's hash and message.
 
-Do **not** auto-advance into the survey phase. End the scaffold phase here and wait for the GM to decide whether to proceed.
+If the GM provided an input directory of source docs, continue directly into Phase 2. If `/ingest` was invoked scaffold-only (no input directory), the workflow ends here. Either way, no confirmation prompt — Phase 2 has its own review gates (description list, processing order), and Phase 3 has per-doc approval, so the GM has natural break points downstream.
 
 ## Phase 2: Survey
 
