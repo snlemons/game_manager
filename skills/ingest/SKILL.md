@@ -306,7 +306,9 @@ Identify:
 - **Adventure-shape**: does this doc describe a story arc the party will run (a coherent set of scenes, locations, or stages tied together by a goal)? If yes, plan an `adventures/<slug>/adventure.md` file with ADR-0007 frontmatter. If no (it's a Reference note dump, world info, or session-narrative), don't fabricate an Adventure.
 - **Threads**: explicit unresolved hooks the party *knows about* — promises the party made, questions they asked, dangers they were warned about. Future-facing, party-aware. ADR-0004 governs file shape and status frontmatter. Only extract Threads that the doc actually surfaces as party-aware; don't invent them.
 - **Consequences**: explicit persistent facts about the world resulting from prior action ("the temple was destroyed", "the lord owes the party a favor"). Past-facing. Same provenance bar as Threads — only what the doc says.
-- **Beats**: GM-prepped scenes the party doesn't yet know about — unchecked encounter lists, planned scenes, per-PC personal hooks ("for Darius: a test of discipline"), adventure-tagged scene ideas, "if X then Y" contingent deliveries. Future-facing, GM-authored. ADR-0009 frontmatter: `status: pending`, `created: <ingest date>`, optional `linked_pcs` / `linked_npcs` / `linked_adventures` / `linked_locations` populated from whatever the source attributes. *Threads vs Beats test*: if the party knows about it, it's a Thread; if it's the GM's prep, it's a Beat. When the source is ambiguous about awareness, default to Beat and the GM can re-classify in the per-doc review.
+- **Beats**: GM-prepped scenes the party doesn't yet know about — unchecked encounter lists, planned scenes, per-PC personal hooks ("for Darius: a test of discipline"), adventure-tagged scene ideas, "if X then Y" contingent deliveries. Future-facing, GM-authored. ADR-0009 frontmatter: `status: pending`, `created: ~` (null — ingest doesn't know when the GM wrote the prep down), optional `linked_pcs` / `linked_npcs` / `linked_adventures` / `linked_locations` populated from whatever the source attributes. *Threads vs Beats test*: if the party knows about it, it's a Thread; if it's the GM's prep, it's a Beat. When the source is ambiguous about awareness, default to Beat and the GM can re-classify in the per-doc review.
+
+**Date honesty for lifecycle objects.** Same principle as ADR-0007 for Adventures: the agent never invents dates. For every Thread, Consequence, and Beat extracted during ingest, `created:` is left null unless the source doc explicitly provides a date the agent can attribute. Do **not** use the ingest date as a stand-in for an unknown source date — Consequences ingested from past adventures are not "created today"; they came into being whenever those past sessions happened. Future Briefs and `campaign.md` regens handle null `created:` values by falling back to slug or insertion order; that's intentional. Dates get filled in precisely going forward by `/wrap-session`.
 
 What **not** to extract:
 
@@ -392,11 +394,11 @@ sister they would find who killed him.
 
 #### Consequence shape (ADR-0004)
 
-One file per Consequence, in `consequences/`. Filename is a slug. Frontmatter is valid YAML; the only field this slice requires is a `created` timestamp captured at write time so future Briefs can order by recency:
+One file per Consequence, in `consequences/`. Filename is a slug. Frontmatter is valid YAML. `created:` is left **null** for ingest-era Consequences (the agent doesn't know when the past session happened); if the source doc supplies a specific date the agent can attribute, fill it in. Don't use the ingest date as a stand-in (see date-honesty rule above).
 
 ```yaml
 ---
-created: YYYY-MM-DD                  # set at write time; real-world date the agent recorded the Consequence
+created: ~                           # null for ingest unless source supplies a real date
 ---
 ```
 
@@ -406,7 +408,7 @@ Example: `consequences/lord-protector-owes-the-party.md`
 
 ```markdown
 ---
-created: 2026-05-29
+created: ~
 ---
 
 # The Lord Protector owes the party a favor
@@ -414,6 +416,8 @@ created: 2026-05-29
 After the party recovered the [[Iron Banner]] for [[Sildar Hallwinter]], he
 publicly declared he owes them one.
 ```
+
+Note: `/wrap-session` going forward writes `created:` to the session date precisely. Only ingest-era Consequences carry null `created:`.
 
 ### Step 3b: Cross-doc dedup
 
@@ -745,7 +749,7 @@ For every `consequences/<slug>.md`, render a bullet:
 - **[[<Consequence title>]]** — <one-line body excerpt>.
 ```
 
-Same excerpt rules as Threads. Order: descending by `created:` (which Phase 3 sets at write time). At ingest time, all Consequences just landed today, so the order will effectively be slug order — that's fine.
+Same excerpt rules as Threads. Order: descending by `created:` when set; for ingest-era Consequences where `created:` is null (the agent honors the date-honesty rule and doesn't fabricate ingest-day dates), fall back to lexicographic slug order. Once `/wrap-session` starts adding real Consequences with real dates, those naturally float to the top.
 
 At ingest time, this list shows **every** Consequence. Do not truncate to a top-N. Future `/wrap-session` runs filter to most-recent-N for glance-readability; ingest's "everything just landed" semantics mean truncation would hide the just-ingested history the GM is about to commit.
 
