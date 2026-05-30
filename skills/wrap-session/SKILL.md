@@ -79,6 +79,8 @@ Run the extraction in **this exact order**. Each pass uses prior-pass context (A
 
 ### Pass 1 — Adventure relevance and status transitions
 
+The session may have touched **zero, one, or multiple Adventures**. Don't assume a single current focus — open-world / sandbox campaigns commonly run sessions that engage several arcs at once or none at all (issue #13, ADR-0011). Evaluate each Adventure independently against the notes.
+
 For every `adventures/<name>/` directory, decide whether `notes.md` indicates a status change:
 
 - `introduced → active` — the party began running this adventure this session. Sets `started:` to the session's date (the `YYYY-MM-DD` from the session directory name).
@@ -86,7 +88,13 @@ For every `adventures/<name>/` directory, decide whether `notes.md` indicates a 
 - `active → abandoned` — the party walked away or the GM is dropping it. Sets `completed:` to the session date (per ADR-0007, abandoned still records a completion date with abandoned semantics).
 - New adventure not yet in `adventures/` but clearly started this session — propose creating `adventures/<slug>/adventure.md` with `status: active`, `started: <session date>`, and other dates left null.
 
-If multiple adventures appear in notes, evaluate each independently. Don't infer transitions from vague references — require a load-bearing event in the notes (party accepts the job; final boss falls; party explicitly walks away).
+The three shapes to handle:
+
+- **Session touched no arc** (pure exploration, downtime, a session of pure character interaction). Don't propose any Adventure status changes. Don't pick a "best fit" Adventure to attribute the session to — the wrap can be valid with zero Adventure transitions. The Log, Threads, Consequences, and Reference notes still get extracted normally.
+- **Session touched one arc.** The familiar case: one Adventure's frontmatter may transition, or it may just accrete in-play progress with no status change. Don't force a transition where the notes don't load-bear one.
+- **Session touched multiple arcs.** Each Adventure is evaluated independently. Multiple Adventures may transition status in the same wrap, or some transition while others just record progress. This is normal for sandbox play — don't collapse the proposals into a single dominant arc.
+
+Don't infer transitions from vague references — require a load-bearing event in the notes (party accepts the job; final boss falls; party explicitly walks away). Surface borderline cases via ambiguity clarification (Step 3) rather than guessing.
 
 ### Pass 2 — New Reference notes
 
@@ -296,13 +304,20 @@ Order doesn't matter for correctness (files are independent) but a sensible orde
 7. **Regenerate `campaign.md`** at the campaign root. Rewrite the whole file from current state. Sections, in this order (mirroring the template and ADR-0007):
 
    - Header: campaign name, system (carry from existing `campaign.md` frontmatter or H1 — do not invent if missing; tell the GM).
-   - **Active adventures** — bulleted list of `status: active` adventures with one-line current state pulled from each `adventure.md`.
-   - **Open threads** — every Thread with `status: open`, one line each, most-recent first.
+   - **Where the party might go next session** — the forward-looking menu the GM is orienting against. A bulleted set, with sub-buckets for active arcs / introduced arcs / session-driver Threads / party location:
+     - If any Adventures have `status: active`, list each as a bullet with a one-line current state, then add a short note: *"could continue any of these."* If none are active, omit this sub-bucket entirely (don't render an empty "Active arcs" line).
+     - **Introduced Adventures the party could pick up:** every Adventure with `status: introduced`, one bullet each, with the Adventure's H1 title (wiki-linked) and a one-line hook/state pulled from the Adventure's own file. This is the open-world menu of next-session options. Order: ascending by `order:` if set (ingest-era sequence), then alphabetical by slug for null-order Adventures. If none, render `_None._` under this sub-bucket so the GM sees the agent looked.
+     - **Recent open Threads that could become a session focus:** a curated subset of `status: open` Threads — the ones substantial enough to drive a session (a Thread that's just a flavor reminder doesn't belong here; one that's an arc-in-waiting does). Order: most-recent first by `created:` (slug asc as tiebreak). If there are no session-driver Threads, render `_None._`.
+     - **Party location:** one line, derived from the just-written Log's closing state, with `[[wiki link]]` to the location's Reference note. If unclear, say so plainly ("Party location not stated in this session's Log.") — do not guess. This is a piece of context, not the framing — keep it as a single line at the end of the menu.
+   - **Open threads** — every Thread with `status: open`, one line each, most-recent first. (This is the full list; the menu above is a curated subset.)
    - **Recent significant consequences** — Consequences ordered by `created:` descending, top 5–10 (whatever fits on a glance-readable screen). Don't dump the entire history.
-   - **Party location** — derived from the just-written Log's closing state, with `[[wiki link]]` to the location's Reference note. If unclear, say so plainly ("Party location not stated in this session's Log.") — do not guess.
    - **Pending beats** — every Beat with `status: pending`, one line each.
 
+   The "Where the party might go next session" section replaces the older "Active adventures" + "Party location" framing. The new shape handles zero, one, or many `status: active` Adventures equally — open-world / sandbox campaigns with many `introduced` Adventures available and none currently active render naturally instead of leaving the GM with empty sections (issue #13, ADR-0007).
+
    Preserve the agent-maintained header comment from the template ("This file is agent-maintained…"). If the existing `campaign.md` has GM hand-edits that conflict with regenerated content, the regeneration overwrites (ADR-0007: "Manual GM edits to `campaign.md` are reconciled (or overwritten with warning) at next regeneration"). Surface this warning to the GM in the closing message if hand-edits were detected and overwritten.
+
+   This composer's section shape and tone must match `/ingest` Phase 4 Step 2 (`skills/ingest/SKILL.md`) so the two produce a consistent campaign overview from the same campaign state. Skills don't share code; consistency is by alignment of these specs. If the two drift, treat that as a documentation bug to fix in both places.
 
 **Do not modify `notes.md`.** It is the source of truth and stays unchanged (ADR-0005, ADR-0011).
 
@@ -340,6 +355,8 @@ Tell the GM, concisely:
   > - 1 Beat delivered, 2 new Beat candidates
   > - Adventure status: *The Broken Mines* → `active`
   > - `campaign.md` regenerated
+
+  Multi-arc sessions list each Adventure transition on its own line. A session that touched no arc (pure exploration) omits the "Adventure status" line entirely — don't manufacture a transition to fill the bullet (issue #13).
 
 - If the regenerated `campaign.md` overwrote hand-edits, say so explicitly.
 - **The commit that was just made**: hash and message. Example: *"Committed as `a1b2c3d` — `Wrap session 5 (2026-05-29)`."*

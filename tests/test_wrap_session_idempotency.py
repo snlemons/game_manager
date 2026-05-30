@@ -171,19 +171,33 @@ def compose_campaign_md(campaign: Path, campaign_name: str, system: str) -> str:
     """Reference `campaign.md` composer.
 
     Deterministically derives the file from current campaign state per
-    SKILL.md Step 5 #7 + ADR-0007:
+    SKILL.md Step 5 #7 + ADR-0007 (as updated for issue #13's open-world
+    support):
       * Header: campaign name, system
-      * Active adventures: bulleted, one line each
+      * Where the party might go next session:
+          - Active arcs sub-bucket (omitted entirely if no `status: active`
+            Adventures)
+          - Introduced Adventures the party could pick up
+          - Recent open Threads that could become a session focus
+          - Party location line
       * Open threads: every Thread with `status: open`, most-recent first
       * Recent significant consequences: Consequences by `created:` desc,
         top 5
-      * Party location: looked up from latest log if possible, else fallback
-        line
       * Pending beats: every Beat with `status: pending`, one line each
+
+    The "Where the party might go next session" section replaces the older
+    "Active adventures" + "Party location" framing, handling zero/one/many
+    active Adventures equally (issue #13).
 
     This is the executable specification of 'deterministic regeneration' —
     given the same campaign state, the function must return byte-identical
     output across calls.
+
+    Note: the composer's curated "session-driver Threads" filter is judgment
+    the LLM applies; the deterministic reference here lists all open Threads
+    under that sub-bucket. The determinism property doesn't depend on the
+    filter, only on the function being a deterministic mapping of inputs to
+    output.
     """
 
     def latest_log_party_location() -> str:
@@ -222,29 +236,57 @@ def compose_campaign_md(campaign: Path, campaign_name: str, system: str) -> str:
     lines.append(f"- **System:** {system}")
     lines.append("")
 
-    # Active adventures
-    lines.append("## Active adventures")
+    # Where the party might go next session
+    lines.append("## Where the party might go next session")
     lines.append("")
     adv_dir = campaign / "adventures"
     active: list[tuple[str, str]] = []
+    introduced: list[tuple[str, str, str]] = []  # (order_key, slug, title)
     if adv_dir.is_dir():
         for slug in sorted(d.name for d in adv_dir.iterdir() if d.is_dir()):
             adv_md = adv_dir / slug / "adventure.md"
             if not adv_md.is_file():
                 continue
             fm, _ = parse_frontmatter(adv_md)
-            if fm.get("status") == "active":
-                title = first_heading_title(adv_md) or slug
+            status = fm.get("status")
+            title = first_heading_title(adv_md) or slug
+            if status == "active":
                 active.append((slug, title))
+            elif status == "introduced":
+                # Sort numeric `order:` ascending, then null-order alpha by slug.
+                raw_order = fm.get("order", "")
+                # Numbered orders sort before unset; use a tuple key.
+                if raw_order and raw_order != "~":
+                    try:
+                        order_key = (0, int(raw_order))
+                    except ValueError:
+                        order_key = (1, 0)
+                else:
+                    order_key = (1, 0)
+                introduced.append((order_key, slug, title))
+
+    # Active arcs sub-bucket — omit entirely if no active Adventures.
     if active:
+        lines.append("**Active arcs — could continue any of these:**")
+        lines.append("")
         for _, title in active:
             lines.append(f"- **{title}**")
+        lines.append("")
+
+    # Introduced Adventures the party could pick up.
+    lines.append("**Introduced Adventures the party could pick up:**")
+    lines.append("")
+    if introduced:
+        introduced.sort(key=lambda t: (t[0], t[1]))
+        for _, _, title in introduced:
+            lines.append(f"- **{title}**")
     else:
-        lines.append("*None.*")
+        lines.append("_None._")
     lines.append("")
 
-    # Open threads, most-recent first by `created:` (deterministic tiebreak: slug asc)
-    lines.append("## Open threads")
+    # Session-driver Threads sub-bucket. The deterministic reference renders
+    # all open Threads here; the LLM applies session-driver curation.
+    lines.append("**Recent open Threads that could become a session focus:**")
     lines.append("")
     thr_dir = campaign / "threads"
     open_threads: list[tuple[str, str, str]] = []
@@ -258,6 +300,20 @@ def compose_campaign_md(campaign: Path, campaign_name: str, system: str) -> str:
                 created = fm.get("created", "")
                 open_threads.append((created, p.stem, title))
     open_threads.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    if open_threads:
+        for _, _, title in open_threads:
+            lines.append(f"- **{title}**")
+    else:
+        lines.append("_None._")
+    lines.append("")
+
+    # Party location line at the end of the menu.
+    lines.append(f"**Party location:** {latest_log_party_location()}")
+    lines.append("")
+
+    # Open threads (full list)
+    lines.append("## Open threads")
+    lines.append("")
     if open_threads:
         for _, _, title in open_threads:
             lines.append(f"- **{title}**")
@@ -283,12 +339,6 @@ def compose_campaign_md(campaign: Path, campaign_name: str, system: str) -> str:
             lines.append(f"- {title}")
     else:
         lines.append("*None.*")
-    lines.append("")
-
-    # Party location
-    lines.append("## Party location")
-    lines.append("")
-    lines.append(latest_log_party_location())
     lines.append("")
 
     # Pending beats
@@ -646,14 +696,13 @@ class TestCampaignMdRegenerationIsDeterministic:
     def test_output_contains_required_sections_in_spec_order(
         self, campaign: Path
     ) -> None:
-        """Section order is fixed by SKILL.md Step 5 #7."""
+        """Section order is fixed by SKILL.md Step 5 #7 (updated for #13)."""
         out = compose_campaign_md(campaign, "Test Campaign", "D&D 5e")
-        # All required sections present:
+        # All required top-level sections present:
         required_sections = [
-            "## Active adventures",
+            "## Where the party might go next session",
             "## Open threads",
             "## Recent significant consequences",
-            "## Party location",
             "## Pending beats",
         ]
         for section in required_sections:
@@ -662,6 +711,11 @@ class TestCampaignMdRegenerationIsDeterministic:
         positions = [out.index(s) for s in required_sections]
         assert positions == sorted(positions), (
             f"required sections are not in spec order: positions={positions}"
+        )
+        # The menu's party-location line is a sub-element (one line in the
+        # menu), not its own H2 section.
+        assert "**Party location:**" in out, (
+            "party location line missing from menu"
         )
 
     def test_output_reflects_only_current_state(self, campaign: Path) -> None:
