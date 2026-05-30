@@ -30,7 +30,7 @@ The plugin owns scaffolding (`/ingest` runs `git init` and commits once at migra
 
 The closing message provides the affordance ("here's what changed, here's a suggested commit message") without taking the action.
 
-**Amendment (post-v0.1 dogfooding):** `/prep-session` also auto-commits its discrete checkpoint (one Brief + one notes.md + possibly-refreshed `campaign.md`), since it's the same category of "single coherent change" as `/ingest`'s bookend commits and the asymmetry between ingest (auto-commit) and prep (no commit) was confusing in practice. `/wrap-session`'s auto-commit policy is being evaluated separately — see comments on this ADR or follow-on commits.
+**Amendment (post-v0.1 dogfooding):** All three skills now auto-commit their discrete checkpoints. `/prep-session` commits a single coherent change (one Brief + one notes.md + possibly-refreshed `campaign.md`). `/wrap-session` commits the post-session structural moment (log + new/updated lifecycle objects + Reference-note updates + Adventure status changes + regenerated `campaign.md`). The original "plugin doesn't own ongoing git operations" rule was internally consistent but produced confusing asymmetry between ingest (auto-commit) and prep/wrap (no commit). Commits are still scoped: each skill stages only the paths it wrote, never sweeping in unrelated GM edits, and surfaces git failures verbatim rather than retrying. `git push` remains GM-owned — the plugin never publishes.
 
 ## Re-running `/wrap-session`
 

@@ -306,7 +306,24 @@ Order doesn't matter for correctness (files are independent) but a sensible orde
 
 **Do not modify `notes.md`.** It is the source of truth and stays unchanged (ADR-0005, ADR-0011).
 
-**Do not run `git commit`.** Ongoing git ownership belongs to the GM (ADR-0011).
+8. **Commit the wrap.** `/wrap-session` auto-commits its discrete checkpoint, matching `/ingest` and `/prep-session` (ADR-0011 amended — see that ADR's "Amendment" section). Stage **only** the files this run wrote or modified:
+
+   - `sessions/YYYY-MM-DD-session-N/log.md`
+   - New and updated files under `npcs/`, `locations/`, `factions/`, `items/`, `threads/`, `consequences/`, `beats/` — exactly the ones approved at Step 4.
+   - Updated `adventures/<slug>/adventure.md` files where status transitioned.
+   - `campaign.md`
+
+   Commit message format (build incrementally based on counts):
+
+   ```
+   Wrap session N (YYYY-MM-DD)
+   ```
+
+   Or richer when there's a clearly load-bearing change to call out — e.g., `Wrap session 5: Broken Mines active, Captain Marra owes a favor`. Pick at most 1–2 load-bearing items for the subject line; leave the rest for the body if you include one.
+
+   If the commit fails (git has no user configured, hooks reject, etc.), surface the error verbatim and stop. Files stay written; the GM can commit manually.
+
+   Edge case: if the campaign repo has uncommitted changes from other sources mixed in (the GM was hand-editing other files between sessions), stage **only** the paths this wrap touched. Don't sweep in unrelated GM edits. If you can't isolate (e.g., a file the GM hand-edited and this wrap also modified), surface the conflict to the GM and ask before staging.
 
 ## Step 6 — Closing message
 
@@ -325,17 +342,8 @@ Tell the GM, concisely:
   > - `campaign.md` regenerated
 
 - If the regenerated `campaign.md` overwrote hand-edits, say so explicitly.
-- A **suggested commit message**, presented in a fenced code block for easy copy:
-
-  ```
-  Wrap session 5 (2026-05-29)
-  ```
-
-  (Or richer if there's a clearly load-bearing change to call out — e.g., `Wrap session 5: Broken Mines active, Captain Marra owes a favor`.)
-
-- A **prompt to commit**, framed as the GM's action. Example: "Run `git status` to review, then commit when you're ready. The plugin doesn't auto-commit (ADR-0011)."
-
-Do **not** run `git commit`. Do **not** run `git add` (the GM may want to stage selectively). The plugin's job ends here.
+- **The commit that was just made**: hash and message. Example: *"Committed as `a1b2c3d` — `Wrap session 5 (2026-05-29)`."*
+- If the commit was skipped (failure from Step 5#8 or the GM had unrelated uncommitted changes the agent couldn't isolate), say so explicitly and tell the GM what's staged or unstaged for them to handle manually.
 
 ## Quick reference: which ADR governs what
 
@@ -344,13 +352,14 @@ Do **not** run `git commit`. Do **not** run `git add` (the GM may want to stage 
 - **ADR-0005** — Session is a directory of three documents. `notes.md` is input, `log.md` is output, `notes.md` is never modified.
 - **ADR-0007** — Adventure frontmatter (`status`, `started`, `completed`) and the agent-maintained `campaign.md` — you regenerate it at the end.
 - **ADR-0009** — Beats are GM-authored or proposed by `/wrap-session`; status `pending | delivered | dropped`; brief-scratchpad items are a primary creation path.
-- **ADR-0011** — This skill's primary spec: sequence, ambiguity-before-review, single-batch grouped review, no auto-commit, encourage-the-commit closing message.
+- **ADR-0011** — This skill's primary spec: sequence, ambiguity-before-review, single-batch grouped review, auto-commit the discrete checkpoint (per the amendment in that ADR — wrap is the third place the plugin commits, alongside ingest and prep).
 - **ADR-0012** — Honor `.claude/rules/sessions.md` and `.claude/rules/adventures.md` when present.
 
 ## What to avoid
 
 - Don't modify `notes.md` under any circumstance.
-- Don't auto-commit. Don't run `git add` or `git commit` or `git push`.
+- Don't run `git push`. The plugin auto-commits but never pushes — that's a publication decision the GM owns.
+- Don't sweep in unrelated GM edits when staging the wrap commit. Stage only files this run wrote.
 - Don't write the Log or any extracted file before the GM approves.
 - Don't put `[ambiguous]` markers in the proposed-wrap review — clarify before review (ADR-0011).
 - Don't invent NPC names, dates, or facts the notes don't support. If the notes don't say, the wrap doesn't say.
