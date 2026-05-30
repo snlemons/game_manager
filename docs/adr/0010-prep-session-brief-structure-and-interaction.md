@@ -4,6 +4,8 @@
 
 > **Live spec:** the canonical `campaign.md` composer used by `/prep-session`'s Section 2.5 refresh (and by `/wrap-session` and `/ingest`) is `references/campaign-overview-composer.md`. The Brief composition itself stays in this ADR.
 
+> **Preflight runs first:** before any step described below, `/prep-session` runs the settings-path preflight per `references/preflight.md` (issue #21). The preflight is a no-op when `.claude/settings.json` paths match the current campaign root; on mismatch it offers a regenerate-or-proceed prompt. This ADR is the historical decision record for the Brief workflow; the preflight reference is the live spec for the moved-campaign check that precedes it.
+
 ## Brief sections (in order)
 
 ```markdown

@@ -43,6 +43,12 @@ The skill operates on **a campaign repo**, which may or may not be the current w
 
 Don't repeat the pre-flight if the campaign root is already determined in this run.
 
+### Settings preflight (run once before Step 1)
+
+Before any other work, follow the procedure in `references/preflight.md` against the campaign root resolved above. If the baked paths in `.claude/settings.json` no longer match the current campaign root, the preflight surfaces a regenerate-or-proceed prompt to the GM and handles either outcome. If the GM declines regeneration, continue with the current settings — do not warn again this run. If the GM accepts, the file is rewritten and the skill continues with no further preflight output.
+
+Run the preflight exactly once per `/wrap-session` invocation; cache the result for the rest of the run.
+
 ## Step 1 — Select the target session
 
 The default target is the **latest session that has a non-empty `notes.md` and no `log.md`**. Resolve as follows:
