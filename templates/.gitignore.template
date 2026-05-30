@@ -1,0 +1,6 @@
+# Workflow staging directory used by ttrpg-gm skills (`/ingest`, `/prep-session`,
+# `/wrap-session`) to present diff-style review surfaces in your IDE. The skills
+# write proposed content here, the GM edits in place, then on approval the
+# content is moved to its final location and the staging directory is removed.
+# Should never be committed — it's scratch state across slash-command runs.
+.ttrpg-staging/

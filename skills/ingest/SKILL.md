@@ -51,9 +51,9 @@ For the per-doc extraction loop, the GM additionally provides:
    If any marker is present, **stop** and tell the GM the directory looks like an existing campaign repo. Don't overwrite. Don't merge.
 4. If it exists, is non-empty, and has none of those markers (e.g. it has source-doc markdown files the GM wants ingested in a later phase), confirm with the GM before proceeding.
 
-### Step 2: Write the four template files
+### Step 2: Write the five template files
 
-The plugin ships four templates under `~/.claude/skills/ttrpg-gm/templates/`. For each, read the template, substitute placeholders, and write to the target. Filenames have a `.template` suffix in the plugin; strip the suffix on write.
+The plugin ships five templates under `~/.claude/skills/ttrpg-gm/templates/`. For each, read the template, substitute placeholders, and write to the target. Filenames have a `.template` suffix in the plugin; strip the suffix on write.
 
 | Template source | Written to (relative to target) |
 |---|---|
@@ -61,6 +61,9 @@ The plugin ships four templates under `~/.claude/skills/ttrpg-gm/templates/`. Fo
 | `templates/.claude/rules/sessions.md.template` | `.claude/rules/sessions.md` |
 | `templates/.claude/rules/adventures.md.template` | `.claude/rules/adventures.md` |
 | `templates/campaign.md.template` | `campaign.md` |
+| `templates/.gitignore.template` | `.gitignore` |
+
+The `.gitignore` excludes `.ttrpg-staging/`, which the skills use as a scratchpad for diff-style review surfaces (proposed descriptions, brief drafts, wrap proposals) that the GM edits in their IDE before approval. Staging contents are never committed.
 
 Placeholder substitutions to apply to template content before writing:
 
@@ -75,7 +78,7 @@ Run these commands in the target directory:
 
 ```
 git init
-git add CLAUDE.md .claude/rules/sessions.md .claude/rules/adventures.md campaign.md
+git add CLAUDE.md .claude/rules/sessions.md .claude/rules/adventures.md campaign.md .gitignore
 git commit -m "Scaffold campaign repo via ttrpg-gm /ingest"
 ```
 
@@ -88,7 +91,7 @@ Do not configure `user.name` or `user.email` from the plugin. Use whatever the G
 Tell the GM, concisely:
 
 - the target directory (absolute path),
-- the four files that were written,
+- the five files that were written (the four templates plus `.gitignore`),
 - the initial commit's hash and message.
 
 If the GM provided an input directory of source docs, continue directly into Phase 2. If `/ingest` was invoked scaffold-only (no input directory), the workflow ends here. Either way, no confirmation prompt — Phase 2 has its own review gates (description list, processing order), and Phase 3 has per-doc approval, so the GM has natural break points downstream.
@@ -126,28 +129,39 @@ For each doc, draft a single-line description that classifies the doc and summar
 
 ADR-0008 explicitly prefers surfaced ambiguity over confident wrong commits. If the skim is genuinely unclear, say so in the description rather than guessing — Phase 3 will resolve it once the GM clarifies.
 
-### Step 3: Present descriptions as an editable diff-style list
+### Step 3: Write the description list to a staging file for GM edit
 
-Show the GM the full list of docs with their proposed descriptions, in a diff-style review screen. Use whatever review affordance Claude Code provides; if no diff preview is available, present an inline numbered list with the relative path and the proposed description on each line. Example formatting:
+Use the campaign repo's `.ttrpg-staging/` directory as the review surface — it's gitignored (Phase 1 Step 2) and is purpose-built for exactly this. Create it if it doesn't exist.
 
+Write the proposed descriptions to `.ttrpg-staging/survey-descriptions.md` using the Write tool, so Claude Code's standard file-write diff shows the GM the full proposed list in their IDE. Format the file as one editable line per doc, with a short header explaining the edit contract:
+
+```markdown
+# Survey: proposed descriptions
+
+Edit any line below to refine the description. Lines have the shape
+`<relative path> — <classification>: <short summary>`. Keep one line per doc.
+Don't add or remove lines (those reflect the docs discovered in the input
+directory). When done, save the file and tell me to continue.
+
+lost-mines.md         — Adventure: a published-module-shaped writeup of the Lost Mines arc.
+faerun-gods.md        — World info: notes on the gods and calendar of Faerun, no Adventure structure.
+session-1-notes.md    — Session log: the party's first delve into the Citadel, written as narrative.
+campaign-overview.md  — Mixed / ambiguous: could be world info or campaign-meta notes; not enough in the skim to tell.
 ```
-Survey: 4 markdown docs found.
 
-  1. lost-mines.md         — Adventure: a published-module-shaped writeup of the Lost Mines arc.
-  2. faerun-gods.md        — World info: notes on the gods and calendar of Faerun, no Adventure structure.
-  3. session-1-notes.md    — Session log: the party's first delve into the Citadel, written as narrative.
-  4. campaign-overview.md  — Mixed / ambiguous: could be world info or campaign-meta notes; not enough in the skim to tell.
+Below the description block, append a non-editable footer summary listing any non-markdown files that were skipped, so the GM has full context:
 
+```markdown
+---
 Non-markdown files (skipped): art/map.png, art/sera.jpg.
 ```
 
-Then ask explicitly: *"Edit any descriptions, accept the list as-is, or cancel?"* Accept these response shapes:
+Then ask explicitly: *"Edit the descriptions in `.ttrpg-staging/survey-descriptions.md` if you want changes, then tell me to continue. Or say cancel to exit cleanly."* Accept two response shapes:
 
-1. **Accept** → record the descriptions verbatim and continue to Step 4.
-2. **Edit** → the GM rewrites one or more descriptions (by number, by filename, or by quoting the proposed line). Apply edits to the in-memory list, re-present the affected lines, ask again. Loop until the GM accepts or cancels.
-3. **Cancel** → write nothing, leave the filesystem unchanged, exit cleanly (still report the non-markdown skip summary).
+1. **Continue** → re-read `.ttrpg-staging/survey-descriptions.md` from disk to capture any GM edits, parse the description lines, record them verbatim, continue to Step 4. If the GM removed or added lines (a contract violation), surface that and re-ask before proceeding.
+2. **Cancel** → delete `.ttrpg-staging/`, write nothing else, exit cleanly (still report the non-markdown skip summary).
 
-GM-corrected descriptions replace the proposed ones verbatim and become the steering input each doc's full read uses in Phase 3 — don't silently re-classify a doc later in extraction. If Phase 3's full read reveals the GM-confirmed description was wrong, surface that to the GM and re-confirm before continuing.
+GM-corrected descriptions become the steering input each doc's full read uses in Phase 3 — don't silently re-classify a doc later in extraction. If Phase 3's full read reveals the GM-confirmed description was wrong, surface that to the GM and re-confirm before continuing.
 
 ### Step 4: Propose a processing order
 
@@ -155,26 +169,30 @@ Once descriptions are accepted, propose a processing order over the same list. T
 
 For docs whose accepted description is *"Mixed / ambiguous: …"*, slot them after world info and before adventures by default — Phase 3 will resolve the ambiguity per-doc, and that's the safest place to do so (world context is in, adventure-shaped extraction hasn't started yet). Surface this placement explicitly in the proposal so the GM can move it if they know better.
 
-Present the proposed order as a numbered list with each doc's relative path and accepted description. Example:
+Write the proposed order to `.ttrpg-staging/survey-order.md` using the Write tool. The IDE shows the diff; the GM edits in place. Format:
 
+```markdown
+# Survey: proposed processing order
+
+Edit the order below by rearranging lines. To skip a doc from extraction
+entirely, delete its line — it will be reported in the closing summary as
+intentionally skipped. When done, save the file and tell me to continue.
+
+Default rule: world info → adventures → session-shaped. Mixed/ambiguous
+docs are slotted after world info by default.
+
+1. faerun-gods.md        — World info: notes on the gods and calendar of Faerun.
+2. campaign-overview.md  — Mixed / ambiguous: could be world info or campaign-meta notes.
+3. lost-mines.md         — Adventure: a published-module-shaped writeup of the Lost Mines arc.
+4. session-1-notes.md    — Session log: the party's first delve into the Citadel.
 ```
-Proposed processing order:
 
-  1. faerun-gods.md        — World info: notes on the gods and calendar of Faerun.
-  2. campaign-overview.md  — Mixed / ambiguous: could be world info or campaign-meta notes.
-  3. lost-mines.md         — Adventure: a published-module-shaped writeup of the Lost Mines arc.
-  4. session-1-notes.md    — Session log: the party's first delve into the Citadel.
+Then ask explicitly: *"Edit the order in `.ttrpg-staging/survey-order.md` if you want changes, then tell me to continue. Or say cancel to exit cleanly."* Accept two response shapes:
 
-Rule: world info → adventures → session-shaped. Mixed/ambiguous docs are slotted after world info by default.
-```
+1. **Continue** → re-read `.ttrpg-staging/survey-order.md` to capture GM edits, parse the order, renumber to match the GM's arrangement (the agent owns the integer indices; the GM owns the sequence). Continue to Step 5.
+2. **Cancel** → delete `.ttrpg-staging/`, write nothing else, exit cleanly.
 
-Then ask explicitly: *"Confirm the order, adjust it, or cancel?"* Accept these response shapes:
-
-1. **Confirm** → freeze the order and continue to Step 5.
-2. **Adjust** → the GM gives a revised order (renumbering, moving items, removing items they decided to skip). Apply the adjustment, re-present, ask again. Loop until confirmed or cancelled.
-3. **Cancel** → write nothing, exit cleanly.
-
-If the GM removes a doc entirely during ordering, drop it from the survey set — Phase 3 will not process it. Note removed docs in the closing summary so it's visible they were skipped on purpose.
+If the GM removed a doc entirely during ordering, drop it from the survey set — Phase 3 will not process it. Note removed docs in the closing summary so it's visible they were skipped on purpose.
 
 ### Step 5: Hand off to Phase 3
 
@@ -781,7 +799,9 @@ If the commit fails for any other reason (pre-commit hook failure, signing failu
 
 ### Step 4: Closing summary
 
-After the commit lands (or after the GM skips the commit), tell the GM, concisely:
+First, **clean up `.ttrpg-staging/`** in the campaign repo (`rm -rf` the directory if present). Staging held the survey artifacts the GM edited in Phase 2; ingest is now complete and the directory has served its purpose. Cleanup also avoids leaving a confusing artifact for `/prep-session` or `/wrap-session` to trip over.
+
+Then, after the commit lands (or after the GM skips the commit), tell the GM, concisely:
 
 - **Order prompt outcome.** Adventures whose `order:` was set in Step 1 (with the assigned numbers). Adventures left null (if the GM skipped or partially answered). Adventures that already had `order:` (and were not prompted).
 - **`campaign.md` regenerated.** Note that the prior placeholder was overwritten. If the prior `campaign.md` had detectable manual GM edits (content that differed from the scaffolder's placeholder before Phase 4 ran), surface that as a warning per ADR-0007. In the fresh-ingest path this should be rare — the only way to have hand-edited `campaign.md` between Phase 1 and Phase 4 is for the GM to have done it during Phase 3.

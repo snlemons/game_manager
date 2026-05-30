@@ -134,27 +134,23 @@ prior session log yet)".>
 - **Don't invent content.** If you don't have a fact, don't put it in the Brief. If a section needs the GM to fill something in, say so plainly rather than guessing.
 - The Brief is for the GM's eyes, not the party's. It can reference secrets, NPC motivations, planned reveals.
 
-## Step 4 — Diff-style review
+## Step 4 — Diff-style review via staging file
 
-Before writing anything to disk, present the full drafted `brief.md` to the GM as a review. Use whatever review affordance Claude Code provides in the current context:
+Before creating the session directory or writing anything to its final location, write the drafted Brief to `.ttrpg-staging/brief-draft.md` using the Write tool. Claude Code's standard file-write diff shows the full draft to the GM in their IDE. The `.ttrpg-staging/` directory is gitignored by the scaffolder; create it if it doesn't exist.
 
-- If a diff-style preview is available (e.g., the file write tool will show a diff), use it.
-- Otherwise, show the full draft inline in a single fenced markdown block labelled with the target path, and tell the GM exactly what will be written, where, and which sibling files (`notes.md`) will also be created.
+Then ask explicitly: *"The drafted Brief is at `.ttrpg-staging/brief-draft.md`. Edit it in place if you want changes, then tell me to continue. Or say cancel to exit cleanly."* Accept two response shapes:
 
-Then ask explicitly: *"Approve as-is, edit inline, or cancel?"* Accept three kinds of response:
+1. **Continue** → re-read `.ttrpg-staging/brief-draft.md` to capture any GM edits, then proceed to Step 5 to commit it to its final location.
+2. **Cancel** → delete `.ttrpg-staging/brief-draft.md` (and remove `.ttrpg-staging/` if it's now empty), leave the rest of the filesystem unchanged, exit.
 
-1. **Approve** → proceed to Step 5 and write.
-2. **Edit** → take the GM's inline edits, apply them to the draft, re-present the updated draft, ask again. Loop until approved or cancelled.
-3. **Cancel** → write nothing, leave the filesystem unchanged, exit.
-
-Do **not** write `brief.md` (or create the session directory if it doesn't yet exist) until the GM approves.
+Do **not** create `sessions/YYYY-MM-DD-session-N/` or write `brief.md` to its final location during the review — the session directory's existence is the GM's signal that they approved a Brief for that session.
 
 ## Step 5 — Write
 
-Once approved:
+Once the GM says continue:
 
 1. Create `sessions/YYYY-MM-DD-session-N/` if it doesn't exist.
-2. Write the approved Brief to `sessions/YYYY-MM-DD-session-N/brief.md`.
+2. Move `.ttrpg-staging/brief-draft.md` to `sessions/YYYY-MM-DD-session-N/brief.md` (i.e., write the final content there, then delete the staging file). If `.ttrpg-staging/` is now empty, remove the directory.
 3. Create `sessions/YYYY-MM-DD-session-N/notes.md` as an **empty file** — no template, no headings, no placeholder content. The GM types into it during play; pre-populating it would defeat its capture-now-structure-later purpose (CONTEXT.md, ADR-0004).
 4. Do **not** create `log.md`. `log.md` is written by `/wrap-session` after the session (ADR-0005, ADR-0011).
 5. Do **not** commit. The plugin doesn't own ongoing git operations (ADR-0011) — the GM commits when they're ready.

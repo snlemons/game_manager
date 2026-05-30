@@ -188,39 +188,55 @@ If the GM's resolution surfaces **new** ambiguities (e.g., "actually call her Se
 
 If there are no ambiguities, say so and move to Step 4 directly. Don't manufacture questions to look thorough.
 
-## Step 4 — Single proposed-wrap review
+## Step 4 — Single proposed-wrap review via staging directory
 
-Present **one** grouped diff-style review with all approved-set proposals, in this order:
+Write the full proposed change set to `.ttrpg-staging/wrap/` in the campaign repo, mirroring the campaign's directory structure. The `.ttrpg-staging/` directory is gitignored by the scaffolder; create it (and `wrap/` inside it) if it doesn't exist. Each proposed file lands at its eventual relative path *inside* `wrap/`:
 
-1. **Log** — full preview of the drafted `log.md` (rendered in a fenced markdown block labelled with the target path). The GM can edit inline.
-2. **Reference-note changes** — collapsed list (name + create/update + one-line summary), expandable per item on request. Example formatting:
+| Proposed change | Staging path |
+|---|---|
+| Drafted Log | `.ttrpg-staging/wrap/sessions/YYYY-MM-DD-session-N/log.md` |
+| CREATE Reference note | `.ttrpg-staging/wrap/npcs/<slug>.md` (or `locations/`, `factions/`, `items/`) |
+| UPDATE Reference note | `.ttrpg-staging/wrap/<kind>/<slug>.md` — write the **full proposed new content**, not a diff |
+| CREATE Thread | `.ttrpg-staging/wrap/threads/<slug>.md` |
+| UPDATE Thread (closure) | `.ttrpg-staging/wrap/threads/<slug>.md` — full proposed new content |
+| CREATE Consequence | `.ttrpg-staging/wrap/consequences/<slug>.md` |
+| CREATE / DROP / DELIVER Beat | `.ttrpg-staging/wrap/beats/<slug>.md` — full proposed new content |
+| UPDATE Adventure (status transition) | `.ttrpg-staging/wrap/adventures/<slug>/adventure.md` — full proposed new content |
+| New Adventure | `.ttrpg-staging/wrap/adventures/<slug>/adventure.md` — full new file |
+| `campaign.md` regen | `.ttrpg-staging/wrap/campaign.md` — full proposed new content |
 
-   ```
-   Reference-note changes (4):
-   - CREATE npcs/sera.md — "Sera, blacksmith of the village, met session 5."
-   - CREATE locations/the-broken-mines.md — "Abandoned silver mines north of the village."
-   - UPDATE npcs/captain-marra.md — append: "Now owes the party a favor (session 5)."
-   - UPDATE npcs/orin.md — change disposition to wary.
-   ```
+For UPDATEs, the staged file contains the full file as it would land — existing content plus the proposed additions/changes — so the GM sees and edits the full final state, not just a diff. The agent does this by reading the existing file, applying proposed edits in memory, and writing the merged result to staging.
 
-3. **Thread operations** — new Threads and closures, one line each.
-4. **Consequence operations** — new Consequences, one line each.
-5. **Beat operations** — deliveries (`pending → delivered`), drops (`pending → dropped`), new Beat candidates (`pending`), one line each.
-6. **Adventure status changes** — each Adventure with proposed status transition and the date(s) being set.
-7. **`campaign.md` regeneration** — a preview of the regenerated Campaign overview (collapsed by default; expandable). State explicitly which sections will change.
+Then present a summary in chat listing the staged paths and what each represents:
 
-At the bottom, ask exactly: *"Approve all, edit / reject specific items, or cancel?"* Accept these response shapes:
+```
+Wrap proposal staged at .ttrpg-staging/wrap/. Edit any file in place in your IDE, then tell me to continue. Or delete a staged file to reject that proposal individually.
 
-1. **Approve all** → proceed to Step 5 and write everything.
-2. **Approve with edits** — the GM marks specific items: edit the Log (inline rewrites accepted), edit a proposed Reference note, drop a proposed Thread, change a proposed Beat's `linked_pcs`, etc. Apply edits, re-present the affected sections, ask again.
-3. **Reject per-item** — GM lists items to drop entirely (e.g., "skip the new Beat for Orin"). Remove from the approved set, re-present, ask again.
-4. **Cancel** → write nothing, leave the filesystem unchanged, exit cleanly.
+Files:
+  sessions/2026-05-29-session-5/log.md           — drafted Log
+  npcs/sera.md                                   — CREATE (new NPC)
+  locations/the-broken-mines.md                  — CREATE (new location)
+  npcs/captain-marra.md                          — UPDATE (full new content staged)
+  npcs/orin.md                                   — UPDATE (disposition change; full new content staged)
+  threads/cult-of-the-broken-flame.md            — CREATE (new Thread)
+  consequences/marra-owes-favor.md               — CREATE (new Consequence)
+  beats/orin-armor.md                            — DROP (status: pending → dropped)
+  adventures/lost-mines/adventure.md             — UPDATE (status: active → completed)
+  campaign.md                                    — regenerate
+```
 
-Do **not** write anything to disk until the GM gives an explicit "approve" (or "approve all" / "looks good, ship it" / equivalent). Loop until approved or cancelled.
+Then ask exactly: *"Edit any file in `.ttrpg-staging/wrap/`, delete any file to reject that proposal, then tell me to continue. Or say cancel to exit cleanly."* Accept two response shapes:
 
-## Step 5 — Write approved changes
+1. **Continue** → re-read every file remaining in `.ttrpg-staging/wrap/` to capture GM edits. Treat any staged file the GM deleted as rejection (don't write that one). Proceed to Step 5 to move surviving staged files to their final locations.
+2. **Cancel** → delete `.ttrpg-staging/`, leave the rest of the filesystem unchanged, exit cleanly.
 
-Once approved, perform all writes. Order doesn't matter for correctness (files are independent) but a sensible order helps the GM read git diffs later:
+Do **not** write to any file outside `.ttrpg-staging/wrap/` during Step 4. The final-location writes happen only in Step 5 after the GM says continue.
+
+## Step 5 — Move approved changes from staging to final locations
+
+Once the GM says continue, move every file that's still in `.ttrpg-staging/wrap/` to its final location (paths inside `wrap/` mirror the campaign repo, so the move is a path translation — strip the `.ttrpg-staging/wrap/` prefix). Read each staged file, write its content to the corresponding final path (creating parent directories as needed), then delete the staged file. After all moves, delete `.ttrpg-staging/` entirely.
+
+Order doesn't matter for correctness (files are independent) but a sensible order helps the GM read git diffs later. The per-file rules below describe **what gets written to the final location** — the content was already prepared and edited in staging during Step 4, so by the time you reach this step you're just translating paths.
 
 1. **Write `log.md`** to `sessions/YYYY-MM-DD-session-N/log.md`. Overwrite if confirmed in the re-run guard.
 2. **Create or update Reference notes** under `npcs/`, `locations/`, `factions/`, `items/`. Create parent directories if missing.
