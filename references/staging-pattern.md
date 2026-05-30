@@ -56,6 +56,40 @@ After staging, present a short summary in chat listing what was staged, where it
 
 Do **not** write to any file outside `.ttrpg-staging/` between the stage-write and the GM's continue response. The final-location writes happen only after approval.
 
+#### Visible delta for UPDATE entries
+
+CREATE entries don't need extra annotation in the chat summary — the staged file *is* the new content; the GM opens it once and sees everything. UPDATE entries are different: the staged file contains the full proposed final state (per Section 2), so a naive Write-tool diff shows it as if it were new, hiding *what actually changed* against the existing file. To restore that signal, every UPDATE in the chat-summary step gets a short inline delta annotation **generated from an actual `diff -u` against the existing file at the eventual final path** — never from the agent's recall of what it just wrote.
+
+**When to generate it.** During the chat-summary step (Section 3), for each UPDATE entry only. Don't annotate CREATEs (no original to diff against). Don't annotate DELETEs if a skill ever uses them. Don't annotate the Log-style draft entries (drafted Log, drafted Brief) — those are first-write content even when re-prepping, and the skill handles re-run guards separately.
+
+**How to generate it.** For each UPDATE staged file, run `diff -u <existing_final_path> <staged_path>` via the Bash tool. The existing file lives at the eventual final path (campaign-root-relative, after stripping the staging prefix); the staged file is the one just written under `.ttrpg-staging/<sub-path>/`. Parse the unified diff and extract the meaningful additions and modifications:
+
+- Lines beginning with `+ ` (additions) are kept.
+- Lines beginning with `- ` followed by a `+ ` that's a non-trivial rewrite of the same line are kept as "changed: …" or rendered as paired `- old` / `+ new` bullets, whichever reads cleaner for that hunk.
+- **Drop**: pure whitespace changes, blank-line shuffles, unchanged context lines (` ` prefix), and frontmatter-only churn that the GM doesn't need to scan (e.g., a `created:` field re-emitted with the same value). Frontmatter changes that *do* matter (a status transition, a new linked-PC field) are kept.
+
+**How to format the result.** Append the annotation immediately below the path line in the chat summary, indented, as concise bullets — one bullet per meaningful change. Trim each bullet to a readable sentence or fragment; the raw diff line isn't required verbatim. Example:
+
+```
+npcs/shalfey.md — UPDATE:
+  + Allied with the party in session 59 (2026-06-02).
+  + Diminished by Stage 2 dream-pressure on Ballard.
+  + Faint recognition of "Miri" — story he heard as a child but can't place.
+adventures/lost-mines/adventure.md — UPDATE (status: active → completed):
+  + status: active → completed
+  + completed: 2026-06-02
+```
+
+If the diff is empty (the proposed update collapsed to a no-op against the existing file — e.g., the GM already edited that file by hand to the same state), surface it inline as `— UPDATE (no-op against existing file; consider dropping)` and let the GM decide whether to delete the staged file. Don't silently omit it from the summary.
+
+**The contract.** The inline delta must reflect *actual* staged content as it exists on disk at chat-summary time, not the agent's recall of what it intended to write. This means:
+
+- Generate the delta **after** the Write tool has finished staging the UPDATE, not before.
+- If the GM cancels and re-stages on a later turn (or the skill re-stages mid-run for any reason), the delta is **regenerated from scratch** — never cached from a prior run.
+- After the GM edits a staged file in place and says continue (Section 4), the re-read step picks up their edits. If a skill re-presents the summary after that re-read (rare, but some flows do), regenerate the delta against the same existing file using the GM-edited staged content, not the originally drafted content.
+
+The annotation is documentation-for-the-GM, not state — so it lives only in the chat summary and is never written to any file.
+
 ### 4. Re-read on continue (capture GM edits)
 
 When the GM says continue, **re-read every file in the staging area** before promoting. The GM may have edited content, frontmatter, or paths in place; the agent must use the edited content, not the originally-drafted content from memory.

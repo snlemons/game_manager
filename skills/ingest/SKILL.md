@@ -508,9 +508,9 @@ Ingest-specific staging shape: write every proposed file to `.ttrpg-staging/doc-
 | Consequence (CREATE) | `.ttrpg-staging/doc-<N>/consequences/<slug>.md` |
 | Beat (CREATE) | `.ttrpg-staging/doc-<N>/beats/<slug>.md` |
 
-For UPDATE items, read the existing file from the campaign repo, apply the proposed edit in memory, write the merged result to staging — so the GM sees and edits the full final state of the file, not just the addition.
+For UPDATE items, read the existing file from the campaign repo, apply the proposed edit in memory, write the merged result to staging — so the GM sees and edits the full final state of the file in their IDE. Then, **per the "Visible delta for UPDATE entries" subsection of `references/staging-pattern.md`**, the chat summary annotates each UPDATE with a `diff -u`-derived inline delta against the existing campaign file (the IDE diff alone shows the staged file as if it were new, which hides what actually changed).
 
-Then present a chat summary listing what's staged, with the same metadata Step 4 used to surface before:
+Then present a chat summary listing what's staged, with the same metadata Step 4 used to surface before. Follow the staging-pattern reference for the UPDATE-delta annotation format — generate it from an actual `diff -u` against the existing final-location file, not from recall. Example shape:
 
 ```
 Doc 2 of 3: Past Travel.md — proposed changes staged at .ttrpg-staging/doc-2/
@@ -519,13 +519,15 @@ Description: World info: travel notes on routes between major cities.
 Lessons applied:
   - Skip passing innkeepers as NPCs (from doc 1 rejections).
 
-Summary: 1 Adventure, 4 Reference notes (3 NPCs CREATE, 1 location UPDATE), 2 Threads, 1 Consequence.
+Summary: 1 Adventure, 3 Reference notes (1 NPC CREATE, 1 location CREATE, 1 location UPDATE), 1 Thread, 1 Consequence.
 
 Files:
   adventures/spring-circuit/adventure.md       — CREATE
   npcs/orin.md                                 — CREATE
-  npcs/sera.md                                 — UPDATE (full new content staged)
-  locations/the-broken-mines.md                — CREATE
+  locations/the-broken-mines.md                — UPDATE:
+    + Connected to the Spring Circuit route (doc 2).
+    + Notes the collapsed shaft on the north face.
+  locations/redstone-pass.md                   — CREATE
   threads/find-orin.md                         — CREATE
   consequences/orin-owes-favor.md              — CREATE
 

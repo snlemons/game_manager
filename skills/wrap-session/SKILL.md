@@ -227,9 +227,9 @@ Wrap-session-specific staging shape: write the full proposed change set to `.ttr
 | New Adventure | `.ttrpg-staging/wrap/adventures/<slug>/adventure.md` — full new file |
 | `campaign.md` regen | `.ttrpg-staging/wrap/campaign.md` — full proposed new content |
 
-For UPDATEs, the staged file contains the full file as it would land — existing content plus the proposed additions/changes — so the GM sees and edits the full final state, not just a diff. The agent does this by reading the existing file, applying proposed edits in memory, and writing the merged result to staging.
+For UPDATEs, the staged file contains the full file as it would land — existing content plus the proposed additions/changes — so the GM sees and edits the full final state in their IDE. The agent does this by reading the existing file, applying proposed edits in memory, and writing the merged result to staging. Then, **per the "Visible delta for UPDATE entries" subsection of `references/staging-pattern.md`**, the chat summary annotates each UPDATE with a `diff -u`-derived inline delta so the GM can see what changed at a glance (the IDE diff alone shows the staged file as if it were new).
 
-Then present a summary in chat listing the staged paths and what each represents:
+Then present a summary in chat listing the staged paths and what each represents. Follow the staging-pattern reference for the UPDATE-delta annotation format — generate the inline delta from an actual `diff -u` against the existing final-location file, not from recall. Example shape:
 
 ```
 Wrap proposal staged at .ttrpg-staging/wrap/. Edit any file in place in your IDE, then tell me to continue. Or delete a staged file to reject that proposal individually.
@@ -238,12 +238,18 @@ Files:
   sessions/2026-05-29-session-5/log.md           — drafted Log
   npcs/sera.md                                   — CREATE (new NPC)
   locations/the-broken-mines.md                  — CREATE (new location)
-  npcs/captain-marra.md                          — UPDATE (full new content staged)
-  npcs/orin.md                                   — UPDATE (disposition change; full new content staged)
+  npcs/captain-marra.md                          — UPDATE:
+    + Met the party at the broken mines (session 5).
+    + Owes the party a favor for clearing the shaft.
+  npcs/orin.md                                   — UPDATE:
+    + disposition: friendly → hostile
+    + Refused the armor offer in session 5.
   threads/cult-of-the-broken-flame.md            — CREATE (new Thread)
   consequences/marra-owes-favor.md               — CREATE (new Consequence)
   beats/orin-armor.md                            — DROP (status: pending → dropped)
-  adventures/lost-mines/adventure.md             — UPDATE (status: active → completed)
+  adventures/lost-mines/adventure.md             — UPDATE:
+    + status: active → completed
+    + completed: 2026-05-29
   campaign.md                                    — regenerate
 ```
 
