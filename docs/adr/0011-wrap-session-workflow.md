@@ -4,6 +4,8 @@
 
 > **Live specs:** the dedup normalization rule pinned by `tests/test_wrap_session_idempotency.py` is `references/dedup-matching.md`. The shared `.ttrpg-staging/` review pattern is `references/staging-pattern.md`. The Reference-note extraction heuristic shared with `/ingest` is `references/reference-note-extraction.md`. The frontmatter schemas the wrap writes (Thread, Consequence, Beat, Adventure) live in `references/frontmatter-schemas.md`. The `campaign.md` composer lives in `references/campaign-overview-composer.md`. This ADR is the historical decision record.
 
+> **Preflight runs first:** before the Sequence below begins, `/wrap-session` runs the settings-path preflight per `references/preflight.md` (issue #21). The preflight is a no-op when `.claude/settings.json` paths match the current campaign root; on mismatch it offers a regenerate-or-proceed prompt. The wrap workflow steps below are unchanged; the preflight just precedes Step 1.
+
 ## Sequence
 
 1. **Read** `sessions/YYYY-MM-DD-session-N/notes.md`.

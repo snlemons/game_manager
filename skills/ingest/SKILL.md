@@ -37,6 +37,12 @@ For the per-doc extraction loop, the GM additionally provides:
 - **Input directory** — a path containing the source doc(s) to ingest. v0.1 is flat-directory only (no recursion into subdirectories; ADR-0006).
 - **Campaign directory** — the already-scaffolded target campaign repo (may be the same path the GM scaffolded earlier; defaults to the current working directory if it is a campaign repo).
 
+## Settings preflight (run once before any phase touches an existing campaign)
+
+Before any other work, follow the procedure in `references/preflight.md` against the campaign root the GM named (or cwd if the GM didn't name one and cwd is a scaffolded campaign repo). The preflight is a no-op when `.claude/settings.json` is absent — which is the normal Phase 1 fresh-scaffold case — so running it unconditionally at the top of the invocation is safe. For Phase 2 / Phase 3 / Phase 4 invocations against an already-scaffolded campaign, the preflight catches the moved-campaign case and offers the GM a regenerate-or-proceed prompt. If the GM declines regeneration, continue with the current settings — do not warn again this run. If the GM accepts, the file is rewritten and `/ingest` continues with no further preflight output.
+
+Run the preflight exactly once per `/ingest` invocation; cache the result across all phases of the run.
+
 ## Phase 1: Scaffold (implemented)
 
 ### Step 1: Validate the target
