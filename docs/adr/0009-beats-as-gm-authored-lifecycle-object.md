@@ -21,6 +21,18 @@ A Thread is something the *party* is pursuing or owes. A Beat is something the *
 3. **Brief scratchpad promotion** — items the GM jots in the Brief's scratchpad get offered as Beat candidates by the next `/wrap-session`.
 4. **`/ingest` extraction** — agent extracts Beats from GM-authored source docs (encounter tables, planned scenes, per-PC personal hooks, "if X then Y" contingent deliveries, tagged adventure content). The GM-authored constraint still holds: the source docs *are* the GM's authoring, just retroactively. The agent is preserving prep content, not inferring intent from session events. Per ADR-0007's date-honesty rule, ingest-era Beats carry `created: ~` (null) unless the source provides an explicit date — the agent does not stand in the ingest date for unknown authoring dates.
 
+   **Linked-field population at extraction time.** `/ingest` populates `linked_adventures`, `linked_locations`, `linked_pcs`, and `linked_npcs` on each extracted Beat using proximity heuristics in the source doc — *not* leaving them empty for downstream backfill. These fields exist specifically to feed the surfacing-at-scale tiers below, and an unpopulated Beat ends up in the "unlinked, review and tag" tier where it adds friction without informing the Brief. The skill's authoritative rules live in `skills/ingest/SKILL.md` (Step 3, **Beat shape** subsection); the heuristics, in summary:
+
+   - If the source doc is adventure-shaped (being ingested as `adventures/<slug>/`), every Beat from it gets `linked_adventures: [<slug>]` automatically — the link is structural, not inferred.
+   - If the source doc is world-info-shaped, link to an Adventure only when a Beat-shaped passage explicitly names one in its own paragraph, bullet, or enclosing heading section.
+   - For `linked_locations`, link locations named in the Beat's own paragraph or bullet, or named in the enclosing heading. The "near" radius is narrower than for Adventures because locations are usually tagged precisely.
+   - For `linked_pcs`, require explicit attribution (*"for Darius:"*, *"Darius's hook:"*). Generic party references don't justify a PC link.
+   - For `linked_npcs`, require the NPC to be the actor or subject of the Beat — name-drops without role context aren't enough.
+   - When proximity is ambiguous (multiple Adventures named near a Beat; two Locations matching the same name), surface as an ASK in the per-doc review rather than guessing.
+   - Default to `[]` (empty list with the YAML key present), not omission of the key — downstream skills read these fields without conditional logic.
+
+   This behavior was added in response to a dogfooding regression (issue #15) where ingest extracted Beats with empty `linked_*` fields, forcing a manual 22-Beat backfill and breaking `/prep-session`'s relevance filtering.
+
 Heuristics for an item being Beat-shaped in a source doc: unchecked encounter lists, sections labelled "scenes I want to drop in," personal-hook bullets attributed to a specific PC, content the party doesn't know about yet but the GM wants to land. Threads (party-aware hooks) and Consequences (past-derived facts) are extracted under their own rules — Beats fill the third lifecycle slot.
 
 ## In Briefs
