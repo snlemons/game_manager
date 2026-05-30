@@ -1,5 +1,6 @@
 {
-  "_comment": "Pre-approved permissions for ttrpg-gm plugin operations on this campaign repo. Patterns use //absolute paths (substituted at scaffold time) so they match regardless of cwd or project-root resolution. If you move this campaign to a different directory, regenerate or hand-edit these paths.",
+  "_comment_path": "Permissions baked for campaign at {{CAMPAIGN_PATH}}.",
+  "_comment_recovery": "If $(pwd) doesn't match the path above, this campaign was moved. Re-run /ingest Phase 1 scaffolder against this directory, or update the paths in permissions.allow / permissions.deny to match $(pwd). Automated detect-and-warn is tracked in issue #21.",
   "permissions": {
     "allow": [
       "Edit(/{{CAMPAIGN_PATH}}/npcs/**)",
