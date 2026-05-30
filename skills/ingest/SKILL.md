@@ -215,9 +215,9 @@ This slice implements the per-doc loop for **single-doc and multi-doc** inputs, 
 - **Single-doc** (exactly one markdown file in the input directory) is the degenerate case: skip the survey entirely (Phase 2 Step 0 routes here directly), then run Step 1 through Step 6 below for the one doc. Dedup against existing campaign files still applies; cross-doc learning is a no-op because there's no subsequent doc.
 - **Multi-doc** (more than one markdown file) runs after Phase 2 (survey) has confirmed a per-doc description and a processing order. Step 0b sets up the multi-doc loop; Steps 1 through 6 run **per doc, in confirmed order**; cross-doc dedup is applied at Step 3; carried-forward lessons accumulate from each doc's review and feed the next doc's extraction.
 - Non-markdown files in the input directory (PDFs, images, etc.) are reported in the closing summary and **skipped without halting**.
-- **No Beat extraction.** Per CONTEXT.md and ADR-0009, Beats are GM-authored; ingest is not a listed creation path. Don't propose Beats.
+- **Beat extraction is allowed during ingest** (ADR-0009 creation path #4). The source docs *are* the GM's authoring; the agent is preserving GM-prepped scenes, not inferring intent. See Step 2 below for what Beat-shaped content looks like.
 
-ADR-0008 governs the workflow shape; this slice implements its per-doc loop, dedup, and cross-doc learning verbatim. Slice 3 carve-outs (no wrap-up; no Beat extraction) are intentional, not silent deviations.
+ADR-0008 governs the workflow shape; this slice implements its per-doc loop, dedup, and cross-doc learning verbatim.
 
 ### Step 0: Pre-flight checks
 
@@ -301,12 +301,12 @@ Identify:
 
 - **Reference notes**: named NPCs, locations, factions, and items the doc introduces or describes substantively. ADR-0003 says one file per Reference note; default content is a one-liner derived from prose, not a filled-out template.
 - **Adventure-shape**: does this doc describe a story arc the party will run (a coherent set of scenes, locations, or stages tied together by a goal)? If yes, plan an `adventures/<slug>/adventure.md` file with ADR-0007 frontmatter. If no (it's a Reference note dump, world info, or session-narrative), don't fabricate an Adventure.
-- **Threads**: explicit unresolved hooks, promises, foreshadowed dangers — future-facing, party-relevant. ADR-0004 governs file shape and status frontmatter. Only extract Threads that the doc actually surfaces; don't invent them from thin air.
+- **Threads**: explicit unresolved hooks the party *knows about* — promises the party made, questions they asked, dangers they were warned about. Future-facing, party-aware. ADR-0004 governs file shape and status frontmatter. Only extract Threads that the doc actually surfaces as party-aware; don't invent them.
 - **Consequences**: explicit persistent facts about the world resulting from prior action ("the temple was destroyed", "the lord owes the party a favor"). Past-facing. Same provenance bar as Threads — only what the doc says.
+- **Beats**: GM-prepped scenes the party doesn't yet know about — unchecked encounter lists, planned scenes, per-PC personal hooks ("for Darius: a test of discipline"), adventure-tagged scene ideas, "if X then Y" contingent deliveries. Future-facing, GM-authored. ADR-0009 frontmatter: `status: pending`, `created: <ingest date>`, optional `linked_pcs` / `linked_npcs` / `linked_adventures` / `linked_locations` populated from whatever the source attributes. *Threads vs Beats test*: if the party knows about it, it's a Thread; if it's the GM's prep, it's a Beat. When the source is ambiguous about awareness, default to Beat and the GM can re-classify in the per-doc review.
 
 What **not** to extract:
 
-- **Beats.** GM-authored only (ADR-0009; CONTEXT.md). Skip.
 - **Session structure** (`sessions/YYYY-MM-DD-session-N/`). Sessions are created by `/prep-session` and `/wrap-session`; do not synthesize them from a doc even if the doc looks like a session log. If the GM-confirmed description identifies the doc as a session log, surface that to the GM and ask whether it should be filed as an Adventure-side history note (under `adventures/<name>/`) or skipped — don't manufacture a `sessions/` directory.
 - **Atlas content.** v0.1 is single-repo (ADR-0006); no cross-repo links into an Atlas. Treat all extracted content as campaign-local.
 
@@ -480,6 +480,7 @@ Write every proposed file to `.ttrpg-staging/doc-<N>/` in the campaign repo, mir
 | Reference note (CREATE-disambiguated from ASK) | `.ttrpg-staging/doc-<N>/<kind>/<disambiguated-slug>.md` |
 | Thread (CREATE) | `.ttrpg-staging/doc-<N>/threads/<slug>.md` |
 | Consequence (CREATE) | `.ttrpg-staging/doc-<N>/consequences/<slug>.md` |
+| Beat (CREATE) | `.ttrpg-staging/doc-<N>/beats/<slug>.md` |
 
 For UPDATE items, read the existing file from the campaign repo, apply the proposed edit in memory, write the merged result to staging — so the GM sees and edits the full final state of the file, not just the addition.
 
@@ -672,7 +673,9 @@ Write `campaign.md` from scratch. Do not preserve manual GM edits to the prior `
 
 ## Pending beats
 
-*None yet. Beats are GM-authored or proposed by `/wrap-session`.*
+<bullet list of every Beat with `status: pending`, one line each, oldest `created:` first>
+
+*Or, if there are none: "_None yet._"*
 ```
 
 The header comment paragraph (the italics block) is preserved verbatim from the template — it tells the GM the file is agent-maintained, which is true for both Phase 4 and future `/wrap-session` regens.
@@ -759,13 +762,21 @@ Do **not** invent a location. The "best-effort" framing in the issue spec explic
 
 #### Pending beats
 
-Always renders as the literal placeholder:
+Renders one bullet per `status: pending` Beat in `beats/`, sorted by `created:` ascending (oldest first, so freshly-ingested Beats appear in the order the source docs presented them). Format per line:
 
 ```
-*None yet. Beats are GM-authored or proposed by `/wrap-session`.*
+- <Beat name> [[beats/<slug>]] — <one-line summary from frontmatter or body opening>
 ```
 
-Per ADR-0009 and CONTEXT.md, Beats are GM-authored only; ingest does not create them. The section appears (so the shape matches `/wrap-session`'s regen) but is trivially empty at ingest time. Don't omit the heading — the GM needs to know the agent looked.
+If a Beat has `linked_adventures`, `linked_pcs`, or `linked_locations` populated, append a short scope hint: `(linked: Elemental Evil, Darius)`.
+
+If `beats/` has no `status: pending` files (rare immediately after ingest if the GM-authored prep had no Beat-shaped content), render the placeholder:
+
+```
+*None yet._*
+```
+
+Note on scale: when there are many pending Beats (common after ingesting a long-running campaign with prepped encounter content), this section gets long. ADR-0009's surfacing-at-scale design (relevance-filtered tiered display) is a Brief-time concern, not a campaign.md concern — `campaign.md` is the state snapshot and shows everything. The Brief is where filtering matters.
 
 ### Step 3: Secondary commit
 
@@ -784,8 +795,9 @@ Walk the working tree from the campaign repo root. For each kind, count files th
 - `adventures/` — count of new `adventures/<slug>/adventure.md` files (one per Adventure; don't count sub-files separately for the headline count, but mention sub-files in the body if any exist).
 - `threads/` — count of new Thread files.
 - `consequences/` — count of new Consequence files.
+- `beats/` — count of new Beat files (ADR-0009 path #4: ingest extracts Beats from GM-authored prep).
 - `campaign.md` — modified (the Phase 4 Step 2 regen).
-- Anything else (e.g., the GM authored Beats during ingest, which is not the standard path but possible if they hand-wrote one before invoking wrap-up) — count it but note it as "other" in the proposed message.
+- Anything else — count it but note it as "other" in the proposed message.
 
 Modified files from Phase 3 (UPDATEs to existing Reference notes) are counted under "Reference notes updated" separately from new ones, mirroring Phase 3 Step 6's closing-summary distinction.
 
@@ -863,7 +875,7 @@ End cleanly. Do not loop back into Phase 3.
 - Don't write to anywhere outside the target campaign directory.
 - Don't ask the GM to fill out forms or pick from long lists. Capture-now-structure-later (ADR-0004).
 - Don't invent dates, NPC names, or campaign details the source doc didn't provide.
-- Don't extract Beats during ingest (ADR-0009 / CONTEXT.md — GM-authored only).
+- Don't extract a Thread for content the party isn't aware of in the source doc — that's a Beat (ADR-0009 path #4; the Thread/Beat awareness test). When the source is ambiguous, default to Beat and surface to the GM for re-classification.
 - Don't synthesize `sessions/YYYY-MM-DD-session-N/` directories from source docs (ADR-0005 — Sessions are created by `/prep-session`).
 - Don't recurse into input subdirectories (ADR-0006 — flat directory only in v0.1).
 - Don't silently overwrite an existing Reference note. Confident dedup matches propose **updates** (which the GM approves); ambiguous matches surface as yes/no questions; Adventure name collisions still stop and ask. The agent never picks identity silently.
@@ -881,6 +893,6 @@ End cleanly. Do not loop back into Phase 3.
 - **ADR-0006** — v0.1 input is flat-directory local markdown only; non-markdown is skipped, no recursion.
 - **ADR-0007** — Adventure frontmatter schema (`status` required, `order` optional/ingest-era, dates optional/nullable, durations free-form prose) and the agent-maintained `campaign.md` Campaign overview shape that Phase 4 Step 2 composes. The agent never invents dates.
 - **ADR-0008** — Ingest's full workflow is survey + per-doc + wrap-up; slice 4 implements all four phases (survey, per-doc loop with cross-doc dedup and learning, and wrap-up with the bulk order prompt, `campaign.md` composer, and follow-up commit). Bounded skim plus GM-edited descriptions plus GM-confirmed processing order steer extraction.
-- **ADR-0009** — Beats are GM-authored only; ingest does **not** create them. Phase 4's `campaign.md` renders the "Pending beats" section as a literal "none yet" placeholder.
+- **ADR-0009** — Beats are GM-authored. Ingest is the fourth creation path (source docs are the GM's prior authoring). Extract Beat-shaped content (encounter lists, planned scenes, per-PC hooks, adventure-tagged ideas). Threads vs Beats is the party-awareness test: party knows → Thread; GM prep → Beat. Phase 4's `campaign.md` lists pending Beats explicitly. Brief-time relevance filtering is a future enhancement.
 - **ADR-0011** — Plugin doesn't own ongoing git operations beyond `/ingest`'s two bookend commits (the scaffolder's initial commit and Phase 4's follow-up commit). `/wrap-session` and every workflow downstream of `/ingest` does not auto-commit. The follow-up commit is `/ingest`'s symmetric bookend, not a precedent for steady-state auto-commit.
 - **ADR-0013** — Skill packaging (`skills/<name>/SKILL.md`); templates live under `templates/`.

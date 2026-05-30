@@ -69,8 +69,10 @@ A persistent fact about the world resulting from the party's actions ("the guard
 _Avoid_: Fact, state change, event.
 
 **Beat**:
-A GM-authored intention to deliver a specific content moment opportunistically — a planned consequence, a piece of news, an item to hand out, a character development moment. Future-facing. Has status (`pending`, `delivered`, `dropped`). One file per Beat in `beats/`. Created by GM authoring directly, by `/wrap-session` proposal, or by promotion from a Brief scratchpad. Surfaces in pre-session Briefs in an "optional, weave in if possible" section. Referenced from adventures via `[[wiki links]]` when scoped; backlinks tell the agent which adventure a Beat belongs to.
+A GM-authored intention to deliver a specific content moment opportunistically — a planned scene, a piece of news, an item to hand out, a character development moment. *A scene the GM has prepped, waiting for an opening to land.* Future-facing. Has status (`pending`, `delivered`, `dropped`). One file per Beat in `beats/`. Created by GM authoring directly, by `/wrap-session` proposal, by promotion from a Brief scratchpad, or by `/ingest` extraction from GM-authored source docs (see ADR-0009 — the source docs are the GM's authoring). Surfaces in pre-session Briefs in an "optional, weave in if possible" section, filtered by relevance to current campaign context. Optional frontmatter: `linked_pcs`, `linked_npcs`, `linked_adventures`, `linked_locations`.
 _Avoid_: Seed, hook (overloaded with "plot hook"), setup.
+
+Contrast with **Thread**: an open hook the party knows about, waiting for resolution. The defining test is *party awareness* — if the party knows the situation exists and may act on it, it's a Thread; if it's GM prep the party hasn't encountered, it's a Beat.
 
 **Post-session extraction**:
 The workflow where, after a session, the agent reads in-play session notes and proposes new Threads, Consequences, and Reference notes. The GM approves a batch with minimal friction. This is the structural moment in the system — capture during play is unstructured; structure emerges here.
