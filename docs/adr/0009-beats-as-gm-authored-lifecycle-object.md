@@ -2,6 +2,8 @@
 
 Beats are planned content moments the GM intends to deliver opportunistically (a consequence to land, an item to hand out, a piece of news to drop). They are a **third lifecycle file type** alongside Threads and Consequences, distinguished by **author** and **direction**: GM-authored, future-facing, with status `pending → delivered | dropped`.
 
+> **Live spec:** the canonical Beat frontmatter schema (fields, types, defaults) is `references/frontmatter-schemas.md`. The "Surfacing at scale" section in this ADR describes the Brief-time relevance tiers; the schema part defers to the reference.
+
 Files live in `beats/`, one per Beat, with frontmatter for `status`, `created`, `delivered` (null until landed), and optional `linked_pcs` / `linked_npcs` / `linked_adventures` / `linked_locations` lists. Adventures (or anything else) reference Beats via `[[wiki links]]`; the agent uses backlinks to scope Beats to adventures when relevant.
 
 ## Why distinct from Threads and Consequences

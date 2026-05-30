@@ -27,10 +27,12 @@ _Avoid_: Game, story, world (the world is the Atlas).
 **Adventure**:
 A story arc the party runs *inside* a campaign. May be a published module (e.g. *Curse of Strahd*) or homebrew. Lives under `adventures/<name>/` in a campaign repo. Has a lifecycle: `introduced` → `active` → `completed | abandoned`. Carries frontmatter for `status` (required), `order` (ingest-era reliable sequence), `introduced` / `started` / `completed` dates (optional, null when unknown), and free-form `in_world_duration` / `real_world_duration` annotations.
 _Avoid_: Module (reserved for *published* adventures specifically), arc, quest.
+_See also_: `references/frontmatter-schemas.md` for the Adventure schema.
 
 **Campaign overview**:
 A campaign-root `campaign.md` file, agent-maintained, snapshotting the campaign's current state in human-readable form (active adventures, open threads, recent consequences, party location). Rewritten by `/wrap-session` and `/ingest`. Distinct from `/timeline` (historical) and from GM-editorial files (which live separately).
 _Avoid_: Index, README, dashboard.
+_See also_: `references/campaign-overview-composer.md` for the live composer spec.
 
 **Atlas**:
 A shared setting repo that holds world content (regions, gods, calendars, recurring NPCs) used across multiple campaigns. Separate git repo from any campaign. Treated as a default; campaigns override it locally.
@@ -41,6 +43,7 @@ _Avoid_: Setting, world (use Atlas), lore.
 **Reference note**:
 A static, linked-to entry about a thing in the world: an NPC, a location, a faction, an item. **One file per Reference note** (e.g. `npcs/sera.md`), so links and backlinks work natively. Default content is a one-liner; the GM never fills out a form.
 _Avoid_: Entity, record, document.
+_See also_: `references/reference-note-extraction.md` for the extraction heuristic.
 
 **Session**:
 The unit of play. Each session is a directory `sessions/YYYY-MM-DD-session-N/` containing three documents (Brief, In-play notes, Log) with distinct lifecycles. All three are preserved indefinitely.
@@ -63,14 +66,17 @@ _Avoid_: Summary, recap, journal.
 **Thread**:
 A hook the GM should be reminded about — a promise, an unresolved question, a foreshadowed danger. Future-facing. Has status (`open`, `closed`, `decayed`). One file per thread in `threads/`, created via Post-session extraction.
 _Avoid_: Hook, loose end, plot point.
+_See also_: `references/frontmatter-schemas.md` for the Thread schema.
 
 **Consequence**:
 A persistent fact about the world resulting from the party's actions ("the guard captain owes them a favor"). Past-facing; doesn't close — it just becomes part of the world the agent consults when describing things. One file per consequence in `consequences/`, created via Post-session extraction.
 _Avoid_: Fact, state change, event.
+_See also_: `references/frontmatter-schemas.md` for the Consequence schema.
 
 **Beat**:
 A GM-authored intention to deliver a specific content moment opportunistically — a planned scene, a piece of news, an item to hand out, a character development moment. *A scene the GM has prepped, waiting for an opening to land.* Future-facing. Has status (`pending`, `delivered`, `dropped`). One file per Beat in `beats/`. Created by GM authoring directly, by `/wrap-session` proposal, by promotion from a Brief scratchpad, or by `/ingest` extraction from GM-authored source docs (see ADR-0009 — the source docs are the GM's authoring). Surfaces in pre-session Briefs in an "optional, weave in if possible" section, filtered by relevance to current campaign context. Optional frontmatter: `linked_pcs`, `linked_npcs`, `linked_adventures`, `linked_locations`.
 _Avoid_: Seed, hook (overloaded with "plot hook"), setup.
+_See also_: `references/frontmatter-schemas.md` for the Beat schema.
 
 Contrast with **Thread**: an open hook the party knows about, waiting for resolution. The defining test is *party awareness* — if the party knows the situation exists and may act on it, it's a Thread; if it's GM prep the party hasn't encountered, it's a Beat.
 

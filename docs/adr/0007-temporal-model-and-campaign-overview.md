@@ -2,6 +2,8 @@
 
 The campaign tracks time on **two axes** (real-world and in-fiction), **neither required**, with **different reliability between ingest-era and session-tracked data**. State is exposed through two surfaces: structured frontmatter on adventures (queryable, machine-readable) and an agent-maintained `campaign.md` (human-readable snapshot).
 
+> **Live spec:** the canonical `campaign.md` composer is `references/campaign-overview-composer.md`. The Adventure frontmatter schema is `references/frontmatter-schemas.md`. This ADR is the historical decision record; the references are the live specs the skills run.
+
 ## Adventure frontmatter
 
 ```yaml
