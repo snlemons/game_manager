@@ -81,6 +81,19 @@ Read enough of the repo to seed every Brief section. Be thorough but don't dump 
 
 Honor `.claude/rules/sessions.md` and `.claude/rules/adventures.md` if present — they describe campaign-local conventions.
 
+### Refresh `campaign.md` from the just-read state
+
+`campaign.md` is the agent-maintained Campaign overview (ADR-0007). Between sessions, the GM may have edited state (closed Threads, marked Adventures, added Reference notes), and the overview can go stale. You've just read all the relevant state to compose the Brief — regenerate `campaign.md` now from the same data, *before* drafting the Brief, so:
+
+- The Brief's "Active adventures" / "Open threads" / "Recent consequences" sections reflect actually-current state, not what a stale `campaign.md` said.
+- The overview file is honest by the time the GM opens it for any reason.
+
+Use the same campaign-overview composer logic that `/wrap-session` runs and that `/ingest` Phase 4 runs — there is one canonical `campaign.md` shape (ADR-0007). Write the regenerated `campaign.md` to `<campaign-root>/campaign.md`.
+
+**This write is independent of Brief approval.** Even if the GM cancels at Step 4, the regeneration stays — the refresh reflects state the GM already changed, it's not a new edit waiting on approval. The agent-maintained file going from stale to current is honesty, not a decision.
+
+Briefly tell the GM in chat that this happened: *"Refreshed `campaign.md` to reflect current state before composing the Brief."* If the regeneration produced no actual diff against the prior `campaign.md` (state was already current), skip the message — it's noise.
+
 ## Step 3 — Draft `brief.md`
 
 Draft the Brief with **all** sections from ADR-0010, **in this exact order and with these exact section headings**:
