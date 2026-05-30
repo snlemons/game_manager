@@ -587,7 +587,21 @@ Before doing any GM-visible prompting:
 
 1. **Campaign repo state.** The same invariants from Phase 3 Step 0 must hold (`CLAUDE.md`, `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, `campaign.md` all present). If any are missing, stop and tell the GM the repo isn't scaffolded — Phase 4 cannot wrap up a repo that hasn't been scaffolded.
 2. **Confirm wrap-up is wanted.** If Phase 4 is being invoked at the end of a Phase 3 run, tell the GM the per-doc loop is complete and ask explicitly: *"Run wrap-up now (order prompt, regenerate `campaign.md`, commit), or hold and let you inspect the repo first?"* Accept "wrap up", "go ahead", "hold", "cancel" as response shapes. If the GM holds or cancels, exit cleanly — the already-written files from Phase 3 stay on disk; the GM can invoke wrap-up later or commit themselves.
-3. **Surface uncommitted state.** Run `git status --porcelain` in the campaign repo. The expected state at this point is "lots of new untracked files from Phase 3 plus a modified `campaign.md` once Phase 4 Step 2 regenerates it." If anything looks anomalous — e.g., uncommitted changes that *predate* Phase 3 because a prior run was interrupted — surface a short list and ask the GM to confirm before continuing. Don't silently swallow pre-existing state into the wrap-up commit.
+3. **Surface uncommitted state — but only when it actually warrants attention.** Run `git status --porcelain` in the campaign repo. Sort the entries into **expected** and **unexpected** before prompting the GM. Don't ask about expected files.
+
+   **Expected** (proceed silently; these go into the wrap-up commit):
+   - Untracked files under the lifecycle/reference folders: `npcs/`, `locations/`, `factions/`, `items/`, `adventures/`, `threads/`, `consequences/`, `beats/`. These are Phase 3's output.
+   - Untracked files under `sessions/` (rare during fresh ingest, but allowed — Phase 3 may have proposed Adventure-side history under `adventures/<slug>/` rather than synthetic sessions; still, accept).
+   - Untracked scaffolder artifacts inside `.claude/`: notably `.claude/settings.json` and any other file the plugin's current Phase 1 templates list write. Older plugin versions did not include every current template in the initial commit; the wrap-up commit absorbs them. Treat any `.claude/<file>` that matches the current Phase 1 template set as expected.
+   - Untracked `.gitignore` at the campaign root — same staleness reason; matches the Phase 1 template set.
+   - Modified `campaign.md` (after Phase 4 Step 2 regenerates it — at *this* pre-flight check it should still be the Phase 1 placeholder, but a modified entry here is also expected if the GM is re-running wrap-up after a partial Phase 4).
+
+   **Unexpected** (surface a short list to the GM and ask before proceeding):
+   - Uncommitted files at paths *outside* the expected set — e.g., the GM hand-authored a file at the campaign root, or a prior run was interrupted and left half-state somewhere unusual.
+   - Anything under `.ttrpg-staging/` (it's gitignored, so this should never show up in `git status` — if it does, the gitignore is broken; flag it).
+   - Modified files (M-status) outside `campaign.md` — Phase 3 only creates new files, so modifications to existing tracked content suggest the GM (or another run) touched something.
+
+   If everything is expected, proceed silently to Step 1. If anything is unexpected, surface a short list of just the unexpected entries (not the expected ones — the GM doesn't need a wall of "yes this is fine"), and ask whether to proceed with those included in the wrap-up commit, exit cleanly, or have the GM resolve them first.
 
 ### Step 1: Order prompt for missing `order:` values
 
