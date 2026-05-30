@@ -447,51 +447,87 @@ The drafted-proposal set from Step 3 is now annotated, per Reference note, with 
 
 These annotations feed the per-doc review in Step 4.
 
-### Step 4: Per-doc diff-style review
+### Step 4: Per-doc review via staging directory
 
-Present **all** proposed changes from this doc in a single review screen, before writing anything. Use whatever diff-style review affordance Claude Code provides in the current context:
+This step has two parts. First, resolve any ambiguous-dedup ASK items inline in chat (those need GM decisions before staging makes sense). Second, write the resolved set of proposed files to a per-doc staging directory the GM edits in their IDE.
 
-- If a diff-style preview is available (e.g., the file write tool will show a per-file diff), present each proposed file as a creates-this-file or updates-this-file diff.
-- Otherwise, show each file's full proposed content inline in fenced markdown blocks labelled with the target relative path, grouped by kind:
+#### Step 4a: Resolve ambiguous-dedup questions inline
 
-  1. Adventure (if any): `adventures/<slug>/adventure.md` and any sub-files.
-  2. Reference notes: grouped by folder — NPCs, locations, factions, items. Annotate each as CREATE, UPDATE (with the existing path and the proposed addition shown), or ASK (with the yes/no question stated explicitly).
-  3. Threads.
-  4. Consequences.
+If Step 3b produced any ASK items (ambiguous Reference-note matches the agent isn't confident about), surface them in chat as a short numbered list of yes/no questions:
 
-Also list, before the per-file diffs:
+```
+Doc 2 of 3: Past Travel.md — 2 ambiguous dedup questions to resolve before review:
 
-- The GM-confirmed description from Step 1 (or carried over from the survey).
-- **Lessons carried from prior docs in this run.** A short bulleted list of carried-forward lessons being applied to this doc's extraction. Empty for the first doc; non-empty from doc 2 onward in a multi-doc run. Empty for single-doc.
-- A one-line summary count (e.g., *"1 Adventure, 4 Reference notes (3 NPCs CREATE, 1 location UPDATE), 1 ambiguous dedup question, 2 Threads, 1 Consequence"*).
-- For multi-doc: the position of this doc in the run (e.g., *"Doc 2 of 4"*).
-- The non-markdown files that will be skipped, by relative path (only on the first doc of the run; don't repeat per doc).
+  1. Sera (proposed NPC): possible match to existing `npcs/sera.md` ("Sera the blacksmith from Lost Mines"). Same person?
+  2. The Citadel (proposed location): possible match to existing `locations/the-citadel.md` ("Mountain fortress in the north"). Same place?
 
-Then ask explicitly:
+Reply with answers (e.g., "1 yes, 2 no, call it 'the-citadel-of-glass'"). For "no", supply a disambiguated slug.
+```
 
-> *Approve all, edit, reject specific items, or reject everything? Also answer any ambiguous-dedup questions in the same response.*
+When the GM resolves, convert each ASK to either a confident UPDATE (yes) or a CREATE at a disambiguated slug (no). Record the resolutions in the carried-forward lessons set (Step 5b will keep these for subsequent docs in the run). Then proceed to Step 4b.
 
-Accept these responses:
+If the GM resolves only some ASK items, re-ask the unresolved ones — don't proceed to staging until every ASK has a decision.
 
-1. **Approve all** → all ASK items must have been resolved by the GM in the same response (yes = treat as confident UPDATE; no = treat as CREATE with a disambiguated slug the GM confirms). Then proceed to Step 5 and write every proposed file.
-2. **Edit** → the GM names one or more proposed files and supplies revisions (or asks the agent to revise specific fields). Apply edits to the in-memory drafts, re-present the affected items, ask again. Loop until the GM approves or rejects.
-3. **Reject specific items** → the GM names items to drop. Remove them from the proposed set. Re-present the trimmed set, ask again. Rejections are first-class signals for cross-doc learning (Step 5b).
-4. **Reject everything** → write nothing for this doc, leave the filesystem unchanged for this doc, and (in multi-doc) ask the GM whether to continue to the next doc or exit the run. Already-written approved files from prior docs in the same run stay written.
+#### Step 4b: Stage proposed files for IDE-based edit
 
-Rejected items must never be written. Approved items must be written exactly as approved (or as the GM edited them) — no late re-interpretation. Ambiguous-dedup ASK items that the GM doesn't resolve in the response must be re-asked before any write — the agent does not silently pick.
+Write every proposed file to `.ttrpg-staging/doc-<N>/` in the campaign repo, mirroring the campaign's directory structure. For multi-doc runs, `<N>` is the doc's position in the processing order (1, 2, 3…). For single-doc, use `doc-1/`. Each proposed file lands at its eventual relative path *inside* `doc-<N>/`:
 
-### Step 5: Write approved items
+| Proposed change | Staging path |
+|---|---|
+| Adventure (CREATE) | `.ttrpg-staging/doc-<N>/adventures/<slug>/adventure.md` and any sub-files |
+| Reference note (CREATE) | `.ttrpg-staging/doc-<N>/<kind>/<slug>.md` (kind = `npcs`, `locations`, `factions`, `items`) |
+| Reference note (UPDATE) | `.ttrpg-staging/doc-<N>/<kind>/<slug>.md` — write the **full proposed new content** of the file (existing content + the proposed update), not a diff |
+| Reference note (CREATE-disambiguated from ASK) | `.ttrpg-staging/doc-<N>/<kind>/<disambiguated-slug>.md` |
+| Thread (CREATE) | `.ttrpg-staging/doc-<N>/threads/<slug>.md` |
+| Consequence (CREATE) | `.ttrpg-staging/doc-<N>/consequences/<slug>.md` |
 
-Once the GM approves:
+For UPDATE items, read the existing file from the campaign repo, apply the proposed edit in memory, write the merged result to staging — so the GM sees and edits the full final state of the file, not just the addition.
+
+Then present a chat summary listing what's staged, with the same metadata Step 4 used to surface before:
+
+```
+Doc 2 of 3: Past Travel.md — proposed changes staged at .ttrpg-staging/doc-2/
+
+Description: World info: travel notes on routes between major cities.
+Lessons applied:
+  - Skip passing innkeepers as NPCs (from doc 1 rejections).
+
+Summary: 1 Adventure, 4 Reference notes (3 NPCs CREATE, 1 location UPDATE), 2 Threads, 1 Consequence.
+
+Files:
+  adventures/spring-circuit/adventure.md       — CREATE
+  npcs/orin.md                                 — CREATE
+  npcs/sera.md                                 — UPDATE (full new content staged)
+  locations/the-broken-mines.md                — CREATE
+  threads/find-orin.md                         — CREATE
+  consequences/orin-owes-favor.md              — CREATE
+
+Edit any file in `.ttrpg-staging/doc-2/`, delete any file to reject that proposal, then tell me to continue. Or say cancel to exit cleanly.
+
+(In a multi-doc run: skipped non-markdown files are listed on doc 1's review only; not repeated per doc.)
+```
+
+Accept these response shapes:
+
+1. **Continue** → re-read every file remaining in `.ttrpg-staging/doc-<N>/` to capture GM edits. Treat any staged file the GM deleted as rejection (don't write that one; record the rejection for Step 5b's lessons capture). Proceed to Step 5 to move surviving staged files to their final locations.
+2. **Reject everything** → delete `.ttrpg-staging/doc-<N>/`. Write nothing for this doc. In multi-doc, ask the GM whether to continue to the next doc or exit the run. Already-written approved files from prior docs in the same run stay written.
+3. **Cancel** → delete `.ttrpg-staging/doc-<N>/` (and `.ttrpg-staging/` if it's now empty), leave the rest of the filesystem unchanged, exit cleanly. Already-written approved files from prior docs in the same run stay written.
+
+Rejected items (whether per-file via deletion or per-doc via reject-everything) must never be written to final locations. Approved items must be written exactly as the GM left them in the staging file — no late re-interpretation.
+
+### Step 5: Move approved items from staging to final locations
+
+Once the GM says continue in Step 4b, move every file remaining in `.ttrpg-staging/doc-<N>/` to its corresponding final location in the campaign repo. Paths inside `doc-<N>/` mirror the campaign repo, so the move is a path translation — strip the `.ttrpg-staging/doc-<N>/` prefix to get the final path.
 
 1. Create any needed directories under the campaign repo: `adventures/<slug>/`, `npcs/`, `locations/`, `factions/`, `items/`, `threads/`, `consequences/` — but **only** those needed for approved items. Don't pre-create empty folders for kinds with no content (matches Phase 1 Step 2 rule).
-2. For each approved item, dispatch by its Step 3b annotation:
-   - **CREATE** — write the proposed file at its proposed path. If a path collision occurs against a Reference note that wasn't surfaced by Step 3b (e.g., because the slug differs from any existing file by some edge case the matching procedure missed), STOP and tell the GM the exact conflicting path. Do not overwrite without explicit GM confirmation.
-   - **UPDATE** — modify the existing file as the GM approved. Default behavior is append the new sentence to the body; if the GM edited the proposed update to be an inline change or a frontmatter touch, apply that. Preserve any GM-authored prose; never overwrite a file's body wholesale at this step. If the existing file has changed on disk between Step 3b and Step 5 (race against the GM editing in another window), STOP and re-present the update before writing.
-   - **CREATE (disambiguated from ASK)** — when an ambiguous match was resolved "no, distinct entity" and the GM confirmed a disambiguated slug at Step 4, write at the disambiguated path.
+2. For each surviving staged file, dispatch by its Step 3b annotation (preserved from before staging):
+   - **CREATE** — write the staged content to the proposed path. If a path collision occurs against a Reference note that wasn't surfaced by Step 3b (e.g., because the slug differs from any existing file by some edge case the matching procedure missed), STOP and tell the GM the exact conflicting path. Do not overwrite without explicit GM confirmation.
+   - **UPDATE** — replace the existing file with the staged content (which already contains the GM-edited final state of the file). If the existing file has changed on disk between Step 4b's stage-write and Step 5's read-back (race against the GM editing the live file in another window), STOP and re-present the update before writing.
+   - **CREATE (disambiguated from ASK)** — write the staged content to the GM-confirmed disambiguated path.
    - For **Adventure** name collisions (existing `adventures/<slug>/` directory), STOP and surface to the GM exactly as before. Slice 3 has no Adventure dedup.
-3. Do not modify `campaign.md`, `CLAUDE.md`, or anything under `.claude/` from inside Phase 3. Campaign-overview regeneration belongs to Phase 4. Don't drift `campaign.md` from its scaffolded state during the per-doc loop.
-4. Do **not** commit. Ongoing git ownership belongs to the GM (ADR-0011). The plugin only commits once, in the scaffold phase.
+3. After each file is moved, delete it from staging. When `.ttrpg-staging/doc-<N>/` is empty, remove the directory. If `.ttrpg-staging/` is now empty (no other workflows' staging present), remove that too.
+4. Do not modify `campaign.md`, `CLAUDE.md`, or anything under `.claude/` from inside Phase 3. Campaign-overview regeneration belongs to Phase 4. Don't drift `campaign.md` from its scaffolded state during the per-doc loop.
+5. Do **not** commit. Ongoing git ownership belongs to the GM (ADR-0011). The plugin only commits once, in the scaffold phase (and once again at Phase 4 wrap-up).
 
 ### Step 5b: Capture cross-doc learning
 
