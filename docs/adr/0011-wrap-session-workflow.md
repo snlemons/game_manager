@@ -26,9 +26,11 @@ Putting ambiguity-resolution between extraction and review keeps the review clea
 
 ## Why no auto-commit
 
-The plugin owns scaffolding (`/ingest` runs `git init` and commits once at migration), but does not own ongoing git operations. After v0.1 launch, the GM commits with their own messages, amends as needed, and uses git however they like. Auto-commit would introduce surprise (commits the GM didn't expect) and create reconciliation burden if they wanted to edit before committing.
+The plugin owns scaffolding (`/ingest` runs `git init` and commits once at migration), but does not own ongoing git operations by default. After v0.1 launch, the GM commits with their own messages, amends as needed, and uses git however they like. Auto-commit would introduce surprise (commits the GM didn't expect) and create reconciliation burden if they wanted to edit before committing.
 
 The closing message provides the affordance ("here's what changed, here's a suggested commit message") without taking the action.
+
+**Amendment (post-v0.1 dogfooding):** `/prep-session` also auto-commits its discrete checkpoint (one Brief + one notes.md + possibly-refreshed `campaign.md`), since it's the same category of "single coherent change" as `/ingest`'s bookend commits and the asymmetry between ingest (auto-commit) and prep (no commit) was confusing in practice. `/wrap-session`'s auto-commit policy is being evaluated separately — see comments on this ADR or follow-on commits.
 
 ## Re-running `/wrap-session`
 

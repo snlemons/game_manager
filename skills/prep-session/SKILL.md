@@ -196,7 +196,7 @@ Then ask explicitly: *"The drafted Brief is at `.ttrpg-staging/brief-draft.md`. 
 
 Do **not** create `sessions/YYYY-MM-DD-session-N/` or write `brief.md` to its final location during the review — the session directory's existence is the GM's signal that they approved a Brief for that session.
 
-## Step 5 — Write
+## Step 5 — Write and commit
 
 Once the GM says continue:
 
@@ -204,7 +204,21 @@ Once the GM says continue:
 2. Move `.ttrpg-staging/brief-draft.md` to `sessions/YYYY-MM-DD-session-N/brief.md` (i.e., write the final content there, then delete the staging file). If `.ttrpg-staging/` is now empty, remove the directory.
 3. Create `sessions/YYYY-MM-DD-session-N/notes.md` as an **empty file** — no template, no headings, no placeholder content. The GM types into it during play; pre-populating it would defeat its capture-now-structure-later purpose (CONTEXT.md, ADR-0004).
 4. Do **not** create `log.md`. `log.md` is written by `/wrap-session` after the session (ADR-0005, ADR-0011).
-5. Do **not** commit. The plugin doesn't own ongoing git operations (ADR-0011) — the GM commits when they're ready.
+5. **Make a commit** in the campaign repo capturing this prep's changes. ADR-0011 originally said the plugin doesn't own ongoing git operations, but `/prep-session`'s output is a discrete checkpoint (one Brief + one notes.md + a possibly-refreshed `campaign.md`) — the same category as `/ingest`'s bookend commits. Auto-committing here matches `/ingest`'s behavior and means the GM doesn't have to remember to commit between prep and play.
+
+   Stage the specific files this run wrote:
+
+   - `sessions/YYYY-MM-DD-session-N/brief.md`
+   - `sessions/YYYY-MM-DD-session-N/notes.md` (even though empty — having it tracked is what matters)
+   - `campaign.md` — only if Step 2's refresh actually produced a diff (use `git diff --quiet campaign.md` or equivalent; skip the add if unchanged)
+
+   Commit message format:
+   - New session: `Prep session N (YYYY-MM-DD)`
+   - Re-prep of existing session: `Re-prep session N (YYYY-MM-DD)`
+
+   If the commit fails (e.g., git has no user configured), surface the error verbatim and stop — don't try to repair. The brief and notes files stay written; the GM can commit manually.
+
+   Edge case: if the campaign repo has uncommitted changes from other sources mixed in (GM was hand-editing other files between sessions), stage **only** the three paths above. Don't sweep in unrelated changes. If you can't isolate (e.g., `campaign.md` was edited by the GM AND the regen would also edit it), surface the conflict to the GM and ask before staging.
 
 ## Step 6 — Closing message
 
@@ -213,9 +227,7 @@ Tell the GM:
 - Which files were written and where.
 - That `notes.md` is the place to capture during play.
 - That `/wrap-session` will produce `log.md` and propose new Threads, Consequences, and Beats from those notes afterward.
-- (Optional) a one-line suggested commit message they can use, e.g., `Prep session N (YYYY-MM-DD)`.
-
-Do not auto-commit.
+- The commit that was just made: hash and message. If the commit was skipped (failure / edge case from Step 5), say so explicitly and tell the GM what's staged or unstaged for them to handle manually.
 
 ## Quick reference: which ADR governs what
 
