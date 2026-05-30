@@ -2,6 +2,8 @@
 
 `/prep-session` creates a session directory and writes a structured `brief.md` for the GM. v0.1 uses **propose-then-edit**: the agent drafts the brief from current state, presents it as a diff-style review, the GM accepts/edits, and `brief.md` is written. Later versions may move toward more interactive prep (guiding new GMs, brainstorming dialogues), but v0.1 keeps it transactional.
 
+> **Live spec:** the canonical `campaign.md` composer used by `/prep-session`'s Section 2.5 refresh (and by `/wrap-session` and `/ingest`) is `references/campaign-overview-composer.md`. The Brief composition itself stays in this ADR.
+
 ## Brief sections (in order)
 
 ```markdown

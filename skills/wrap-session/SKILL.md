@@ -98,14 +98,13 @@ Don't infer transitions from vague references — require a load-bearing event i
 
 ### Pass 2 — New Reference notes
 
-For each NPC, location, faction, or item mentioned in `notes.md` that does not already have a file in `npcs/`, `locations/`, `factions/`, or `items/`:
+**Before drafting any Reference-note candidates, consult `references/reference-note-extraction.md`** — it defines what counts as a Reference note vs. a passing mention, the folder-by-kind layout, the slug rule for filenames, the one-liner default body, the missing-name handling, and the minimal-frontmatter convention. Apply that heuristic to every NPC, location, faction, or item mentioned in `notes.md` that doesn't already have a file in `npcs/`, `locations/`, `factions/`, or `items/`.
 
-- Propose creating a one-line Reference note (ADR-0003: default content is a one-liner; the GM never fills out a form).
-- Filename: lowercase slug of the name (e.g., `npcs/sera.md`, `locations/the-broken-mines.md`).
-- Body: one sentence stating who/what they are and how they appeared this session. Add `[[wiki links]]` for any related Reference notes that exist or are also being proposed.
-- If the notes reference a thing whose **name is missing or unclear** (e.g., "the blacksmith said…" with no name), do NOT invent a name — defer to ambiguity clarification (Step 3).
+Session-specific orchestration on top of the shared heuristic:
 
-Match conservatively. "The captain" in this session is the same as `npcs/captain-marra.md` only if the notes make that link explicit or the prior Log establishes it. When in doubt, flag for clarification.
+- The candidate's body draws from `notes.md` — one sentence stating who/what they are **and how they appeared this session**. The "this session" framing is the wrap-time distinction.
+- Match conservatively. "The captain" in this session is the same as `npcs/captain-marra.md` only if the notes make that link explicit or the prior Log establishes it. When in doubt, flag for clarification (Step 3).
+- If the notes reference a thing whose **name is missing or unclear** (e.g., "the blacksmith said…" with no name), defer to Step 3 ambiguity clarification rather than inventing a name.
 
 ### Pass 3 — Updates to existing Reference notes
 
@@ -175,11 +174,12 @@ The Log should be readable as a standalone narrative by someone catching up on t
 
 ### Dedup (applies across passes; matters most on re-runs)
 
-Before proposing any new Thread / Consequence / Beat / Reference note, match against existing files:
+**Before proposing any new Thread / Consequence / Beat / Reference note, apply the matching rule from `references/dedup-matching.md`** — it defines the normalization (case-insensitive, strip leading "the", collapse whitespace, hyphenate), what to match against (existing filenames and the first-heading title inside each file), and the three buckets (CREATE / UPDATE / ASK). The test suite at `tests/test_wrap_session_idempotency.py::TestDedupOnRerun` pins this rule against this skill's behavior.
 
-- **Name match:** case-insensitive, light normalization (strip leading "the", collapse whitespace, hyphenate). Match candidate name against existing filenames and the first-heading title inside each file.
-- **Recent provenance:** for Threads/Consequences/Beats, prefer files whose `created:` (or the session referenced in their body) is recent — within the last few sessions. A new Thread proposal that name-matches an existing **open** Thread created last session is almost certainly the same Thread; treat as a no-op or as an update rather than a new file.
-- **On ambiguous match:** do not silently dedup. Flag it for ambiguity clarification ("`threads/deliver-the-letter.md` already exists from session 4; this looks like the same Thread — update or new?").
+Wrap-session-specific orchestration on top of the shared rule:
+
+- **Recent provenance bias.** For Threads / Consequences / Beats, prefer files whose `created:` (or the session referenced in their body) is recent — within the last few sessions. A new Thread proposal that name-matches an existing **open** Thread created last session is almost certainly the same Thread; treat as a confident UPDATE (or a no-op) rather than a new file. This is what makes a `/wrap-session` re-run idempotent against the same `notes.md`.
+- **ASK routes to Step 3 ambiguity clarification** (before the staging review). Don't carry ambiguity into Step 4.
 
 The goal is that re-running `/wrap-session` against the same `notes.md` (after the GM corrected something downstream) produces zero spurious duplicates.
 
@@ -210,7 +210,9 @@ If there are no ambiguities, say so and move to Step 4 directly. Don't manufactu
 
 ## Step 4 — Single proposed-wrap review via staging directory
 
-Write the full proposed change set to `.ttrpg-staging/wrap/` in the campaign repo, mirroring the campaign's directory structure. The `.ttrpg-staging/` directory is gitignored by the scaffolder; create it (and `wrap/` inside it) if it doesn't exist. Each proposed file lands at its eventual relative path *inside* `wrap/`:
+**This step follows the shared staging-file review pattern at `references/staging-pattern.md`** — write proposed final content to a gitignored staging directory, present a chat summary with continue/cancel ask, re-read on continue to capture GM edits, clean up on cancel. Consult that reference for the full lifecycle and invariants before proceeding.
+
+Wrap-session-specific staging shape: write the full proposed change set to `.ttrpg-staging/wrap/` in the campaign repo, mirroring the campaign's directory structure. Each proposed file lands at its eventual relative path *inside* `wrap/`:
 
 | Proposed change | Staging path |
 |---|---|
@@ -258,66 +260,28 @@ Once the GM says continue, move every file that's still in `.ttrpg-staging/wrap/
 
 Order doesn't matter for correctness (files are independent) but a sensible order helps the GM read git diffs later. The per-file rules below describe **what gets written to the final location** — the content was already prepared and edited in staging during Step 4, so by the time you reach this step you're just translating paths.
 
+**Before writing any lifecycle-object frontmatter, consult `references/frontmatter-schemas.md`** — it is the canonical spec for the Thread, Consequence, Beat, and Adventure schemas (required fields, optional fields, value formats, defaults at CREATE, and update rules). Use it to write every new file and every status transition.
+
 1. **Write `log.md`** to `sessions/YYYY-MM-DD-session-N/log.md`. Overwrite if confirmed in the re-run guard.
-2. **Create or update Reference notes** under `npcs/`, `locations/`, `factions/`, `items/`. Create parent directories if missing.
-3. **Create or update Threads** under `threads/`. Frontmatter shape:
-
-   ```yaml
-   ---
-   status: open                 # open | closed | decayed
-   created: 2026-05-29          # YYYY-MM-DD of the session that opened it
-   closed: ~                    # null until status transitions to closed/decayed
-   ---
-   ```
-
-   On closure, set `status: closed` (or `decayed` if that's the disposition) and `closed: <session date>`.
-
-4. **Create Consequences** under `consequences/`. Frontmatter shape:
-
-   ```yaml
-   ---
-   created: 2026-05-29
-   ---
-   ```
-
-5. **Create or update Beats** under `beats/`. Frontmatter shape:
-
-   ```yaml
-   ---
-   status: pending              # pending | delivered | dropped
-   created: 2026-05-29
-   delivered: ~                 # null until status transitions to delivered
-   linked_pcs: []               # optional
-   linked_npcs: []              # optional
-   ---
-   ```
-
-   On delivery, set `status: delivered`, `delivered: <session date>`. On drop, set `status: dropped` and leave `delivered:` null.
-
-6. **Update Adventure frontmatter** in `adventures/<name>/adventure.md` (or the adventure's main file). Only touch the fields that changed:
+2. **Create or update Reference notes** under `npcs/`, `locations/`, `factions/`, `items/`. Create parent directories if missing. Folder layout and one-liner body shape: see `references/reference-note-extraction.md`.
+3. **Create or update Threads** under `threads/`. Schema and defaults: see `references/frontmatter-schemas.md` ("Thread" section). On closure, set `status: closed` (or `decayed`) and `closed: <session date>`.
+4. **Create Consequences** under `consequences/`. Schema and defaults: see `references/frontmatter-schemas.md` ("Consequence" section). `/wrap-session` Pass 5 sets `created: <session date>` precisely.
+5. **Create or update Beats** under `beats/`. Schema and defaults: see `references/frontmatter-schemas.md` ("Beat" section). On delivery, set `status: delivered`, `delivered: <session date>`. On drop, set `status: dropped` and leave `delivered:` null.
+6. **Update Adventure frontmatter** in `adventures/<name>/adventure.md`. Schema: see `references/frontmatter-schemas.md` ("Adventure" section). Transitions specific to `/wrap-session`:
 
    - `introduced → active`: set `status: active`, set `started: <session date>` if currently null. Leave `order:` alone — it's ingest-era data.
    - `active → completed`: set `status: completed`, set `completed: <session date>`.
    - `active → abandoned`: set `status: abandoned`, set `completed: <session date>` (per ADR-0007).
-   - New adventure: write the full file with the GM-approved name, slug, and minimal frontmatter (`status: active`, `started: <session date>`, other dates null).
+   - New adventure that began this session: write the full file with the GM-approved name and slug, `status: active`, `started: <session date>`, other dates null, `order: ~`.
 
-7. **Regenerate `campaign.md`** at the campaign root. Rewrite the whole file from current state. Sections, in this order (mirroring the template and ADR-0007):
+7. **Regenerate `campaign.md`** at the campaign root using the shared composer spec.
 
-   - Header: campaign name, system (carry from existing `campaign.md` frontmatter or H1 — do not invent if missing; tell the GM).
-   - **Where the party might go next session** — the forward-looking menu the GM is orienting against. A bulleted set, with sub-buckets for active arcs / introduced arcs / session-driver Threads / party location:
-     - If any Adventures have `status: active`, list each as a bullet with a one-line current state, then add a short note: *"could continue any of these."* If none are active, omit this sub-bucket entirely (don't render an empty "Active arcs" line).
-     - **Introduced Adventures the party could pick up:** every Adventure with `status: introduced`, one bullet each, with the Adventure's H1 title (wiki-linked) and a one-line hook/state pulled from the Adventure's own file. This is the open-world menu of next-session options. Order: ascending by `order:` if set (ingest-era sequence), then alphabetical by slug for null-order Adventures. If none, render `_None._` under this sub-bucket so the GM sees the agent looked.
-     - **Recent open Threads that could become a session focus:** a curated subset of `status: open` Threads — the ones substantial enough to drive a session (a Thread that's just a flavor reminder doesn't belong here; one that's an arc-in-waiting does). Order: most-recent first by `created:` (slug asc as tiebreak). If there are no session-driver Threads, render `_None._`.
-     - **Party location:** one line, derived from the just-written Log's closing state, with `[[wiki link]]` to the location's Reference note. If unclear, say so plainly ("Party location not stated in this session's Log.") — do not guess. This is a piece of context, not the framing — keep it as a single line at the end of the menu.
-   - **Open threads** — every Thread with `status: open`, one line each, most-recent first. (This is the full list; the menu above is a curated subset.)
-   - **Recent significant consequences** — Consequences ordered by `created:` descending, top 5–10 (whatever fits on a glance-readable screen). Don't dump the entire history.
-   - **Pending beats** — every Beat with `status: pending`, one line each.
+   **Run the composer at `references/campaign-overview-composer.md`** — that file is the canonical spec for section ordering, sub-bucket rendering, derivation rules (party location from the just-written Log's closing state), and the determinism contract pinned by `tests/test_wrap_session_idempotency.py::TestCampaignMdRegenerationIsDeterministic`. `/wrap-session` runs the **base composer** with no skill-specific variants: no `## Adventures` history section, no Status / Last event header lines, Consequences truncated to the top 5–10 by recency. See the reference's "Skill-specific variants" section for the full list.
 
-   The "Where the party might go next session" section replaces the older "Active adventures" + "Party location" framing. The new shape handles zero, one, or many `status: active` Adventures equally — open-world / sandbox campaigns with many `introduced` Adventures available and none currently active render naturally instead of leaving the GM with empty sections (issue #13, ADR-0007).
+   Wrap-session-specific orchestration on top of the composer:
 
-   Preserve the agent-maintained header comment from the template ("This file is agent-maintained…"). If the existing `campaign.md` has GM hand-edits that conflict with regenerated content, the regeneration overwrites (ADR-0007: "Manual GM edits to `campaign.md` are reconciled (or overwritten with warning) at next regeneration"). Surface this warning to the GM in the closing message if hand-edits were detected and overwritten.
-
-   This composer's section shape and tone must match `/ingest` Phase 4 Step 2 (`skills/ingest/SKILL.md`) so the two produce a consistent campaign overview from the same campaign state. Skills don't share code; consistency is by alignment of these specs. If the two drift, treat that as a documentation bug to fix in both places.
+   - **Source for party location:** the just-written Log's closing state. With `[[wiki link]]` to the location's Reference note if identifiable; *"Party location not stated in this session's Log."* if not.
+   - **Hand-edit detection:** if the existing `campaign.md` has GM hand-edits that differ from what the composer would produce, the regeneration overwrites (ADR-0007: "Manual GM edits are reconciled or overwritten with warning at next regeneration"). Surface the warning in Step 6's closing message when hand-edits were detected and overwritten.
 
 **Do not modify `notes.md`.** It is the source of truth and stays unchanged (ADR-0005, ADR-0011).
 

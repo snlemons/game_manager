@@ -158,7 +158,9 @@ Carry these results into Step 3:
 - The Brief's "Active adventures" / "Open threads" / "Recent consequences" sections reflect actually-current state, not what a stale `campaign.md` said.
 - The overview file is honest by the time the GM opens it for any reason.
 
-Use the same campaign-overview composer logic that `/wrap-session` runs and that `/ingest` Phase 4 runs — there is one canonical `campaign.md` shape (ADR-0007). Write the regenerated `campaign.md` to `<campaign-root>/campaign.md`.
+**Run the composer at `references/campaign-overview-composer.md`** — that file is the canonical spec for section ordering, sub-bucket rendering, derivation rules, and the determinism contract. `/prep-session` runs the **base composer** with no skill-specific variants: no `## Adventures` history section, no Status / Last event header lines, Consequences truncated to the top 5–10. See the reference's "Skill-specific variants" section for the full list of where `/wrap-session` / `/prep-session` differ from `/ingest`.
+
+Write the regenerated `campaign.md` to `<campaign-root>/campaign.md`.
 
 **This write is independent of Brief approval.** Even if the GM cancels at Step 4, the regeneration stays — the refresh reflects state the GM already changed, it's not a new edit waiting on approval. The agent-maintained file going from stale to current is honesty, not a decision.
 
@@ -290,7 +292,9 @@ This is the desired output shape. The framing stays "optional, weave in if possi
 
 ## Step 4 — Diff-style review via staging file
 
-Before creating the session directory or writing anything to its final location, write the drafted Brief to `.ttrpg-staging/brief-draft.md` using the Write tool. Claude Code's standard file-write diff shows the full draft to the GM in their IDE. The `.ttrpg-staging/` directory is gitignored by the scaffolder; create it if it doesn't exist.
+**This step follows the shared staging-file review pattern at `references/staging-pattern.md`** — write the proposed final content to the gitignored `.ttrpg-staging/` directory at the campaign root, present a chat summary with continue/cancel ask, re-read on continue to capture GM edits, clean up on cancel.
+
+Prep-session-specific staging shape: a single staged file. Before creating the session directory or writing anything to its final location, write the drafted Brief to `.ttrpg-staging/brief-draft.md` using the Write tool. Claude Code's standard file-write diff shows the full draft to the GM in their IDE. Create `.ttrpg-staging/` if it doesn't exist.
 
 Then ask explicitly: *"The drafted Brief is at `.ttrpg-staging/brief-draft.md`. On approve I'll create `sessions/YYYY-MM-DD-session-N/` and move the brief there (plus an empty `notes.md`). Edit the draft in place if you want changes, then tell me to continue. Or say cancel to exit cleanly. If the session date is wrong, say so now — you can change it before the directory is created."* Accept two response shapes:
 

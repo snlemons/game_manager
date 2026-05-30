@@ -303,7 +303,7 @@ In multi-doc, also hold the **carried-forward lessons** set as a secondary frami
 
 Identify:
 
-- **Reference notes**: named NPCs, locations, factions, and items the doc introduces or describes substantively. ADR-0003 says one file per Reference note; default content is a one-liner derived from prose, not a filled-out template.
+- **Reference notes**: named NPCs, locations, factions, and items the doc introduces or describes substantively. **Consult `references/reference-note-extraction.md` for the heuristic before drafting** — it defines what counts as a Reference note vs. a passing mention, folder by kind, slug filenames, the one-liner default body, missing-name handling, and the minimal-frontmatter convention.
 - **Adventure-shape**: does this doc describe a story arc the party will run (a coherent set of scenes, locations, or stages tied together by a goal)? If yes, plan an `adventures/<slug>/adventure.md` file with ADR-0007 frontmatter. If no (it's a Reference note dump, world info, or session-narrative), don't fabricate an Adventure.
 - **Threads**: explicit unresolved hooks the party *knows about* — promises the party made, questions they asked, dangers they were warned about. Future-facing, party-aware. ADR-0004 governs file shape and status frontmatter. Only extract Threads that the doc actually surfaces as party-aware; don't invent them.
 - **Consequences**: explicit persistent facts about the world resulting from prior action ("the temple was destroyed", "the lord owes the party a favor"). Past-facing. Same provenance bar as Threads — only what the doc says.
@@ -320,63 +320,26 @@ What **not** to extract:
 
 Draft each proposed file with full content (frontmatter plus body). Hold them in memory; do **not** write yet.
 
-#### Reference note shape (ADR-0003)
+**Before writing any lifecycle-object frontmatter, consult `references/frontmatter-schemas.md`** — it is the canonical spec for the Adventure, Thread, Consequence, and Beat schemas (required fields, optional fields, value formats, defaults at CREATE). The ingest-era defaults documented in that reference (`status: introduced` for Adventures, `created: ~` for everything since the agent doesn't know past dates, etc.) apply here directly.
 
-One file per Reference note. Filenames are slugs (lowercase, hyphenated) of the canonical name. Folder by kind:
+#### Reference note shape
 
-| Kind | Folder |
-|---|---|
-| NPC | `npcs/` |
-| Location | `locations/` |
-| Faction | `factions/` |
-| Item | `items/` |
-
-Default body is the one-line description from prose — short, factual, no fabricated detail. Wiki-link to other Reference notes by canonical name when the source doc names them.
-
-Reference notes do not require frontmatter in this slice. If the doc gives you a clear status, role, or other strong fact, you may include light frontmatter (e.g. `kind: npc`) — but do not invent fields the doc doesn't supply, and never produce empty placeholder fields.
-
-Example: `npcs/sera.md`
-
-```markdown
-# Sera
-
-Blacksmith in [[Phandalin]] who reports the mines were recently closed.
-```
+See `references/reference-note-extraction.md` for what counts as a Reference note, folder by kind, the slug rule for filenames, the one-line default body, and the minimal-frontmatter convention. The ingest-specific orchestration: extract from the source doc's prose; wiki-link to other Reference notes you're also proposing from the same doc.
 
 #### Adventure shape (ADR-0007, .claude/rules/adventures.md)
 
-If the doc is adventure-shaped, propose `adventures/<slug>/adventure.md` with this frontmatter exactly:
+If the doc is adventure-shaped, propose `adventures/<slug>/adventure.md`. **Schema:** see `references/frontmatter-schemas.md` ("Adventure" section). Ingest-specific defaults:
 
-```yaml
----
-status: introduced                   # required: introduced | active | completed | abandoned
-order: ~                             # ingest-era sequence; null until the GM provides one in wrap-up
-introduced: ~                        # real-world date; null when unknown
-started: ~                           # real-world date; null when unknown
-completed: ~                         # real-world date; null when unknown
-in_world_duration: ~                 # optional, free-form prose
-real_world_duration: ~               # optional, free-form prose
----
-```
-
-- `status` defaults to `introduced` for ingest-era Adventures — the GM hasn't told you the party has begun running it yet. Only set `active`, `completed`, or `abandoned` if the source doc explicitly says so.
-- `order` stays null at the per-doc step unless the source doc has explicit numeric sequencing (e.g., "Adventure 1: …", "Chapter 3: …") that you can copy directly. When the source doc has no inferable sequence, leave `order:` null and Phase 4 will bulk-prompt the GM for it during wrap-up. (Phase 4 reads the frontmatter to decide: a non-null `order:` means Phase 3 found one in the source and the prompt is skipped; null means the GM needs to supply it.)
-- Dates stay null unless the source doc explicitly supplies them. Never invent dates (ADR-0007 consequence: "the agent never asks the GM to invent dates it doesn't have").
-- Durations stay null unless the source doc explicitly supplies them; if it does, copy the prose verbatim.
+- `status: introduced` — the GM hasn't told you the party has begun running it. Only set `active`, `completed`, or `abandoned` if the source doc explicitly says so.
+- `order: ~` unless the source doc has explicit numeric sequencing (e.g., "Adventure 1: …", "Chapter 3: …") that you can copy directly. When null, Phase 4 will bulk-prompt the GM during wrap-up. (Phase 4 reads the frontmatter to decide: a non-null `order:` means Phase 3 found one in the source and the prompt is skipped.)
+- All date fields null unless the source explicitly supplies them. Never invent dates (ADR-0007).
+- Durations null unless the source explicitly supplies; if it does, copy the prose verbatim.
 
 Body of `adventure.md` is a short prose summary from the source doc, with `[[wiki links]]` to the Reference notes you're also proposing. Sub-files for scenes/chapters may also be proposed (siblings to `adventure.md` in the same `adventures/<slug>/` directory) when the source doc has clearly distinct sub-sections worth their own files; otherwise keep it to `adventure.md`.
 
 #### Thread shape (ADR-0004)
 
-One file per Thread, in `threads/`. Filename is a slug of a short descriptive name. Frontmatter:
-
-```yaml
----
-status: open                         # required: open | closed | decayed
----
-```
-
-For ingest-era Threads extracted from a doc, status starts as `open` unless the doc explicitly says the thread is already resolved (then `closed`) or has gone stale (then `decayed`).
+One file per Thread, in `threads/`. **Schema:** see `references/frontmatter-schemas.md` ("Thread" section). Ingest-specific defaults: `status: open` unless the source doc explicitly says the thread is already resolved (then `closed`) or has gone stale (then `decayed`); `created: ~` unless the source supplies a date.
 
 Body is one or two sentences describing the hook — what's owed, promised, or foreshadowed — with `[[wiki links]]` to relevant Reference notes.
 
@@ -385,6 +348,8 @@ Example: `threads/find-rulfs-killer.md`
 ```markdown
 ---
 status: open
+created: ~
+closed: ~
 ---
 
 # Find Rulf's killer
@@ -395,15 +360,9 @@ sister they would find who killed him.
 
 #### Consequence shape (ADR-0004)
 
-One file per Consequence, in `consequences/`. Filename is a slug. Frontmatter is valid YAML. `created:` is left **null** for ingest-era Consequences (the agent doesn't know when the past session happened); if the source doc supplies a specific date the agent can attribute, fill it in. Don't use the ingest date as a stand-in (see date-honesty rule above).
+One file per Consequence, in `consequences/`. **Schema:** see `references/frontmatter-schemas.md` ("Consequence" section). For ingest, `created:` is null unless the source supplies a specific date the agent can attribute — don't use the ingest date as a stand-in (date-honesty rule). Future `/wrap-session` Consequences will carry precise dates.
 
-```yaml
----
-created: ~                           # null for ingest unless source supplies a real date
----
-```
-
-Body is the persistent fact, one or two sentences, with `[[wiki links]]` to relevant Reference notes. Consequences are past-facing and don't have a status (ADR-0004).
+Body is the persistent fact, one or two sentences, with `[[wiki links]]` to relevant Reference notes.
 
 Example: `consequences/lord-protector-owes-the-party.md`
 
@@ -418,24 +377,9 @@ After the party recovered the [[Iron Banner]] for [[Sildar Hallwinter]], he
 publicly declared he owes them one.
 ```
 
-Note: `/wrap-session` going forward writes `created:` to the session date precisely. Only ingest-era Consequences carry null `created:`.
-
 #### Beat shape (ADR-0009)
 
-One file per Beat, in `beats/`. Filename is a slug of a short descriptive name. Frontmatter:
-
-```yaml
----
-status: pending                      # required: pending | delivered | dropped
-created: ~                           # null for ingest unless source supplies a real date
-linked_pcs: []                       # optional: PC canonical names this Beat is for or about
-linked_npcs: []                      # optional: NPC canonical names this Beat involves
-linked_adventures: []                # optional: Adventure slugs this Beat belongs to
-linked_locations: []                 # optional: Location slugs this Beat is set at or about
----
-```
-
-For ingest-era Beats, `status` is always `pending` (a `delivered` or `dropped` Beat is past-tense and would be a Consequence or simply not-extracted; ADR-0009's status semantics are future-facing). `created:` follows the date-honesty rule above.
+One file per Beat, in `beats/`. **Schema:** see `references/frontmatter-schemas.md` ("Beat" section). Ingest-specific defaults: `status: pending` (a `delivered` or `dropped` Beat is past-tense and would be a Consequence or simply not-extracted); `created: ~`; `delivered: ~`; `linked_*` populated per the proximity rules below (the heuristics are ingest-specific orchestration, not part of the shared schema).
 
 Body is one or two sentences describing the GM's prep — the scene, the encounter, the news to drop, the hook to land — with `[[wiki links]]` to relevant Reference notes mentioned inside the prep.
 
@@ -510,22 +454,12 @@ Reference notes are the **only** kind dedup applies to in this slice. Adventures
 
 #### Matching procedure
 
-For each drafted Reference note:
+**Apply the matching rule at `references/dedup-matching.md`** — it defines the normalization (lowercase, ASCII-fold accents, strip leading "the ", collapse whitespace and punctuation to single hyphens, trim leading/trailing hyphens), what to match against (existing filenames and the first-heading title inside each candidate file), and the three buckets (CREATE / UPDATE confident-match / ASK ambiguous-match). Apply the same rule consistently across every drafted Reference note in this doc.
 
-1. **Compute the candidate slug** using the same slugification rule used elsewhere in the project: lowercase, ASCII-fold accents, strip leading "the ", collapse whitespace and punctuation to single hyphens, trim leading/trailing hyphens.
-2. **List the target folder** (`npcs/`, `locations/`, `factions/`, or `items/`) in the campaign repo. Match the candidate slug against existing filenames (without `.md`) and against the first-heading title inside each candidate file (light-normalised the same way).
-3. **Classify the match** into one of three buckets:
+Ingest-specific orchestration on top of the shared rule:
 
-   - **No match.** No file with that slug or normalised title exists in the target folder. Proceed as a CREATE — the proposed file lands as drafted.
-   - **Confident match.** A file with the same slug **and** the same kind (target folder) exists, AND the role/disposition implied by the drafted body does not contradict what's already in the existing file. Concretely: same canonical name, same kind, no obvious "this is a different person who happens to share a name" signal in the surrounding prose. Propose an **update** to the existing file rather than a CREATE: append the drafted one-liner as a new sentence at the end of the existing body (or, if the drafted body would fully restate what's already there, propose a no-op with a note). Preserve any GM-authored prose in the existing file — never overwrite it.
-   - **Ambiguous match.** A file with the same slug or a near-identical name exists, but at least one of these is true:
-     - The role or disposition implied by the drafted body looks like it could be a *different* entity (e.g., the existing `npcs/john.md` is "John the innkeeper of Phandalin" and the drafted body is "John, a bandit in the Cragmaw Hideout").
-     - The match is by similar-but-not-identical name (e.g., drafted "Sira" vs existing `npcs/sera.md`; "the Veiled Court" vs existing `factions/veiled-court.md` only after stripping "the").
-     - The match crosses kinds (e.g., drafted location vs existing NPC of the same name).
-
-     Surface the match to the GM as a **yes/no question** in the review screen. Do not silently pick. The agent's job here is to ask, not to choose.
-
-4. **Apply carried-forward dedup decisions before asking.** If the carried-forward lessons set already contains a confirmed identity link for this candidate ("the Sera in this run is the same Sera as `npcs/sera.md`"), apply it as a confident match without re-asking. If the lessons contain a confirmed split ("the John from doc 3 is distinct from `npcs/john.md`"), drop the proposed dedup question and treat the candidate as a CREATE with a disambiguated slug (e.g., `npcs/john-the-bandit.md`) — confirm the disambiguated slug with the GM at the review screen, not silently.
+- **Apply carried-forward dedup decisions before asking.** If the carried-forward lessons set already contains a confirmed identity link for this candidate ("the Sera in this run is the same Sera as `npcs/sera.md`"), apply it as a confident match without re-asking. If the lessons contain a confirmed split ("the John from doc 3 is distinct from `npcs/john.md`"), drop the proposed dedup question and treat the candidate as a CREATE with a disambiguated slug (e.g., `npcs/john-the-bandit.md`) — confirm the disambiguated slug with the GM at the review screen, not silently.
+- **Target folder is the kind's folder.** Per `references/reference-note-extraction.md`, match candidates only within the same kind (`npcs/`, `locations/`, `factions/`, or `items/`). Cross-kind matches surface as ASK per the shared rule.
 
 #### Output of Step 3b
 
@@ -560,7 +494,9 @@ If the GM resolves only some ASK items, re-ask the unresolved ones — don't pro
 
 #### Step 4b: Stage proposed files for IDE-based edit
 
-Write every proposed file to `.ttrpg-staging/doc-<N>/` in the campaign repo, mirroring the campaign's directory structure. For multi-doc runs, `<N>` is the doc's position in the processing order (1, 2, 3…). For single-doc, use `doc-1/`. Each proposed file lands at its eventual relative path *inside* `doc-<N>/`:
+**This step follows the shared staging-file review pattern at `references/staging-pattern.md`** — write proposed final content to a gitignored staging directory, present a chat summary with continue/cancel ask, re-read on continue to capture GM edits, clean up on cancel. Consult that reference for the full lifecycle and invariants.
+
+Ingest-specific staging shape: write every proposed file to `.ttrpg-staging/doc-<N>/` in the campaign repo, mirroring the campaign's directory structure. For multi-doc runs, `<N>` is the doc's position in the processing order (1, 2, 3…). For single-doc, use `doc-1/`. Each proposed file lands at its eventual relative path *inside* `doc-<N>/`:
 
 | Proposed change | Staging path |
 |---|---|
@@ -741,180 +677,17 @@ The carried-forward lessons set from Phase 3 is irrelevant here; the order promp
 
 ### Step 2: `campaign.md` composer
 
-Replace the campaign-root `campaign.md` (currently the Phase 1 placeholder or a prior Phase 4 output) with a generated overview per ADR-0007.
+Replace the campaign-root `campaign.md` (currently the Phase 1 placeholder or a prior Phase 4 output) with a generated overview.
 
-This composer's section shape and tone must match `/wrap-session`'s Step 5.7 (`skills/wrap-session/SKILL.md`) so the two produce a consistent campaign overview from the same campaign state. Skills don't share code; consistency is by alignment of these specs. If the two drift, treat that as a documentation bug to fix in both places. Ingest differs from `/wrap-session` regen in two visible ways, both flowing from what's true at ingest time:
+**Run the composer at `references/campaign-overview-composer.md`** — that file is the canonical spec for section ordering, sub-bucket rendering, derivation rules, and the determinism contract. Phase 4 runs the composer with the **ingest-only variants** documented under that reference's "Skill-specific variants" section:
 
-- Ingest retains an additional `## Adventures` section that lists **every** Adventure (ordered by `order:`), not only `status: active` or `status: introduced` ones. At ingest time, "the campaign's whole history through today" is what the GM is finalizing; the full history is load-bearing context the wrap-session composer doesn't need to repeat session-to-session. The menu-led "Where the party might go next session" section still leads the file (same shape as `/wrap-session`); the full Adventures list follows the menu as a history surface.
-- Ingest treats every Consequence as "recent significant" (because there is no session-tracked recency yet; everything just landed). `/wrap-session` filters Consequences by recency.
+- Adds two header lines below `**System:**`: `- **Status:** active` and `- **Last event:** YYYY-MM-DD (ingest)` (today's date suffixed `(ingest)`; future `/wrap-session` runs may replace this line with the wrapped session's date).
+- Renders the full `## Adventures` history section between the menu and `## Open threads`, listing every Adventure (sorted by `order:` ascending, null-order Adventures alphabetical by slug at the end). At ingest time the full history is load-bearing context; session-to-session it would be noise.
+- Shows **every** Consequence under `## Recent significant consequences` — no top-N truncation. Everything just landed; truncation would hide the just-ingested history the GM is about to commit.
 
-#### Sections, in this order
+Write `campaign.md` from scratch. Do not preserve manual GM edits to the prior `campaign.md` content — per ADR-0007, manual edits are reconciled or overwritten with warning at regeneration, and Phase 4 chooses overwrite. (If the GM has campaign-editorial content like themes, pitch, or house rules, that lives in a separate file the agent doesn't touch — see `CLAUDE.md.template`.)
 
-Write `campaign.md` from scratch. Do not preserve manual GM edits to the prior `campaign.md` content — per ADR-0007, manual edits to `campaign.md` are reconciled or overwritten with warning at regeneration, and Phase 4 chooses overwrite. (If the GM has campaign-editorial content like themes, pitch, or house rules, that lives in a separate file the agent doesn't touch — see CLAUDE.md.template.)
-
-```markdown
-# {{CAMPAIGN_NAME}} — Campaign Overview
-
-*This file is agent-maintained. It snapshots the campaign's current state in glance-readable form and is rewritten by `/wrap-session` and `/ingest`. Manual edits will be reconciled (or overwritten with warning) at the next regeneration. For editorial campaign notes (themes, pitch, house rules), use a separate file the agent doesn't touch.*
-
-- **Campaign:** {{CAMPAIGN_NAME}}
-- **System:** {{CAMPAIGN_SYSTEM}}
-- **Status:** active
-- **Last event:** {{TODAY_YYYY-MM-DD}} (ingest)
-
-## Where the party might go next session
-
-<!-- The forward-looking menu the GM is orienting against. Sub-buckets below. -->
-
-<!-- Active arcs, if any. Omit this sub-bucket entirely (no header, no bullets) if no Adventures have status: active. -->
-**Active arcs — could continue any of these:**
-
-- **[[<Adventure title>]]** — one-line current state.
-- ...
-
-**Introduced Adventures the party could pick up:**
-
-- **[[<Adventure title>]]** — one-line hook/state. *(order N)* if `order:` is set, else no parenthetical.
-- ...
-
-*Or, if there are no `status: introduced` Adventures: "_None._"*
-
-**Recent open Threads that could become a session focus:**
-
-- **[[<Thread title>]]** — one-line excerpt.
-- ...
-
-*Or, if there are no session-driver Threads: "_None._"*
-
-**Party location:** <best-effort short prose, derived from the most recently active or highest-`order:` Adventure; or "Party location not yet established — GM to update." per the rules below>
-
-## Adventures
-
-<every Adventure, ordered by `order:` ascending with null-order Adventures at the end, one bullet each — full campaign history, ingest-specific surface>
-
-## Open threads
-
-<every Thread with `status: open`, one bullet each — full list; the menu above is a curated subset>
-
-## Recent significant consequences
-
-<every Consequence, one bullet each>
-
-## Pending beats
-
-<bullet list of every Beat with `status: pending`, one line each, oldest `created:` first>
-
-*Or, if there are none: "_None yet._"*
-```
-
-The "Where the party might go next session" section leads the file (replacing the older standalone "Party location" section). It handles zero, one, or many `status: active` Adventures equally, and it surfaces the open-world / sandbox menu of introduced-Adventure options as a first-class concern (issue #13, ADR-0007). The ingest-specific full **Adventures** history section follows the menu — see "Ingest differs from `/wrap-session`" above for why it's retained at ingest time but not in `/wrap-session`'s regen.
-
-The header comment paragraph (the italics block) is preserved verbatim from the template — it tells the GM the file is agent-maintained, which is true for both Phase 4 and future `/wrap-session` regens.
-
-#### Header
-
-- `{{CAMPAIGN_NAME}}` — read from the existing `campaign.md`'s H1 or `**Campaign:**` line, whichever Phase 1 wrote. Don't re-prompt the GM. If neither is parseable for some reason, surface the path and ask before continuing — do not invent a name.
-- `{{CAMPAIGN_SYSTEM}}` — same source as Phase 1 wrote.
-- **Status:** always `active` at the end of a fresh ingest. The campaign object as a whole doesn't have a status frontmatter in v0.1; this line is human-readable text. If the GM later abandons the whole campaign, that becomes a manual edit (and gets overwritten by future regens unless `/wrap-session` learns a Campaign-status field, which is out of scope here).
-- **Last event:** today's date in `YYYY-MM-DD` (the ingest date), suffixed `(ingest)`. After a `/wrap-session` run lands, that workflow will replace this line with the wrapped session's date.
-
-#### Where the party might go next session
-
-This menu-led section is the file's lead surface. Render it in this order, with the sub-headings shown:
-
-1. **Active arcs (conditional sub-bucket).** If any `adventures/<slug>/adventure.md` has frontmatter `status: active`, render the bold sub-heading *"Active arcs — could continue any of these:"* followed by one bullet per active Adventure. Each bullet: `- **[[<Adventure title>]]** — <one-line current state pulled from the Adventure's own file>.` If **no** Adventures have `status: active`, omit this sub-bucket entirely (no heading, no empty bullet list) — the menu falls straight through to "Introduced Adventures." This is the open-world / no-active case (issue #13).
-
-2. **Introduced Adventures the party could pick up.** Always render the bold sub-heading *"Introduced Adventures the party could pick up:"* For every Adventure with `status: introduced`, render one bullet: `- **[[<Adventure title>]]** — <one-line hook/state>. *(order N)*` (the `*(order N)*` parenthetical is shown only if `order:` is set; omit it otherwise). Order Adventures by `order:` ascending, with null-`order:` Adventures alphabetical by slug after numbered ones. If the campaign has zero `status: introduced` Adventures, render `_None._` under the sub-heading so the GM sees the agent looked.
-
-3. **Recent open Threads that could become a session focus.** Render the bold sub-heading *"Recent open Threads that could become a session focus:"* This is a **curated subset** of `status: open` Threads — the ones substantial enough to drive a session, not every reminder. Filter heuristic: include Threads whose body suggests an arc-in-waiting (a place to investigate, a person to confront, an obligation big enough to organize a session around); exclude flavor-only reminders. When uncertain, lean toward including a Thread rather than dropping it — the GM scans the menu and ignores misses cheaply. Order: descending by `created:` (most recent first; slug asc as tiebreak when dates tie or are null). Render each as `- **[[<Thread title>]]** — <one-line body excerpt>.` (same excerpt rules as the "Open threads" section below). If no Threads qualify, render `_None._`.
-
-4. **Party location.** A single line at the end of the menu: `**Party location:** <prose>` — a piece of context, not the framing. Derive as follows:
-   1. Among `status: active` Adventures, pick the one with the **highest `order:`** (the most recently started, per ADR-0007's "ingest-era ordering"). If multiple Adventures tie or none are active, fall back to the highest-`order:` Adventure overall regardless of status. If `order:` is null across the board, fall back to the alphabetically-last Adventure slug — and explicitly call this out in the prose ("best-effort guess; no `order:` set").
-   2. Read that Adventure's `adventure.md` body for any explicit location reference: a wiki link to a `locations/<slug>.md` file is the strongest signal; failing that, a clearly-named place mentioned in prose.
-   3. If a location is identifiable, write: *"The party is at [[<Location>]], most recently engaged with [[<Adventure>]]."* (Or a close variant; this is prose, not a template — match the campaign's tone if the GM's input docs had a clear voice.)
-   4. If no location is identifiable but an Adventure is, write: *"The party's most recent activity is [[<Adventure>]]; current location not stated in source docs — GM to update."*
-   5. If neither is identifiable (zero Adventures, or all are introduced-status with no location prose), write: *"Party location not yet established — GM to update."*
-
-   Do **not** invent a location. ADR-0007 is clear: the agent never asks the GM to invent facts it doesn't have.
-
-#### Adventures
-
-This is the ingest-specific full-history section that follows the menu (see "Ingest differs from `/wrap-session`" above for why it's retained at ingest time only). List **every** Adventure in the campaign, in this order:
-
-1. Sort by `order:` ascending. Null-order Adventures (those the GM skipped at Step 1) go after numbered ones, in alphabetical slug order.
-2. For each Adventure, render a bullet:
-
-   ```
-   - **[[<Adventure title>]]** (order N) — <status>. <lifecycle annotations from frontmatter>.
-   ```
-
-   - `<Adventure title>` is the H1 from `adventure.md`. The wiki link points at the Adventure (resolves to `adventures/<slug>/` by name).
-   - `(order N)` is shown only if `order:` is set; omit the parenthetical otherwise.
-   - `<status>` is the literal frontmatter `status` value: `introduced`, `active`, `completed`, or `abandoned`.
-   - **Lifecycle annotations** are the optional frontmatter fields, joined as a short comma-separated phrase:
-     - `in_world_duration` rendered verbatim if set (e.g., "~3 in-game months").
-     - `real_world_duration` rendered verbatim if set (e.g., "~6 sessions").
-     - `started` rendered as "started YYYY-MM-DD" if set; ingest-era usually null.
-     - `completed` rendered as "completed YYYY-MM-DD" if set; ingest-era usually null.
-
-     If all four are null, omit the annotations clause entirely — don't write a trailing period after nothing.
-
-   Example bullets:
-
-   ```
-   - **[[Lost Mines of Phandelver]]** (order 1) — completed. ~6 sessions, ~3 in-game months.
-   - **[[Cragmaw Castle]]** (order 2) — completed. ~4 sessions.
-   - **[[Wave Echo Cave]]** (order 3) — active.
-   - **[[Side Mystery: The Veiled Court]]** — introduced.
-   ```
-
-3. If there are zero Adventures, write `*None yet.*` under the Adventures heading. (Possible but unusual at end of ingest — would mean the source corpus was world-info-only.)
-
-#### Open threads
-
-For every `threads/<slug>.md` with frontmatter `status: open`, render a bullet:
-
-```
-- **[[<Thread title>]]** — <one-line body excerpt>.
-```
-
-- `<Thread title>` is the file's H1.
-- `<one-line body excerpt>` is the first sentence of the Thread's body (after the H1 and blank line). Truncate at the first period for terseness if the body is multi-sentence. Preserve wiki links inside the excerpt verbatim (don't strip `[[...]]`).
-- Order: descending by `created:` if frontmatter `created:` is set (most recent first); for ingest-era Threads where `created:` may be absent, fall back to lexicographic slug order. Don't invent a `created:` value.
-
-If there are zero open Threads, write `*None._`.
-
-#### Recent significant consequences
-
-For every `consequences/<slug>.md`, render a bullet:
-
-```
-- **[[<Consequence title>]]** — <one-line body excerpt>.
-```
-
-Same excerpt rules as Threads. Order: descending by `created:` when set; for ingest-era Consequences where `created:` is null (the agent honors the date-honesty rule and doesn't fabricate ingest-day dates), fall back to lexicographic slug order. Once `/wrap-session` starts adding real Consequences with real dates, those naturally float to the top.
-
-At ingest time, this list shows **every** Consequence. Do not truncate to a top-N. Future `/wrap-session` runs filter to most-recent-N for glance-readability; ingest's "everything just landed" semantics mean truncation would hide the just-ingested history the GM is about to commit.
-
-If there are zero Consequences, write `*None._`.
-
-#### Pending beats
-
-Renders one bullet per `status: pending` Beat in `beats/`, sorted by `created:` ascending (oldest first, so freshly-ingested Beats appear in the order the source docs presented them). Format per line:
-
-```
-- <Beat name> [[beats/<slug>]] — <one-line summary from frontmatter or body opening>
-```
-
-If a Beat has `linked_adventures`, `linked_pcs`, or `linked_locations` populated, append a short scope hint: `(linked: Elemental Evil, Darius)`.
-
-If `beats/` has no `status: pending` files (rare immediately after ingest if the GM-authored prep had no Beat-shaped content), render the placeholder:
-
-```
-*None yet._*
-```
-
-Note on scale: when there are many pending Beats (common after ingesting a long-running campaign with prepped encounter content), this section gets long. ADR-0009's surfacing-at-scale design (relevance-filtered tiered display) is a Brief-time concern, not a campaign.md concern — `campaign.md` is the state snapshot and shows everything. The Brief is where filtering matters.
+Phase 4 source for the party-location line (per the composer's `/ingest` derivation rules): among `status: active` Adventures, pick the highest-`order:`; fall back to highest-`order:` overall if none are active, then alphabetically-last Adventure slug if `order:` is null across the board (explicitly calling that out in the prose). Read that Adventure's `adventure.md` body for an explicit location reference (wiki link to a `locations/<slug>.md` is the strongest signal; failing that, a clearly-named place in prose). Never invent a location.
 
 ### Step 3: Secondary commit
 
