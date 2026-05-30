@@ -44,6 +44,8 @@ The default target is the **latest session that has a non-empty `notes.md` and n
 
 If the GM names a specific session explicitly (e.g., "wrap session 4" or a directory path), use that instead of the default. Confirm the resolved directory back to the GM before reading.
 
+**State the planned target upfront** in chat before extraction, so the GM has an obvious moment to redirect to a different session. Format: *"Wrapping `sessions/YYYY-MM-DD-session-N/` — reading `notes.md` and extracting Log, Threads, Consequences, Beat updates, Reference notes, and Adventure status changes. Lifecycle-object dates will use the session date (YYYY-MM-DD), not today's date. Say a different session (e.g., `wrap session 4`) if I picked the wrong one."* Then continue with the rest of the workflow. Don't pause for confirmation — the GM redirects only if needed.
+
 ### Re-run guard (confirm-before-overwrite)
 
 Before doing any work, check whether the target session already has a `log.md`:
