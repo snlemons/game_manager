@@ -33,15 +33,24 @@ Before writing the first staged file, ensure `.ttrpg-staging/` exists (`mkdir -p
 
 If the skill writes per-doc or per-batch sub-directories, create those at the same time.
 
-### 2. Write proposed content
+### 2. Stage proposed content
 
-Use the Write tool — this surfaces the file in the GM's IDE with a standard diff view. Write the **full proposed final content** of each file, not a diff or a patch:
+The mechanism differs by entry kind so that **Claude Code's native Edit-diff display surfaces the actual delta** wherever there is one. The GM sees changes the way Claude Code shows changes for any file edit — no separate chat-summary workaround needed.
 
-- **For new files (CREATE):** the staged content is exactly what will land at the final location.
-- **For updates to existing files (UPDATE):** read the existing file, apply the proposed edits in memory, write the merged result to staging. The GM sees the final state, not a partial diff.
-- **For regenerated files (`campaign.md`):** the staged content is the full regenerated file.
+**CREATE entries** — proposed new files. Use the Write tool to write the full proposed content to the staging path. The IDE / chat shows a new-file write; no diff applies because there is no original to compare against.
 
-Write order doesn't matter (files are independent), but a sensible order helps the GM scan.
+**UPDATE entries** — proposed modifications to existing files. Stage in two steps:
+
+1. **Copy the live file into staging** via Bash: `cp <live_path> <staging_path>` (create any missing parent directories first with `mkdir -p`).
+2. **Apply the proposed changes via the Edit tool** against the staged copy. Because the cp made the staged content byte-identical to the live file at that moment, the Edit's diff display shows the live → proposed delta — the same delta the GM expects to see for any file Claude Code touches.
+
+For whole-file rewrites where a clean `old_string` / `new_string` boundary is hard to express (a fully-rewritten Reference note body, for example), use Edit with `old_string` = the entire staged content and `new_string` = the proposed content; the chat-rendered diff still shows the live → proposed change.
+
+**Regenerated files** (`campaign.md` rewritten by `/wrap-session` Step 5 or `/prep-session` Step 2.5): treat as UPDATE if a previous `campaign.md` exists at the live path (cp + Edit shows the previous-vs-regenerated diff). Treat as CREATE if the file doesn't exist yet (fresh ingest, first session).
+
+**No-op UPDATEs.** Before staging an UPDATE, compare the proposed content against the live file. If they are byte-identical, **skip staging entirely** and surface the entry in the chat summary as `<path> — UPDATE (no-op against existing file; consider dropping)`. This avoids cluttering staging with no-change files and the Edit tool's empty-diff failure mode. It is also the right signal to the GM that the agent thought a change applied but didn't.
+
+Stage order doesn't matter (files are independent), but a sensible order helps the GM scan.
 
 ### 3. Present a chat summary and ask for the continue/cancel decision
 
