@@ -33,11 +33,21 @@ If the current working directory is not a campaign repo (no `campaign.md`, no `s
 
 Honor `.claude/rules/sessions.md` and `.claude/rules/adventures.md` if present — they describe campaign-local conventions.
 
+## Step 0 — Locate the campaign repo
+
+The skill operates on **a campaign repo**, which may or may not be the current working directory. Don't assume cwd.
+
+1. Check cwd for the campaign-repo markers: `CLAUDE.md` at the root, `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, and `campaign.md`. If all four are present, cwd is the campaign repo — use it.
+2. If any are missing, **ask the GM** for the absolute path of the campaign repo (e.g., *"I don't see a scaffolded campaign in the current directory. Where is the campaign repo? (Give an absolute path or a `~/`-anchored path.)"*). Resolve their answer to an absolute path. Re-check the four markers there. If still missing, surface what was missing and stop — the campaign isn't scaffolded.
+3. Use that absolute path as the **campaign root** for the rest of this workflow. Every path in subsequent steps (e.g., `sessions/...`, `npcs/...`, `threads/...`, `.ttrpg-staging/...`) resolves *relative to the campaign root*, not relative to cwd. Pass absolute paths to file tools so they work regardless of cwd.
+
+Don't repeat the pre-flight if the campaign root is already determined in this run.
+
 ## Step 1 — Select the target session
 
 The default target is the **latest session that has a non-empty `notes.md` and no `log.md`**. Resolve as follows:
 
-1. List `sessions/`. Sort directories lexicographically by name (`YYYY-MM-DD-session-N` sorts correctly by date then number).
+1. List `sessions/` (under the campaign root). Sort directories lexicographically by name (`YYYY-MM-DD-session-N` sorts correctly by date then number).
 2. Scan from newest to oldest. The target is the first session where `notes.md` exists and is non-empty and `log.md` does **not** exist.
 3. If no such session exists, check whether the latest session has `log.md` already. If so, this is a **re-run candidate** — see "Re-run guard" below.
 4. If `sessions/` is empty or no session has `notes.md`, tell the GM there is nothing to wrap and stop.

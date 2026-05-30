@@ -31,9 +31,19 @@ The campaign repo has this shape (per ADR-0002, ADR-0005, ADR-0007, ADR-0012):
 
 If the current working directory is not a campaign repo (no `campaign.md`, no `sessions/`, no `CLAUDE.md` for the campaign), ask the GM where their campaign repo is before proceeding. Don't guess.
 
+## Step 0 — Locate the campaign repo
+
+The skill operates on **a campaign repo**, which may or may not be the current working directory. Don't assume cwd.
+
+1. Check cwd for the campaign-repo markers: `CLAUDE.md` at the root, `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, and `campaign.md`. If all four are present, cwd is the campaign repo — use it.
+2. If any are missing, **ask the GM** for the absolute path of the campaign repo (e.g., *"I don't see a scaffolded campaign in the current directory. Where is the campaign repo? (Give an absolute path or a `~/`-anchored path.)"*). Resolve their answer to an absolute path. Re-check the four markers there. If still missing, surface what was missing and stop — the campaign isn't scaffolded.
+3. Use that absolute path as the **campaign root** for the rest of this workflow. Every path in subsequent steps (e.g., `sessions/...`, `adventures/...`, `beats/...`, `.ttrpg-staging/...`) resolves *relative to the campaign root*, not relative to cwd. Pass absolute paths to file tools so they work regardless of cwd.
+
+Don't repeat the pre-flight if the campaign root is already determined in this run.
+
 ## Step 1 — Determine session number and date
 
-1. List `sessions/`. The next **session number** is `1 + max(N)` across existing `sessions/YYYY-MM-DD-session-N/` directory names. If `sessions/` is empty or absent, N = 1.
+1. List `sessions/` (under the campaign root). The next **session number** is `1 + max(N)` across existing `sessions/YYYY-MM-DD-session-N/` directory names. If `sessions/` is empty or absent, N = 1.
 2. The default **date** is today's date in `YYYY-MM-DD`. If the GM has indicated a different planned date for the next session, use that instead — but confirm with the GM before using a non-default date.
 3. The target directory is `sessions/YYYY-MM-DD-session-N/`.
 4. **State the planned target path** in chat before any other work, so the GM has an obvious moment to override the date if they're prepping ahead. Format: *"Prepping session N for YYYY-MM-DD → `sessions/YYYY-MM-DD-session-N/`. Say a different date (e.g., `for 2026-06-12`) if you're scheduling ahead."* Then continue with the rest of the workflow. Don't pause for confirmation if today's-date is what the GM wants — they just don't reply with a date override.
