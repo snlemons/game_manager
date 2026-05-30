@@ -616,41 +616,44 @@ Walk every `adventures/<slug>/adventure.md` file under the campaign repo.
 
 3. **If the missing-order set is empty**, skip to Step 2. Tell the GM: *"All Adventures have an `order:` value already; skipping order prompt."*
 
-4. **If the missing-order set has exactly one Adventure**, ask the simpler form: *"`adventures/<slug>/adventure.md` doesn't have an `order:` set. What sequence number should it have (1 = earliest in the campaign's history)?"* Accept a single integer.
+4. **Write the order prompt to a staging file** at `.ttrpg-staging/adventure-order.md`. Use the Write tool — Claude Code's standard file-write diff shows the full proposed list to the GM in their IDE. Create `.ttrpg-staging/` if it doesn't exist; it's gitignored by the scaffolder.
 
-5. **If the missing-order set has more than one Adventure**, present them as a single bulk prompt with the GM filling in the whole sequence at once — **not** one prompt per Adventure. Example formatting:
+   Format the staging file as a simple key-value list, one line per missing-order Adventure, with a header that explains the edit contract:
 
    ```
-   The following Adventures don't have an `order:` value set, and their
-   source docs didn't have explicit "Adventure N" numbering for me to copy.
-   In what order did they run? (1 = earliest in the campaign's history.)
+   # Adventure order prompt
 
-     a. adventures/lost-mines/             — Lost Mines of Phandelver
-                                              (status: completed)
-     b. adventures/cragmaw-castle/         — Cragmaw Castle
-                                              (status: completed)
-     c. adventures/wave-echo-cave/         — Wave Echo Cave
-                                              (status: active)
+   The Adventures below don't have an `order:` value set, and their source docs
+   didn't have explicit "Adventure N" numbering for me to copy. Edit the integer
+   after each slug to set the sequence each Adventure ran in your campaign.
 
-   Reply with the order — e.g., "a=1, b=2, c=3" or just "a, b, c" or
-   "b, a, c" — or "skip" to leave them null for now.
+   1 = earliest in the campaign's history. Duplicates are allowed if two
+   Adventures ran in parallel (the agent will confirm before applying).
+   Leave a value as `null` to skip that Adventure (its `order:` stays null).
+
+   When done, save the file and tell me to continue. Or say cancel to exit
+   without changes.
+
+   lost-mines       : null   # Lost Mines of Phandelver (status: completed)
+   cragmaw-castle   : null   # Cragmaw Castle (status: completed)
+   wave-echo-cave   : null   # Wave Echo Cave (status: active)
    ```
 
-   Use letters (a, b, c, …) for the prompt list, not numbers, so the GM's *answer* (the actual sequence numbers) isn't visually conflated with the prompt's labels.
+   The comments on each line carry the Adventure's H1 title and status so the GM can identify each entry without opening the source file.
 
-6. **Parse the GM's reply tolerantly.** Accept these shapes:
+5. **Wait for the GM**, then re-read the staging file to capture edits. Parse each non-blank, non-comment line as `<slug> : <value>`. Acceptable values:
 
-   - Explicit assignments: `a=1, b=2, c=3` or `a:1 b:2 c:3`.
-   - Implicit sequence (letters in order): `a, b, c` means a=1, b=2, c=3. `b, a, c` means b=1, a=2, c=3.
-   - Numeric list matching the prompt order: `1, 2, 3` means the first-listed Adventure (a) is order 1, second (b) is order 2, etc.
-   - "skip" (or "leave null", "don't know") → leave the whole set null and continue to Step 2 with a one-line note in the closing summary.
-   - Partial answer (GM gives orders for some but not all): apply the given orders, leave the others null, and note which were left null in the closing summary. Do not re-prompt for the remainder unless the GM asks.
+   - A positive integer → the new `order:`.
+   - `null` or blank → leave the Adventure's `order:` null.
+   - Anything else (string, decimal, etc.) → flag that line and ask the GM to clarify rather than guessing.
 
-   If the reply doesn't parse, show what you understood and ask the GM to clarify rather than guessing. Don't apply a partial parse silently.
+   If the GM removed or added lines (a contract violation — the list reflects the missing-order set discovered in Step 2), surface that and re-ask before proceeding. If the GM said cancel, delete `.ttrpg-staging/adventure-order.md` and skip to Step 2 with a one-line note in the closing summary that no `order:` values were filled in.
 
-7. **Validate.** Sequence numbers should be positive integers. Duplicates are allowed if the GM truly believes two Adventures ran in parallel ("they were both active at the same time"), but flag duplicates explicitly: *"Two Adventures will share `order: 2` — is that intentional, or did you mean to split them?"* Apply only after explicit confirmation.
+6. **Validate.** Sequence numbers should be positive integers. Duplicates are allowed if the GM truly believes two Adventures ran in parallel, but flag duplicates explicitly in chat: *"Two Adventures will share `order: 2` — is that intentional, or did you mean to split them?"* Apply only after explicit confirmation. Don't re-write the staging file for this confirmation — chat is the right channel since it's a single yes/no.
 
-8. **Write the `order:` values into Adventure frontmatter.** For each Adventure with a confirmed new order, edit the `order:` line in its `adventures/<slug>/adventure.md` frontmatter from `~` to the integer. Preserve every other frontmatter field, every existing body byte, and the YAML shape from Phase 3. If the Adventure's frontmatter is malformed for any reason, surface the path to the GM and skip the write — don't try to repair it.
+7. **Write the `order:` values into Adventure frontmatter.** For each Adventure with a confirmed new order, edit the `order:` line in its `adventures/<slug>/adventure.md` frontmatter from `~` to the integer. Preserve every other frontmatter field, every existing body byte, and the YAML shape from Phase 3. If an Adventure's frontmatter is malformed for any reason, surface the path to the GM and skip the write — don't try to repair it.
+
+8. **Delete the staging file.** Remove `.ttrpg-staging/adventure-order.md`. If `.ttrpg-staging/` is now empty, remove the directory. (Step 4's final cleanup is the backstop; this step's deletion keeps staging clean as the workflow progresses.)
 
 The carried-forward lessons set from Phase 3 is irrelevant here; the order prompt is a one-shot question against current Adventure frontmatter and doesn't consult lessons.
 
