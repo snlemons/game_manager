@@ -36,6 +36,7 @@ If the current working directory is not a campaign repo (no `campaign.md`, no `s
 1. List `sessions/`. The next **session number** is `1 + max(N)` across existing `sessions/YYYY-MM-DD-session-N/` directory names. If `sessions/` is empty or absent, N = 1.
 2. The default **date** is today's date in `YYYY-MM-DD`. If the GM has indicated a different planned date for the next session, use that instead — but confirm with the GM before using a non-default date.
 3. The target directory is `sessions/YYYY-MM-DD-session-N/`.
+4. **State the planned target path** in chat before any other work, so the GM has an obvious moment to override the date if they're prepping ahead. Format: *"Prepping session N for YYYY-MM-DD → `sessions/YYYY-MM-DD-session-N/`. Say a different date (e.g., `for 2026-06-12`) if you're scheduling ahead."* Then continue with the rest of the workflow. Don't pause for confirmation if today's-date is what the GM wants — they just don't reply with a date override.
 
 ### Re-run guard (confirm-before-overwrite)
 
@@ -138,7 +139,7 @@ prior session log yet)".>
 
 Before creating the session directory or writing anything to its final location, write the drafted Brief to `.ttrpg-staging/brief-draft.md` using the Write tool. Claude Code's standard file-write diff shows the full draft to the GM in their IDE. The `.ttrpg-staging/` directory is gitignored by the scaffolder; create it if it doesn't exist.
 
-Then ask explicitly: *"The drafted Brief is at `.ttrpg-staging/brief-draft.md`. Edit it in place if you want changes, then tell me to continue. Or say cancel to exit cleanly."* Accept two response shapes:
+Then ask explicitly: *"The drafted Brief is at `.ttrpg-staging/brief-draft.md`. On approve I'll create `sessions/YYYY-MM-DD-session-N/` and move the brief there (plus an empty `notes.md`). Edit the draft in place if you want changes, then tell me to continue. Or say cancel to exit cleanly. If the session date is wrong, say so now — you can change it before the directory is created."* Accept two response shapes:
 
 1. **Continue** → re-read `.ttrpg-staging/brief-draft.md` to capture any GM edits, then proceed to Step 5 to commit it to its final location.
 2. **Cancel** → delete `.ttrpg-staging/brief-draft.md` (and remove `.ttrpg-staging/` if it's now empty), leave the rest of the filesystem unchanged, exit.
