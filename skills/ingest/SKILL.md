@@ -51,19 +51,22 @@ For the per-doc extraction loop, the GM additionally provides:
    If any marker is present, **stop** and tell the GM the directory looks like an existing campaign repo. Don't overwrite. Don't merge.
 4. If it exists, is non-empty, and has none of those markers (e.g. it has source-doc markdown files the GM wants ingested in a later phase), confirm with the GM before proceeding.
 
-### Step 2: Write the five template files
+### Step 2: Write the six template files
 
-The plugin ships five templates under `~/.claude/skills/ttrpg-gm/templates/`. For each, read the template, substitute placeholders, and write to the target. Filenames have a `.template` suffix in the plugin; strip the suffix on write.
+The plugin ships six templates under `~/.claude/skills/ttrpg-gm/templates/`. For each, read the template, substitute placeholders, and write to the target. Filenames have a `.template` suffix in the plugin; strip the suffix on write.
 
 | Template source | Written to (relative to target) |
 |---|---|
 | `templates/CLAUDE.md.template` | `CLAUDE.md` |
 | `templates/.claude/rules/sessions.md.template` | `.claude/rules/sessions.md` |
 | `templates/.claude/rules/adventures.md.template` | `.claude/rules/adventures.md` |
+| `templates/.claude/settings.json.template` | `.claude/settings.json` |
 | `templates/campaign.md.template` | `campaign.md` |
 | `templates/.gitignore.template` | `.gitignore` |
 
 The `.gitignore` excludes `.ttrpg-staging/`, which the skills use as a scratchpad for diff-style review surfaces (proposed descriptions, brief drafts, wrap proposals) that the GM edits in their IDE before approval. Staging contents are never committed.
+
+The `.claude/settings.json` pre-approves the standard Edit/Write/MultiEdit operations the plugin's skills perform on the campaign's structured folders (`npcs/`, `locations/`, etc.) so the GM isn't prompted for every file the agent writes during routine extraction. It also pre-approves a few read-only git commands the skills run for state inspection. The file is committed (not gitignored) so the convention follows the campaign when shared.
 
 Placeholder substitutions to apply to template content before writing:
 
@@ -78,7 +81,7 @@ Run these commands in the target directory:
 
 ```
 git init
-git add CLAUDE.md .claude/rules/sessions.md .claude/rules/adventures.md campaign.md .gitignore
+git add CLAUDE.md .claude/rules/sessions.md .claude/rules/adventures.md .claude/settings.json campaign.md .gitignore
 git commit -m "Scaffold campaign repo via ttrpg-gm /ingest"
 ```
 
@@ -91,7 +94,7 @@ Do not configure `user.name` or `user.email` from the plugin. Use whatever the G
 Tell the GM, concisely:
 
 - the target directory (absolute path),
-- the five files that were written (the four templates plus `.gitignore`),
+- the six files that were written (the four content templates plus `.gitignore` and `.claude/settings.json`),
 - the initial commit's hash and message.
 
 If the GM provided an input directory of source docs, continue directly into Phase 2. If `/ingest` was invoked scaffold-only (no input directory), the workflow ends here. Either way, no confirmation prompt — Phase 2 has its own review gates (description list, processing order), and Phase 3 has per-doc approval, so the GM has natural break points downstream.
