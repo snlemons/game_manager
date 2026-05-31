@@ -51,7 +51,7 @@ Then wait for the GM's response. Do not start the skill's other Step 0 / Step 1 
 
 Regenerate `.claude/settings.json` at the campaign root by re-running the same path-substitution `/ingest` Phase 1 Step 2 runs:
 
-1. Read `templates/.claude/settings.json.template` from the plugin.
+1. Read `~/.claude/skills/ttrpg-gm/templates/.claude/settings.json.template` from the plugin install (absolute path — the agent's cwd is the campaign root, not the plugin install).
 2. Substitute `{{CAMPAIGN_PATH}}` with the canonicalized campaign root (without trailing slash, as the template expects).
 3. Write the result to `.claude/settings.json` at the campaign root, **scoped to the regeneration boundary** below.
 
