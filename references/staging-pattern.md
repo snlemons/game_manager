@@ -71,6 +71,29 @@ When the GM says continue, **re-read every file in the staging area** before pro
 
 Deleted files in the staging area are rejections — those proposals are dropped; nothing is written for them at the final location.
 
+### 4a. Iterative agent revisions during a review loop
+
+Some skills (`/prep-session` Step 3.5 per [ADR-0015](../docs/adr/0015-conversational-refinement-loop-in-prep-session.md)) extend the v0.1 terminal yes/no/cancel review into a multi-turn refinement loop. The skill stays inside the staging-area review for several turns: the agent asks rule-based follow-up questions, the GM responds, the agent revises the staged file(s) in place via Edit, and the loop continues until the GM explicitly approves or cancels.
+
+The contract from sections 2–4 still holds — the staging area is the sole surface the agent writes to between stage-write and approval, and the GM's final approve is what gates the move to the final location. The loop just inserts multiple turns of agent-revises-staging-via-Edit between the initial stage-write (section 2) and the final approve (sections 4–5). Each turn within the loop has the same shape:
+
+1. **Re-read every file in the staging area** before the agent does anything else. The GM may have edited the staged file directly in their IDE between turns; the agent must observe those edits and treat them as the current ground truth. Re-reading is the same operation the terminal-review continue path uses (section 4); the loop just runs it on every turn rather than only at exit.
+2. **Compute revisions from the GM's reply.** The agent decides what (if any) changes to the staged file the GM's reply implies — adding a section, appending a bullet, rephrasing a header, dropping a paragraph. Skill-specific question categories (e.g., `references/prep-session-questions.md` for `/prep-session`) define what kinds of revisions each kind of GM reply produces.
+3. **Apply revisions via the Edit tool against the staged file.** Per [#16](https://github.com/snlemons/game_manager/issues/16), Edit's diff display is the right native affordance for showing the GM a delta against content they've already reviewed once. Don't rewrite the whole staged file via Write — that's a re-stage, not a revision, and the chat shows it as a fresh full-file diff rather than the targeted change the GM is reacting to. If the revision is a whole-section rewrite, Edit can still express it (old_string = the whole section's current bytes, new_string = the rewritten section); the targeted diff is still preferable to a full re-stage.
+4. **Do not clobber GM edits.** Before applying an Edit, the just-completed re-read in step 1 reflects the current staged bytes including any GM hand-edits. If the agent's intended revision would overwrite GM-authored content the agent did not draft, surface the conflict to the GM in chat rather than silently overwriting (*"You edited the Locations section after the last turn; my proposed Secret-Push revision would touch a bullet you changed. Apply anyway, or skip?"*). The same posture the terminal-review re-read uses — the GM's edits are the source of truth.
+5. **Return to the loop preamble or move to approval.** After the revision (or after no-op if the GM's reply implied no change), the agent either presents the next queued question or asks for approval. The next turn re-reads from scratch — the agent never holds a cached view of the staged file across turns.
+
+A loop turn that produces no revision (the GM declined a question, or asked the agent to skip the rest) advances the loop without an Edit call. The staged file stays byte-identical for that turn; the next turn still re-reads (cheap; guarantees the agent never drifts from the file state).
+
+**Loop termination.** Two terminal signals exit the loop, both treated exactly as the terminal review's responses in section 4:
+
+- **Approve / continue / "looks good"** — final re-read of staging, move to final locations (section 5), clean up (section 6).
+- **Cancel** — delete the skill's staging sub-path immediately, leave the rest of the filesystem unchanged (section 6's cancel path). Pending revisions that were queued but not yet committed are discarded along with the staging file.
+
+**Cancel mid-loop is safe.** Because every loop turn writes only to `.ttrpg-staging/`, the on-cancel cleanup is the same `rm -r` as the terminal-review cancel path. The campaign tree is byte-identical before staging and after cleanup regardless of how many loop turns ran.
+
+**Manual edits between loop turns are picked up automatically.** The re-read at the top of each turn (step 1) is what makes this work. A GM who prefers to edit the staged file directly rather than asking via chat can do so freely — the agent observes the edits on the next loop turn and treats them as authoritative. The agent does not need a separate "I edited the file directly, here are the changes" signal from the GM; the re-read is unconditional.
+
 ### 5. Move from staging to final locations
 
 For each surviving staged file, translate the staging path to the final path (strip the skill's staging prefix) and write the file there. Create any missing parent directories. Then delete the staged file.
