@@ -1,6 +1,6 @@
 {
   "_comment_path": "Permissions baked for campaign at {{CAMPAIGN_PATH}}.",
-  "_comment_recovery": "If $(pwd) doesn't match the path above, this campaign was moved. Re-run /ingest Phase 1 scaffolder against this directory, or update the paths in permissions.allow / permissions.deny to match $(pwd). Automated detect-and-warn is tracked in issue #21.",
+  "_comment_recovery": "This file is gitignored and machine-local — clones don't carry it; /ingest Phase 1 regenerates it on a fresh clone. If $(pwd) doesn't match the path above, this campaign directory was moved on this machine. Re-run /ingest Phase 1 scaffolder against this directory, or update the paths in permissions.allow / permissions.deny to match $(pwd). The skills' settings-path preflight (references/preflight.md) detects this same-machine move case automatically; runtime detect-and-warn for moves is tracked in issue #21.",
   "permissions": {
     "allow": [
       "Edit(/{{CAMPAIGN_PATH}}/npcs/**)",
