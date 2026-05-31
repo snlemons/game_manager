@@ -1,6 +1,6 @@
 ---
 name: ingest
-description: Extract structure from existing TTRPG campaign notes into a scaffolded campaign repo. In slice 4 of v0.1, all four phases are implemented — the scaffolder (writes the root CLAUDE.md, .claude/rules/sessions.md, .claude/rules/adventures.md, and a campaign.md placeholder into the target directory, then runs git init and an initial commit), the survey phase (discover input docs, bounded-skim each, propose one-line descriptions, present diff-style for GM edit, propose a processing order, confirm with GM), the per-doc extraction loop with multi-doc cross-doc dedup and cross-doc learning (walk docs in confirmed order, extract Reference notes / Adventure / Threads / Consequences per doc, dedup against existing campaign files with confident-update / ambiguous-ask thresholds, carry GM corrections forward as visible lessons applied to subsequent docs), and the wrap-up phase (bulk-prompt the GM for any missing Adventure `order:` values, regenerate `campaign.md` as the agent-maintained Campaign overview per ADR-0007, and make a follow-up git commit with a count-summary message capturing everything ingested since the scaffolder's initial commit).
+description: Extract structure from existing TTRPG campaign notes into a scaffolded campaign repo. In slice 4 of v0.1, all four phases are implemented — the scaffolder (writes the root CLAUDE.md, .claude/rules/sessions.md, .claude/rules/adventures.md, and a campaign.md placeholder into the target directory, then runs git init and an initial commit), the survey phase (discover input docs, bounded-skim each, propose one-line descriptions, present diff-style for GM edit, propose a processing order, confirm with GM), the per-doc extraction loop with multi-doc cross-doc dedup and cross-doc learning (walk docs in confirmed order, extract Reference notes / Adventure / Threads / Consequences / Beats / Secrets per doc — classifying Beats by `kind:` from section headings and populating Secret `belongs_to:` from the ingested Adventure plus any named NPCs/Locations/Factions; dedup against existing campaign files with confident-update / ambiguous-ask thresholds; carry GM corrections forward as visible lessons applied to subsequent docs), and the wrap-up phase (bulk-prompt the GM for any missing Adventure `order:` values, regenerate `campaign.md` as the agent-maintained Campaign overview per ADR-0007, and make a follow-up git commit with a count-summary message capturing everything ingested since the scaffolder's initial commit).
 ---
 
 # /ingest
@@ -313,7 +313,8 @@ Identify:
 - **Adventure-shape**: does this doc describe a story arc the party will run (a coherent set of scenes, locations, or stages tied together by a goal)? If yes, plan an `adventures/<slug>/adventure.md` file with ADR-0007 frontmatter. If no (it's a Reference note dump, world info, or session-narrative), don't fabricate an Adventure.
 - **Threads**: explicit unresolved hooks the party *knows about* — promises the party made, questions they asked, dangers they were warned about. Future-facing, party-aware. ADR-0004 governs file shape and status frontmatter. Only extract Threads that the doc actually surfaces as party-aware; don't invent them.
 - **Consequences**: explicit persistent facts about the world resulting from prior action ("the temple was destroyed", "the lord owes the party a favor"). Past-facing. Same provenance bar as Threads — only what the doc says.
-- **Beats**: GM-prepped scenes the party doesn't yet know about — unchecked encounter lists, planned scenes, per-PC personal hooks ("for Darius: a test of discipline"), adventure-tagged scene ideas, "if X then Y" contingent deliveries. Future-facing, GM-authored. ADR-0009 frontmatter: `status: pending`, `created: ~` (null — ingest doesn't know when the GM wrote the prep down), optional `linked_pcs` / `linked_npcs` / `linked_adventures` / `linked_locations` populated from the source per the rules in the **Beat shape** subsection of Step 3 below. *Threads vs Beats test*: if the party knows about it, it's a Thread; if it's the GM's prep, it's a Beat. When the source is ambiguous about awareness, default to Beat and the GM can re-classify in the per-doc review. **Populate `linked_*` fields conservatively at extraction time** — `linked_adventures` and `linked_locations` are what `/prep-session` will use to surface Beats relevantly; leaving them empty at ingest forces a downstream manual backfill. Empty is still preferable to wrong, but a confident link the source clearly supports is exactly what these fields are for. See the Beat shape subsection for the proximity heuristics.
+- **Beats**: GM-prepped scenes the party doesn't yet know about — unchecked encounter lists, planned scenes, per-PC personal hooks ("for Darius: a test of discipline"), adventure-tagged scene ideas, "if X then Y" contingent deliveries. Future-facing, GM-authored. ADR-0009 frontmatter: `status: pending`, `created: ~` (null — ingest doesn't know when the GM wrote the prep down), optional `kind:` classified by source-section heading per `references/beat-kind-classification.md` (a Beat extracted from a "Scenes" / "Set Pieces" / "Encounters" section → `kind: set-piece`; from "Lore" / "Rumors" / "What the Party Hears" → `kind: news`; from "Handouts" → `kind: handout`; from "Hidden Information for the DM" → `kind: clue` with `linked_secrets:` pointing at the paired Secret; from "Triggers" / "What Happens If…" → `kind: escalation`; from a PC-attributed hook section → `kind: character-moment`), optional `linked_secrets:` for `kind: clue` Beats, optional `linked_pcs` / `linked_npcs` / `linked_adventures` / `linked_locations` populated from the source per the rules in the **Beat shape** subsection of Step 3 below. *Threads vs Beats test*: if the party knows about it, it's a Thread; if it's the GM's prep, it's a Beat. When the source is ambiguous about awareness, default to Beat and the GM can re-classify in the per-doc review. **Populate `linked_*` fields conservatively at extraction time** — `linked_adventures` and `linked_locations` are what `/prep-session` will use to surface Beats relevantly; leaving them empty at ingest forces a downstream manual backfill. Empty is still preferable to wrong, but a confident link the source clearly supports is exactly what these fields are for. See the Beat shape subsection for the proximity heuristics.
+- **Secrets**: GM-only facts the party may not know but could discover. The discriminator from `references/secret-extraction.md`: a *fact about the world*, *possibly unknown to the party*, *anchored to ≥1 non-ephemeral container*, *discoverable* by some plausible path. Modules surface these explicitly under "Secrets and Lies" / "Adventure Background" / "DM-Only" / "Hidden Information" / "What's Really Going On" sections; treat those section headings as strong extraction signals. Each extracted Secret gets its own `secrets/<slug>.md` with ADR-0014 frontmatter: `status: hidden`, `belongs_to:` containing the ingested Adventure (`adventures/<slug>/`) **plus** any NPCs / Locations / Factions / Items named in the Secret's own prose (the multi-container population rule in the **Secret shape** subsection of Step 3 below), `revealed_by: []`. On write, the agent maintains a bidirectional `## Secrets` section in each container in `belongs_to:` per `references/bidi-link-maintenance.md`. *Beat vs Secret test*: a Beat is *intent to deliver* (GM action); a Secret is *fact to be discovered* (world truth). The "Hidden Information for the DM" pairing — Secrets in one section, Clue Beats in another — is the canonical module structure and is extracted as paired Secret + `kind: clue` Beats with `linked_secrets:` populated.
 
 **Date honesty for lifecycle objects.** Same principle as ADR-0007 for Adventures: the agent never invents dates. For every Thread, Consequence, and Beat extracted during ingest, `created:` is left null unless the source doc explicitly provides a date the agent can attribute. Do **not** use the ingest date as a stand-in for an unknown source date — Consequences ingested from past adventures are not "created today"; they came into being whenever those past sessions happened. Future Briefs and `campaign.md` regens handle null `created:` values by falling back to slug or insertion order; that's intentional. Dates get filled in precisely going forward by `/wrap-session`.
 
@@ -385,9 +386,21 @@ publicly declared he owes them one.
 
 #### Beat shape (ADR-0009)
 
-One file per Beat, in `beats/`. **Schema:** see `references/frontmatter-schemas.md` ("Beat" section). Ingest-specific defaults: `status: pending` (a `delivered` or `dropped` Beat is past-tense and would be a Consequence or simply not-extracted); `created: ~`; `delivered: ~`; `linked_*` populated per the proximity rules below (the heuristics are ingest-specific orchestration, not part of the shared schema).
+One file per Beat, in `beats/`. **Schema:** see `references/frontmatter-schemas.md` ("Beat" section). Ingest-specific defaults: `status: pending` (a `delivered` or `dropped` Beat is past-tense and would be a Consequence or simply not-extracted); `created: ~`; `delivered: ~`; `kind:` classified by source-section heading per `references/beat-kind-classification.md` (see "Classifying `kind:` from source-section headings" below); `linked_secrets:` populated when the Beat is a Clue paired with an extracted Secret (see same subsection); `linked_*` populated per the proximity rules in "Populating `linked_*` at extraction time" below (the heuristics are ingest-specific orchestration, not part of the shared schema).
 
 Body is one or two sentences describing the GM's prep — the scene, the encounter, the news to drop, the hook to land — with `[[wiki links]]` to relevant Reference notes mentioned inside the prep.
+
+##### Classifying `kind:` from source-section headings
+
+`/ingest` is the strongest case for `kind:` classification because module-shaped source docs label their content by section heading. **Apply `references/beat-kind-classification.md`** — that reference is the canonical mapping from module section headings to `kind:` values, and the order-of-precedence rule (section heading > body content > unset).
+
+Ingest-specific orchestration on top of the shared reference:
+
+- **Heading is the primary signal.** When a Beat is extracted from prose under a known section heading (e.g., `## Scenes`, `## Lore`, `## Handouts`, `## Hidden Information for the DM`, `## Triggers`), set `kind:` per the heading-mapping table in `references/beat-kind-classification.md` Section "Heading → `kind` mapping." The heading is the source author's intent declaration; don't override it from body-content guessing.
+- **Subsection refines.** A `### The Ambush at the Bridge` under `## Scenes` is still `kind: set-piece`; the subsection just names the scene. When a subsection's content reads as a different kind from its parent heading (an item labeled "Rumor:" under `## Scenes`), surface as an ASK at Step 4a.
+- **Unknown heading → body-content fallback.** When the enclosing heading doesn't match any known pattern, fall back to body-content classification per the same reference. Leave `kind:` unset (`~`) if body content also doesn't yield a confident classification — unclassified Beats surface normally.
+- **GM-supplied kind values.** The enum is open (ADR-0014, ADR-0009). If the GM corrects a proposed kind to a string outside the starter set at review, accept it verbatim and record the value in a carried-forward lesson for the rest of the run: *"Doc 2: GM-supplied kind value 'foreshadow' applied to Beats with prophecy-shaped body content."*
+- **Hidden Information for the DM → `kind: clue` with `linked_secrets:`.** When the source doc has both a Secret-bearing section (per `references/secret-extraction.md`) and a "Hidden Information for the DM" (or analogous) section, the paired structure is canonical: Secrets in one section, Clue Beats in the other. Extract paired Beat–Secret pairs and populate the Clue Beat's `linked_secrets:` with the matching Secret's slug. When the alignment is ambiguous (the chapter has three Secrets and four Hidden Information items with no clear one-to-one mapping), surface as ASK at Step 4a: *"Hidden Information item X — link to which Secret(s)? `mayor-funds-cult`, `mayor-was-blackmailed`, or both?"*
 
 ##### Populating `linked_*` at extraction time
 
@@ -428,9 +441,9 @@ Use these rules, in order:
 
 8. **All linked-field values are slugs**, using the same slugification rule used for Reference note dedup (lowercase, ASCII-fold accents, strip leading "the ", collapse whitespace and punctuation to single hyphens, trim leading/trailing hyphens). For `linked_pcs` where no `pcs/` folder yet exists, use the PC's canonical name slugified the same way; `/prep-session` will resolve.
 
-##### Carried-forward lessons for Beat linkage
+##### Carried-forward lessons for Beat linkage and kind
 
-The Step 5b carried-forward lessons set tracks linkage decisions just like dedup decisions. If the GM corrects a `linked_*` field at review (e.g., "Beat 'Rulf's body' should link to `cragmaw-hideout`, not `cragmaw-castle`"), record it. Subsequent docs that propose similar Beats with the same ambiguity get the GM's correction applied automatically (with the lesson surfaced at the top of the next doc's review, per Step 0b).
+The Step 5b carried-forward lessons set tracks linkage decisions and kind classifications just like dedup decisions. If the GM corrects a `linked_*` field at review (e.g., "Beat 'Rulf's body' should link to `cragmaw-hideout`, not `cragmaw-castle`"), record it. If the GM corrects a proposed `kind:` (e.g., the agent proposed `set-piece` for an item under a `## Scenes` heading but the GM reclassified to `news` because the item was a one-line rumor drop the source author miscategorized), record that too. Subsequent docs that propose similar Beats with the same ambiguity get the GM's correction applied automatically (with the lesson surfaced at the top of the next doc's review, per Step 0b).
 
 ##### Example: `beats/dream-of-the-veiled-court.md`
 
@@ -438,10 +451,12 @@ The Step 5b carried-forward lessons set tracks linkage decisions just like dedup
 ---
 status: pending
 created: ~
+kind: character-moment
 linked_pcs: [sera]
 linked_npcs: []
 linked_adventures: [lost-mines]
 linked_locations: [phandalin]
+linked_secrets: []
 ---
 
 # Sera's dream of the Veiled Court
@@ -450,30 +465,123 @@ When [[Sera]] sleeps in [[Phandalin]], drop a fragment of the [[Veiled Court]]
 dream — silver masks turning toward her, one of them speaking her mother's name.
 ```
 
-(In this example the source doc was the `lost-mines.md` adventure writeup, so `linked_adventures: [lost-mines]` is the strong-rule link. The Beat text names Sera explicitly — `linked_pcs: [sera]`. It names Phandalin in the Beat's own paragraph — `linked_locations: [phandalin]`. The Veiled Court is mentioned but not as an NPC role — `linked_npcs: []` because it's a faction wiki link, not an NPC subject.)
+(In this example the source doc was the `lost-mines.md` adventure writeup under a `## Personal Hooks → ### For Sera` subsection, so `kind: character-moment` is heading-driven and `linked_adventures: [lost-mines]` is the strong-rule link. The Beat text names Sera explicitly — `linked_pcs: [sera]`. It names Phandalin in the Beat's own paragraph — `linked_locations: [phandalin]`. The Veiled Court is mentioned but not as an NPC role — `linked_npcs: []` because it's a faction wiki link, not an NPC subject. No Secret is paired with this Beat — `linked_secrets: []`.)
+
+##### Example: `beats/ledgers-in-mayors-office.md` — a Clue Beat paired with a Secret
+
+```markdown
+---
+status: pending
+created: ~
+kind: clue
+linked_pcs: []
+linked_npcs: [mayor-brennan]
+linked_adventures: [the-prism]
+linked_locations: [town-hall]
+linked_secrets: [mayor-funds-cult]
+---
+
+# Ledgers in the mayor's office
+
+If the party investigates [[Mayor Brennan]]'s office in [[Town Hall]], they
+find ledgers showing payments to a shell merchant the [[Silent Court]] uses.
+```
+
+(Extracted from a "Hidden Information for the DM" section under the same chapter that had a "Secrets and Lies" entry "The mayor secretly funds the cult." The section heading drives `kind: clue`; the paired Secret extracted from the same chapter populates `linked_secrets: [mayor-funds-cult]`.)
+
+#### Secret shape (ADR-0014)
+
+If the source doc has a "Secrets and Lies," "Adventure Background," "DM-Only," "Hidden Information," or analogous GM-only section, propose one file per Secret under `secrets/`. **Schema:** see `references/frontmatter-schemas.md` ("Secret" section). **Extraction heuristic:** `references/secret-extraction.md` is the canonical spec for what counts as a Secret, file shape, section-heading signals for ingest, and the multi-container `belongs_to:` population rule from named entities in the Secret's prose. Apply that reference; the orchestration below is ingest-specific scaffolding on top of it.
+
+Ingest-specific defaults:
+
+- `status: hidden` unless the source content explicitly says some part of the Secret has already been revealed.
+- `belongs_to:` populated per the rules in "Populating `belongs_to:` at extraction time" below — at minimum, the ingested Adventure (`adventures/<slug>/`).
+- `revealed_by: []` at CREATE — the list grows as Clue Beats land pointing at this Secret. Do not pre-populate from Beats extracted in this same doc; the Beat–Secret pairing is captured on the *Beat's* `linked_secrets:` (per the Beat shape's "Hidden Information for the DM" subsection above), and the symmetric `revealed_by:` will be reconciled by `/wrap-session` when the Beat flips to `delivered`.
+
+Body of the Secret file is the **fact itself**, one or two sentences written for the GM (not GM instructions — the fact, not how to reveal it). Use `[[wiki links]]` to any Reference notes (NPCs, Locations, Factions, Items, Adventures) named in the fact.
+
+##### Populating `belongs_to:` at extraction time
+
+`belongs_to:` is the load-bearing structural decision for an extracted Secret. Get it right and the bidi back-references (per `references/bidi-link-maintenance.md`), per-container Secret queries from `/prep-session`, and multi-container reconciliation at dedup all work automatically. Get it wrong and the GM hand-edits to repair the symmetry.
+
+Use these rules, in order (mirrors the Beat-shape rules above, scoped to Secrets):
+
+1. **Adventure container is automatic — strong rule.** When the current doc is being ingested as `adventures/<slug>/` (the GM-confirmed description from Phase 2 / Step 1 classified it as an Adventure), every Secret extracted from that doc gets `belongs_to:` containing **at minimum** `adventures/<slug>/`. The Secret was found inside the Adventure's source doc; the Adventure is its container by construction. Do not skip this entry even when the Secret's own prose doesn't name the Adventure.
+
+2. **Named-entity expansion — proximity rule.** Scan the Secret's prose (the body the extractor will write) for **named** NPCs, Locations, Factions, and Items. For each named entity that resolves to:
+   - A Reference note already present in the campaign repo (under `npcs/`, `locations/`, `factions/`, or `items/`), **or**
+   - A Reference note being CREATEd from earlier docs in this same `/ingest` run, **or**
+   - A Reference note being CREATEd from this same doc,
+
+   add that entity's container path to `belongs_to:`. The matching uses the same slugification rule as `references/dedup-matching.md`. The proximity radius is *the Secret's own body* — the prose the extractor is writing for the Secret file. Worked example: a Secret with body *"Mayor Brennan diverts town funds to the [[Silent Court]] through a shell merchant in the [[Old Temple]] district"* gets `belongs_to: [adventures/the-prism/, npcs/mayor-brennan.md, factions/silent-court.md, locations/old-temple.md]`.
+
+3. **Subsection-heading expansion — heading rule.** When a Secret is extracted from a subsection whose heading names a container (e.g., `### About the Mayor` under `## Secrets and Lies`), add that container to `belongs_to:` even if the Secret's own body doesn't repeat the name. The enclosing heading is the GM's implicit scope tag.
+
+4. **PC containers — explicit attribution only.** A Secret may belong to a PC (`pcs/<slug>.md`) when the source material *explicitly* names the PC as the subject (*"the truth about Sera's brother"*, *"Darius's hidden parentage"*). Generic mentions do not justify a PC container — surface as ASK if the source is ambiguous.
+
+5. **Cross-kind ambiguity → ASK.** A name matching Reference notes in multiple kind folders (e.g., "Veil" → `npcs/veil.md` and `factions/the-veil.md`) surfaces as an ASK at Step 4a, same shape as cross-kind dedup ASKs.
+
+6. **Container set validation.** Before staging, validate `belongs_to:` per `references/secret-store.md` (which mirrors `tests/test_secret_store.py::TestValidateBelongsTo`): non-empty, at least one entry under a non-ephemeral folder root (`adventures/`, `npcs/`, `pcs/`, `locations/`, `factions/`, `items/`), no unknown folder roots (typos like `npc/maren.md` are rejected so the GM catches them). A Secret that fails validation surfaces as ASK at Step 4a with the GM picking a corrected set; do not write a Secret whose `belongs_to:` would fail the validator.
+
+7. **Default to a smaller set on doubt.** If the proximity rule would expand `belongs_to:` to many containers and the extractor is uncertain about the structural justification for one or more, surface those as an ASK alongside the Secret in the per-doc review: *"Secret 'Mayor secretly funds the cult' was extracted near mentions of the Silent Court (faction), the Old Temple (location), and the council chambers (location). Include any/all in `belongs_to:`?"* Don't guess.
+
+8. **All `belongs_to:` paths use the canonical form** — `npcs/<slug>.md` / `pcs/<slug>.md` / `locations/<slug>.md` / `factions/<slug>.md` / `items/<slug>.md` for file-shaped containers, `adventures/<slug>/` (with trailing slash) for Adventures. The slug rule is the dedup normalization (lowercase, ASCII-fold accents, strip leading "the ", collapse non-alphanumerics to hyphens, trim).
+
+##### Carried-forward lessons for Secret extraction and `belongs_to:`
+
+The Step 5b carried-forward lessons set tracks Secret extraction decisions:
+
+- **Section-heading interpretation.** If the GM corrects a section that the agent treated as Secret-bearing (e.g., a "Notes" section the agent classified as DM-Only but the GM clarified is player-facing), record the lesson: *"Doc 2: GM treats sections labeled 'Notes' in this campaign as player-facing context, not Secret-bearing — do not extract Secrets from them."*
+- **`belongs_to:` choices.** If the GM trimmed or expanded a proposed `belongs_to:` (e.g., dropped the location container because the named place was incidental color, not structurally part of the Secret), record the lesson: *"Doc 1: GM excludes incidental-mention locations from `belongs_to:` — limit to entities the Secret is structurally about."*
+- **Merge vs. separate decisions for cross-doc Secret dedup.** When a candidate Secret in doc 4 dedups against a Secret extracted from doc 1 and the GM resolves "merge — add the doc 4 containers to the existing Secret's `belongs_to:`," record the identity for the rest of the run.
+
+##### Example: `secrets/mayor-funds-cult.md`
+
+```markdown
+---
+status: hidden
+belongs_to:
+  - adventures/the-prism/
+  - npcs/mayor-brennan.md
+  - factions/silent-court.md
+  - locations/old-temple.md
+revealed_by: []
+---
+
+# The mayor secretly funds the cult
+
+[[Mayor Brennan]] diverts town funds to the [[Silent Court]] through a shell
+merchant in the [[Old Temple]] district. He joined willingly after his daughter
+was promised an audience with the Court's matriarch.
+```
+
+(Extracted from a "Secrets and Lies" section in the `the-prism.md` adventure source. The Adventure container is automatic; the three Reference-note containers come from named entities in the Secret's body via the proximity rule. The paired Clue Beat in the same chapter — `beats/ledgers-in-mayors-office.md` — has `linked_secrets: [mayor-funds-cult]`.)
 
 ### Step 3b: Cross-doc dedup
 
-Before presenting the per-doc review, match every drafted Reference note (NPC, location, faction, item) against existing files in the campaign repo. This applies both within the multi-doc loop (matching against files written by earlier docs in this run) and on the first doc of a multi-doc run (matching against any pre-existing Reference notes already in the campaign repo from a prior `/ingest` invocation). In the single-doc degenerate case, dedup still runs — it just matches only against pre-existing campaign files.
+Before presenting the per-doc review, match every drafted Reference note (NPC, location, faction, item) **and every drafted Secret** against existing files in the campaign repo. This applies both within the multi-doc loop (matching against files written by earlier docs in this run) and on the first doc of a multi-doc run (matching against any pre-existing Reference notes / Secrets already in the campaign repo from a prior `/ingest` invocation). In the single-doc degenerate case, dedup still runs — it just matches only against pre-existing campaign files.
 
-Reference notes are the **only** kind dedup applies to in this slice. Adventures get name-collision handling at Step 5 (the GM resolves; no auto-merge). Threads and Consequences are extracted only from what the doc explicitly says (ADR-0004); cross-doc Thread/Consequence dedup is a deliberate non-goal here — duplicates surface, and the GM trims them at review.
+Reference notes and Secrets are the kinds dedup applies to in this slice. Adventures get name-collision handling at Step 5 (the GM resolves; no auto-merge). Threads, Consequences, and Beats are extracted only from what the doc explicitly says (ADR-0004, ADR-0009); cross-doc Thread / Consequence / Beat dedup is a deliberate non-goal here — duplicates surface, and the GM trims them at review.
 
 #### Matching procedure
 
-**Apply the matching rule at `references/dedup-matching.md`** — it defines the normalization (lowercase, ASCII-fold accents, strip leading "the ", collapse whitespace and punctuation to single hyphens, trim leading/trailing hyphens), what to match against (existing filenames and the first-heading title inside each candidate file), and the three buckets (CREATE / UPDATE confident-match / ASK ambiguous-match). Apply the same rule consistently across every drafted Reference note in this doc.
+**Apply the matching rule at `references/dedup-matching.md`** — it defines the normalization (lowercase, ASCII-fold accents, strip leading "the ", collapse whitespace and punctuation to single hyphens, trim leading/trailing hyphens), what to match against (existing filenames and the first-heading title inside each candidate file), and the three buckets (CREATE / UPDATE confident-match / ASK ambiguous-match). Apply the same rule consistently across every drafted Reference note and Secret in this doc.
 
 Ingest-specific orchestration on top of the shared rule:
 
 - **Apply carried-forward dedup decisions before asking.** If the carried-forward lessons set already contains a confirmed identity link for this candidate ("the Sera in this run is the same Sera as `npcs/sera.md`"), apply it as a confident match without re-asking. If the lessons contain a confirmed split ("the John from doc 3 is distinct from `npcs/john.md`"), drop the proposed dedup question and treat the candidate as a CREATE with a disambiguated slug (e.g., `npcs/john-the-bandit.md`) — confirm the disambiguated slug with the GM at the review screen, not silently.
-- **Target folder is the kind's folder.** Per `references/reference-note-extraction.md`, match candidates only within the same kind (`npcs/`, `locations/`, `factions/`, or `items/`). Cross-kind matches surface as ASK per the shared rule.
+- **Target folder is the kind's folder.** Per `references/reference-note-extraction.md`, match Reference-note candidates only within the same kind (`npcs/`, `locations/`, `factions/`, or `items/`). Cross-kind matches surface as ASK per the shared rule. Secret candidates match within the `secrets/` folder per `references/secret-store.md`.
+- **Secret dedup → multi-container reconciliation, not generic UPDATE.** A confident Secret slug match doesn't propose a generic body UPDATE the way a Reference note does — the resolution shape for Secrets is *merge the new container set into the existing Secret's `belongs_to:`*. Per `references/secret-extraction.md`: the prompt is "merge, separate, or rename?" When the GM resolves *merge*, the existing Secret's `belongs_to:` is union'd with the candidate's `belongs_to:` and the existing body is preserved (or the candidate's body is appended if the GM wants — surface that subdecision at the same prompt). When *separate*, create the new Secret at a disambiguated slug. When *rename*, the GM supplies the new slug.
+- **Restated Secrets across chapters.** A common module pattern: chapter 1 introduces a Secret, chapter 4 restates it ("as established in chapter 1, the mayor funds the cult"). The cross-doc dedup against earlier-doc Secrets catches this; without dedup the agent would write a duplicate `secrets/mayor-funds-cult-1.md` slug-collision. When the GM resolves *merge* on a restated Secret, also expand `belongs_to:` to include any new containers chapter 4 named.
 
 #### Output of Step 3b
 
-The drafted-proposal set from Step 3 is now annotated, per Reference note, with one of:
+The drafted-proposal set from Step 3 is now annotated, per Reference note and per Secret, with one of:
 
 - **CREATE** — new file, no existing match.
-- **UPDATE** — confident match against an existing file; the agent proposes a specific append-or-edit to that file.
-- **ASK** — ambiguous match; the agent has a yes/no question for the GM that must be resolved at the review screen before this Reference note is written.
+- **UPDATE** — confident match against an existing file; the agent proposes a specific append-or-edit to that file. For Secrets, UPDATE specifically means *merge containers into the existing Secret's `belongs_to:`* (and optionally append body content if the GM wants — surfaced as a sub-question).
+- **ASK** — ambiguous match; the agent has a yes/no question for the GM that must be resolved at the review screen before this Reference note or Secret is written. For Secrets, the ASK shape is the multi-container reconciliation prompt — merge / separate / rename.
 
 These annotations feed the per-doc review in Step 4.
 
@@ -483,18 +591,37 @@ This step has two parts. First, resolve any ambiguous-dedup ASK items inline in 
 
 #### Step 4a: Resolve ambiguous-dedup questions inline
 
-If Step 3b produced any ASK items (ambiguous Reference-note matches the agent isn't confident about), surface them in chat as a short numbered list of yes/no questions:
+If Step 3b produced any ASK items (ambiguous Reference-note matches, Secret multi-container reconciliations, Beat–Secret pairing ambiguities, Beat `linked_*` ambiguities, Beat `kind:` ambiguities, or `belongs_to:` expansion uncertainties), surface them in chat as a short numbered list of questions. Group by ASK kind so the GM can scan:
 
 ```
-Doc 2 of 3: Past Travel.md — 2 ambiguous dedup questions to resolve before review:
+Doc 2 of 3: The Prism.md — 5 questions to resolve before review:
 
+Reference-note dedup (yes/no):
   1. Sera (proposed NPC): possible match to existing `npcs/sera.md` ("Sera the blacksmith from Lost Mines"). Same person?
   2. The Citadel (proposed location): possible match to existing `locations/the-citadel.md` ("Mountain fortress in the north"). Same place?
 
-Reply with answers (e.g., "1 yes, 2 no, call it 'the-citadel-of-glass'"). For "no", supply a disambiguated slug.
+Secret reconciliation (merge / separate / rename):
+  3. "The mayor secretly funds the cult" (proposed Secret): matches existing `secrets/mayor-funds-cult.md` (extracted from doc 1). Merge the new containers [factions/silent-court.md, locations/old-temple.md] into the existing Secret's belongs_to, or create as a separate Secret at a disambiguated slug?
+
+Secret belongs_to expansion:
+  4. "Maren is the cult's inside contact" (proposed Secret) was extracted with the Silent Court (faction) and the Old Temple (location) named in incidental context, not the Secret's core fact. Include both, only the Silent Court, or only the Adventure container?
+
+Clue–Secret pairing:
+  5. Hidden Information item "ledgers in mayor's office" — link to which Secret(s)? `mayor-funds-cult`, `mayor-was-blackmailed`, or both?
+
+Reply with answers (e.g., "1 yes, 2 no — call it 'the-citadel-of-glass', 3 merge, 4 only-court, 5 mayor-funds-cult").
+For Reference-note "no", supply a disambiguated slug.
+For Secret "separate" or "rename", supply the disambiguated slug.
 ```
 
-When the GM resolves, convert each ASK to either a confident UPDATE (yes) or a CREATE at a disambiguated slug (no). Record the resolutions in the carried-forward lessons set (Step 5b will keep these for subsequent docs in the run). Then proceed to Step 4b.
+When the GM resolves, apply per ASK kind:
+- Reference-note dedup: convert to confident UPDATE (yes) or CREATE at a disambiguated slug (no).
+- Secret reconciliation: *merge* → set `belongs_to:` to the union of existing and candidate containers; treat as UPDATE on the existing Secret. *Separate* → CREATE the candidate Secret at the disambiguated slug. *Rename* → CREATE at the GM-supplied slug.
+- Secret `belongs_to:` expansion: trim or expand the proposed `belongs_to:` per the GM's answer; the validated set feeds the Secret CREATE / UPDATE.
+- Clue–Secret pairing: set the Beat's `linked_secrets:` to the GM-confirmed Secret slug(s).
+- Beat `linked_*` and `kind:` ASKs: set the field per the GM's answer.
+
+Record every resolution in the carried-forward lessons set (Step 5b will keep these for subsequent docs in the run). Then proceed to Step 4b.
 
 If the GM resolves only some ASK items, re-ask the unresolved ones — don't proceed to staging until every ASK has a decision.
 
@@ -513,31 +640,47 @@ Ingest-specific staging shape: write every proposed file to `.ttrpg-staging/doc-
 | Thread (CREATE) | `.ttrpg-staging/doc-<N>/threads/<slug>.md` |
 | Consequence (CREATE) | `.ttrpg-staging/doc-<N>/consequences/<slug>.md` |
 | Beat (CREATE) | `.ttrpg-staging/doc-<N>/beats/<slug>.md` |
+| Secret (CREATE) | `.ttrpg-staging/doc-<N>/secrets/<slug>.md` |
+| Secret (UPDATE — merged containers) | `.ttrpg-staging/doc-<N>/secrets/<slug>.md` — write the **full proposed new content** of the existing Secret with the union'd `belongs_to:` and any GM-approved body changes |
+| Secret (CREATE-disambiguated from ASK) | `.ttrpg-staging/doc-<N>/secrets/<disambiguated-slug>.md` |
+| Container back-reference (UPDATE — added `## Secrets` section bullet) | `.ttrpg-staging/doc-<N>/<container-path>` — the existing container file (NPC / Location / Faction / Item / `adventures/<slug>/adventure.md`) with the proposed `## Secrets` section bullet inserted per `references/bidi-link-maintenance.md` |
 
 For UPDATE items, read the existing file from the campaign repo, apply the proposed edit in memory, write the merged result to staging — so the GM sees and edits the full final state of the file, not just the addition.
+
+**Bidi link staging for Secrets.** Every Secret CREATE or UPDATE drags container back-reference UPDATEs along with it: for each container in the Secret's `belongs_to:`, if that container's body doesn't already have a `## Secrets` section wiki-linking the Secret, stage an UPDATE to that container file too (per `references/bidi-link-maintenance.md`). The GM sees the back-reference UPDATEs alongside the Secret in the staging summary; deleting a back-reference UPDATE without also adjusting the Secret's `belongs_to:` is a contract violation the agent surfaces at re-read time (*"You deleted the back-reference UPDATE for `npcs/maren.md` but left `npcs/maren.md` in the Secret's `belongs_to:`. Re-add the back-reference, drop the container from `belongs_to:`, or cancel?"*). For container files that don't exist (a Secret's `belongs_to:` names a Reference note that this same doc is CREATEing), the back-reference is staged against the CREATEd container's staged content — so the GM sees the full final state of the new container file including the `## Secrets` section, not just the agent's split-write.
 
 Then present a chat summary listing what's staged, with the same metadata Step 4 used to surface before:
 
 ```
-Doc 2 of 3: Past Travel.md — proposed changes staged at .ttrpg-staging/doc-2/
+Doc 2 of 3: The Prism.md — proposed changes staged at .ttrpg-staging/doc-2/
 
-Description: World info: travel notes on routes between major cities.
+Description: Adventure: a published-module-shaped writeup of the Prism arc.
 Lessons applied:
   - Skip passing innkeepers as NPCs (from doc 1 rejections).
 
-Summary: 1 Adventure, 4 Reference notes (3 NPCs CREATE, 1 location UPDATE), 2 Threads, 1 Consequence.
+Summary: 1 Adventure, 5 Reference notes (3 NPCs CREATE, 1 location UPDATE, 1 faction CREATE), 2 Threads, 1 Consequence, 4 Beats (2 set-piece, 1 clue, 1 character-moment), 2 Secrets, 3 container back-references.
 
 Files:
-  adventures/spring-circuit/adventure.md       — CREATE
-  npcs/orin.md                                 — CREATE
-  npcs/sera.md                                 — UPDATE (full new content staged)
-  locations/the-broken-mines.md                — CREATE
-  threads/find-orin.md                         — CREATE
-  consequences/orin-owes-favor.md              — CREATE
+  adventures/the-prism/adventure.md            — CREATE
+  npcs/mayor-brennan.md                        — CREATE  (gains ## Secrets section)
+  npcs/maren.md                                — CREATE  (gains ## Secrets section)
+  npcs/sera.md                                 — UPDATE  (full new content staged)
+  locations/old-temple.md                      — CREATE  (gains ## Secrets section)
+  factions/silent-court.md                     — CREATE
+  threads/find-the-spy.md                      — CREATE
+  consequences/temple-was-purged.md            — CREATE
+  beats/ambush-at-the-bridge.md                — CREATE  (kind: set-piece)
+  beats/ledgers-in-mayors-office.md            — CREATE  (kind: clue → linked_secrets: [mayor-funds-cult])
+  beats/sera-dream.md                          — CREATE  (kind: character-moment)
+  beats/random-encounter-table.md              — CREATE  (kind: set-piece)
+  secrets/mayor-funds-cult.md                  — CREATE  (belongs_to: 4 containers)
+  secrets/maren-is-the-spy.md                  — CREATE  (belongs_to: 2 containers)
 
 Edit any file in `.ttrpg-staging/doc-2/`, delete any file to reject that proposal, then tell me to continue. Or say cancel to exit cleanly.
 
 (In a multi-doc run: skipped non-markdown files are listed on doc 1's review only; not repeated per doc.)
+
+Note: deleting a Secret's staged file also drops the paired container back-reference UPDATEs (the agent re-stages without them); deleting a back-reference UPDATE without adjusting the Secret's `belongs_to:` surfaces a contract-violation prompt at continue time.
 ```
 
 Accept these response shapes:
@@ -552,15 +695,23 @@ Rejected items (whether per-file via deletion or per-doc via reject-everything) 
 
 Once the GM says continue in Step 4b, move every file remaining in `.ttrpg-staging/doc-<N>/` to its corresponding final location in the campaign repo. Paths inside `doc-<N>/` mirror the campaign repo, so the move is a path translation — strip the `.ttrpg-staging/doc-<N>/` prefix to get the final path.
 
-1. Create any needed directories under the campaign repo: `adventures/<slug>/`, `npcs/`, `locations/`, `factions/`, `items/`, `threads/`, `consequences/` — but **only** those needed for approved items. Don't pre-create empty folders for kinds with no content (matches Phase 1 Step 2 rule).
-2. For each surviving staged file, dispatch by its Step 3b annotation (preserved from before staging):
-   - **CREATE** — write the staged content to the proposed path. If a path collision occurs against a Reference note that wasn't surfaced by Step 3b (e.g., because the slug differs from any existing file by some edge case the matching procedure missed), STOP and tell the GM the exact conflicting path. Do not overwrite without explicit GM confirmation.
+1. Create any needed directories under the campaign repo: `adventures/<slug>/`, `npcs/`, `locations/`, `factions/`, `items/`, `threads/`, `consequences/`, `beats/`, `secrets/` — but **only** those needed for approved items. Don't pre-create empty folders for kinds with no content (matches Phase 1 Step 2 rule).
+2. **Move order matters for Secrets.** Move container files (Reference notes, Adventures) **before** Secret files, so the bidi back-references in the Secrets' `belongs_to:` resolve against containers that exist at the final location. Specifically:
+   - Move Reference-note CREATEs and UPDATEs first.
+   - Move Adventure CREATEs (including sub-files) next.
+   - Move container back-reference UPDATEs to existing-in-campaign-repo Reference notes / Adventures (those weren't in this doc's CREATE set but received a `## Secrets` section bullet from a Secret extracted from this doc).
+   - Move Secret files last.
+   - Move Threads, Consequences, and Beats in any order — they have no bidi dependency on this step.
+3. For each surviving staged file, dispatch by its Step 3b annotation (preserved from before staging):
+   - **CREATE** — write the staged content to the proposed path. If a path collision occurs against a Reference note or Secret that wasn't surfaced by Step 3b (e.g., because the slug differs from any existing file by some edge case the matching procedure missed), STOP and tell the GM the exact conflicting path. Do not overwrite without explicit GM confirmation.
    - **UPDATE** — replace the existing file with the staged content (which already contains the GM-edited final state of the file). If the existing file has changed on disk between Step 4b's stage-write and Step 5's read-back (race against the GM editing the live file in another window), STOP and re-present the update before writing.
    - **CREATE (disambiguated from ASK)** — write the staged content to the GM-confirmed disambiguated path.
    - For **Adventure** name collisions (existing `adventures/<slug>/` directory), STOP and surface to the GM exactly as before. Slice 3 has no Adventure dedup.
-3. After each file is moved, delete it from staging. When `.ttrpg-staging/doc-<N>/` is empty, remove the directory. If `.ttrpg-staging/` is now empty (no other workflows' staging present), remove that too.
-4. Do not modify `campaign.md`, `CLAUDE.md`, or anything under `.claude/` from inside Phase 3. Campaign-overview regeneration belongs to Phase 4. Don't drift `campaign.md` from its scaffolded state during the per-doc loop.
-5. Do **not** commit. Ongoing git ownership belongs to the GM (ADR-0011). The plugin only commits once, in the scaffold phase (and once again at Phase 4 wrap-up).
+4. **Validate Secret `belongs_to:` before writing the Secret file.** Per `references/secret-store.md` (`validate_belongs_to`): non-empty, ≥1 non-ephemeral entry, no unknown folder roots. If validation fails for any Secret at this step (the GM hand-edited the Secret's frontmatter in staging to an invalid `belongs_to:`), STOP and re-present that Secret for re-edit; don't write a Secret that fails the validator. The reference Python `tests/test_secret_store.py::TestValidateBelongsTo` enforces the rule.
+5. **Run bidi maintenance after each Secret write.** Per `references/bidi-link-maintenance.md`'s `apply_belongs_to`: for each container in the Secret's `belongs_to:`, confirm the container's file body now contains the `## Secrets` section wiki-link. If a container is missing the back-reference (the GM deleted the staged container back-reference UPDATE but the contract-violation prompt was overridden, or the container is a pre-existing file whose back-reference wasn't staged because it was already present at stage time but has since been edited), surface it to the GM as a post-write reconciliation prompt. The algorithm is idempotent — re-running on an already-linked container is a no-op (`tests/test_bidi_link.py::TestApplyBelongsTo::test_is_idempotent_on_rerun`).
+6. After each file is moved, delete it from staging. When `.ttrpg-staging/doc-<N>/` is empty, remove the directory. If `.ttrpg-staging/` is now empty (no other workflows' staging present), remove that too.
+7. Do not modify `campaign.md`, `CLAUDE.md`, or anything under `.claude/` from inside Phase 3. Campaign-overview regeneration belongs to Phase 4. Don't drift `campaign.md` from its scaffolded state during the per-doc loop.
+8. Do **not** commit. Ongoing git ownership belongs to the GM (ADR-0011). The plugin only commits once, in the scaffold phase (and once again at Phase 4 wrap-up).
 
 ### Step 5b: Capture cross-doc learning
 
@@ -575,6 +726,11 @@ Lessons worth carrying forward include:
 - **Confirmed dedup identities.** If the GM confirmed an ambiguous dedup as "yes, same entity", record the identity link: *"`npcs/sera.md` is the campaign's Sera; future mentions consolidate here."* Use these to convert future ambiguous-match candidates into confident updates without re-asking.
 - **Confirmed dedup splits.** If the GM said "no, distinct entity" and named a disambiguated slug, record the split: *"`npcs/john.md` (innkeeper) and `npcs/john-the-bandit.md` are distinct; future mentions of 'John' need disambiguation by context."*
 - **Naming preferences.** Canonical-name choices the GM made when given a dedup ambiguity ("call them the Veiled Court, slug `veiled-court`").
+- **Section-heading interpretation for Secrets and Beats.** Sections the GM treated differently from the agent's default classification (e.g., "GM treats sections labeled 'Notes' as player-facing context, not Secret-bearing"; "GM treats items under `## Scenes` as `news` when body is one-liner rumor-shaped, not `set-piece`"). Apply on subsequent docs by classifying matching sections per the GM's correction.
+- **Secret `belongs_to:` policy.** Conventions the GM established about which containers belong in `belongs_to:` (e.g., "GM excludes incidental-mention locations from `belongs_to:` — limit to entities the Secret is structurally about"). Apply on subsequent docs by being more or less aggressive about the named-entity expansion rule per the GM's policy.
+- **Secret merge / separate decisions.** When a candidate Secret in doc N dedups against an earlier Secret and the GM resolves "merge — add the new containers to the existing Secret," record the identity for the rest of the run; subsequent doc-N+1 candidates with the same Secret name go directly to a confident UPDATE (merge containers) without re-asking.
+- **Beat `kind:` classifications.** GM corrections to proposed `kind:` (e.g., "GM-supplied kind value 'foreshadow' applied to Beats with prophecy-shaped body content"; "items under `## Lore` should be `kind: news` not unclassified"). Apply on subsequent docs.
+- **Clue–Secret pairings.** GM confirmations of ambiguous Beat–Secret pairings ("Hidden Information item X links to Secret `mayor-funds-cult`, not `mayor-was-blackmailed`"). Apply on subsequent docs facing the same ambiguity shape.
 
 Do not invent lessons. Only capture what the GM's decisions explicitly support. If a rejection is ambiguous in motive ("rejected this Reference note — was it because of the kind, or just this specific instance?"), note it as a candidate rather than a confirmed lesson and ask the GM at the top of doc N+1's review: *"Carrying forward as a candidate rule: do not promote passing innkeepers. Apply this rule, or was the previous rejection just about that specific innkeeper?"*
 
@@ -585,7 +741,7 @@ Carried-forward lessons are scoped to one ingest run. They do not persist into t
 After the **last** doc in the run completes (or after the only doc, in the single-doc case), tell the GM, concisely:
 
 - The source docs that were extracted, in processing order. For each: the relative path and the GM-confirmed description. In multi-doc, also note any docs the GM dropped during survey ordering and any docs where the GM rejected everything at review.
-- A summary of what was written across the whole run (counts by kind, with the campaign-relative paths). Group by kind. For UPDATE operations on existing Reference notes, list those separately from CREATEs so the GM can see what got merged versus what's new.
+- A summary of what was written across the whole run (counts by kind, with the campaign-relative paths). Group by kind — including Beats (with `kind:` breakdown when non-trivial: 3 set-piece, 2 clue, 1 news, etc.), Secrets (with `belongs_to:` container-count breakdown when non-trivial: 4 single-container, 2 multi-container), and container back-references touched (the `## Secrets` section bullets added to NPC / Location / Faction / Item / Adventure files). For UPDATE operations on existing Reference notes and Secrets, list those separately from CREATEs so the GM can see what got merged versus what's new.
 - The non-markdown files that were skipped (relative paths), framed neutrally — they were ignored, not lost.
 - In multi-doc, a short audit of carried-forward lessons that ended up applied during the run (one-line each). The GM can use this to spot any lesson that was over-broadly applied.
 - A reminder that `campaign.md` has **not** yet been regenerated — Phase 4 (wrap-up) will do that — and that no commit has been made yet either. Phase 4 will propose the commit at the end of wrap-up.
@@ -614,7 +770,8 @@ Before doing any GM-visible prompting:
 3. **Surface uncommitted state — but only when it actually warrants attention.** Run `git status --porcelain` in the campaign repo. Sort the entries into **expected** and **unexpected** before prompting the GM. Don't ask about expected files.
 
    **Expected** (proceed silently; these go into the wrap-up commit):
-   - Untracked files under the lifecycle/reference folders: `npcs/`, `locations/`, `factions/`, `items/`, `adventures/`, `threads/`, `consequences/`, `beats/`. These are Phase 3's output.
+   - Untracked files under the lifecycle/reference folders: `npcs/`, `locations/`, `factions/`, `items/`, `adventures/`, `threads/`, `consequences/`, `beats/`, `secrets/`. These are Phase 3's output.
+   - Modified Reference notes and Adventure files in the same lifecycle folders. Phase 3 writes `## Secrets` section back-references into containers when Secrets are extracted, which appears as a modification (M-status) on existing container files. Treat those modifications as expected — they're paired with the new `secrets/` files in the same wrap-up commit.
    - Untracked files under `sessions/` (rare during fresh ingest, but allowed — Phase 3 may have proposed Adventure-side history under `adventures/<slug>/` rather than synthetic sessions; still, accept).
    - Untracked scaffolder artifacts inside `.claude/`: notably `.claude/settings.json` and any other file the plugin's current Phase 1 templates list write. Older plugin versions did not include every current template in the initial commit; the wrap-up commit absorbs them. Treat any `.claude/<file>` that matches the current Phase 1 template set as expected.
    - Untracked `.gitignore` at the campaign root — same staleness reason; matches the Phase 1 template set.
@@ -623,7 +780,7 @@ Before doing any GM-visible prompting:
    **Unexpected** (surface a short list to the GM and ask before proceeding):
    - Uncommitted files at paths *outside* the expected set — e.g., the GM hand-authored a file at the campaign root, or a prior run was interrupted and left half-state somewhere unusual.
    - Anything under `.ttrpg-staging/` (it's gitignored, so this should never show up in `git status` — if it does, the gitignore is broken; flag it).
-   - Modified files (M-status) outside `campaign.md` — Phase 3 only creates new files, so modifications to existing tracked content suggest the GM (or another run) touched something.
+   - Modified files (M-status) outside `campaign.md` *and* outside the lifecycle/reference folders — Phase 3 creates new files and modifies container files for Secret bidi back-references, but modifications to existing tracked content outside those folders suggest the GM (or another run) touched something unrelated.
 
    If everything is expected, proceed silently to Step 1. If anything is unexpected, surface a short list of just the unexpected entries (not the expected ones — the GM doesn't need a wall of "yes this is fine"), and ask whether to proceed with those included in the wrap-up commit, exit cleanly, or have the GM resolve them first.
 
@@ -712,11 +869,12 @@ Walk the working tree from the campaign repo root. For each kind, count files th
 - `adventures/` — count of new `adventures/<slug>/adventure.md` files (one per Adventure; don't count sub-files separately for the headline count, but mention sub-files in the body if any exist).
 - `threads/` — count of new Thread files.
 - `consequences/` — count of new Consequence files.
-- `beats/` — count of new Beat files (ADR-0009 path #4: ingest extracts Beats from GM-authored prep).
+- `beats/` — count of new Beat files (ADR-0009 path #4: ingest extracts Beats from GM-authored prep). Optionally break down by `kind:` when the count is non-trivial (e.g., "2 set-piece, 1 clue, 1 character-moment, 0 news / handout / escalation / unclassified").
+- `secrets/` — count of new Secret files (ADR-0014: ingest extracts Secrets from module "Adventure Background" / "Secrets and Lies" / etc.).
 - `campaign.md` — modified (the Phase 4 Step 2 regen).
 - Anything else — count it but note it as "other" in the proposed message.
 
-Modified files from Phase 3 (UPDATEs to existing Reference notes) are counted under "Reference notes updated" separately from new ones, mirroring Phase 3 Step 6's closing-summary distinction.
+Modified files from Phase 3 (UPDATEs to existing Reference notes, and `## Secrets` section back-references added to container files when Secrets were extracted) are counted under "Reference notes updated" and "container back-references added" separately from new ones, mirroring Phase 3 Step 6's closing-summary distinction.
 
 #### Step 3b: Propose the commit message
 
@@ -732,15 +890,19 @@ subsequent commit.
 Proposed commit message:
 
     Initial ingest: 12 Reference notes (8 NPCs, 3 locations, 1 faction),
-                    2 Adventures, 4 Threads, 3 Consequences
+                    2 Adventures, 4 Threads, 3 Consequences,
+                    5 Beats (2 set-piece, 1 clue, 1 character-moment, 1 news),
+                    3 Secrets
 
 Files that will be staged and committed:
-  - npcs/ (8 new)
-  - locations/ (3 new)
-  - factions/ (1 new)
+  - npcs/ (8 new; 3 modified with ## Secrets back-references)
+  - locations/ (3 new; 1 modified with ## Secrets back-reference)
+  - factions/ (1 new; 1 modified with ## Secrets back-reference)
   - adventures/lost-mines/, adventures/cragmaw-castle/ (2 new)
   - threads/ (4 new)
   - consequences/ (3 new)
+  - beats/ (5 new)
+  - secrets/ (3 new)
   - campaign.md (modified — Phase 4 regen)
 
 Approve, edit the message, edit the staged set, or skip the commit?
@@ -757,7 +919,7 @@ Accept these responses:
 
 Once the GM approves:
 
-1. Stage exactly the file set the GM approved. Prefer naming files and directories explicitly (e.g., `git add npcs/ locations/ adventures/ threads/ consequences/ campaign.md`) over `git add -A` so the GM can see what's staged.
+1. Stage exactly the file set the GM approved. Prefer naming files and directories explicitly (e.g., `git add npcs/ locations/ factions/ items/ adventures/ threads/ consequences/ beats/ secrets/ campaign.md`) over `git add -A` so the GM can see what's staged. Include modified container files (Reference notes with new `## Secrets` section back-references) — those are tracked under their respective `<kind>/` directories, so the directory-form `git add` picks them up naturally.
 2. Run `git commit -m <message>` with the approved message. Multi-line messages should be passed via `-m` per paragraph or via a heredoc — whichever the tool affordance supports.
 3. Do **not** configure `git config user.name` or `git config user.email` from the plugin. Use whatever the GM's git config provides; if the commit fails because git has no identity configured, surface the underlying git error to the GM verbatim and stop without retrying.
 4. After commit, run `git status` and surface its output to the GM in the closing summary — they should see a clean working tree.
@@ -772,7 +934,8 @@ Then, after the commit lands (or after the GM skips the commit), tell the GM, co
 
 - **Order prompt outcome.** Adventures whose `order:` was set in Step 1 (with the assigned numbers). Adventures left null (if the GM skipped or partially answered). Adventures that already had `order:` (and were not prompted).
 - **`campaign.md` regenerated.** Note that the prior placeholder was overwritten. If the prior `campaign.md` had detectable manual GM edits (content that differed from the scaffolder's placeholder before Phase 4 ran), surface that as a warning per ADR-0007. In the fresh-ingest path this should be rare — the only way to have hand-edited `campaign.md` between Phase 1 and Phase 4 is for the GM to have done it during Phase 3.
-- **Counts of what landed.** Reference notes by kind (NPCs / locations / factions / items, broken down CREATE vs UPDATE), Adventures, Threads, Consequences. Mirror Phase 3 Step 6's grouping so the two summaries are comparable.
+- **Counts of what landed.** Reference notes by kind (NPCs / locations / factions / items, broken down CREATE vs UPDATE), Adventures, Threads, Consequences, Beats (broken down by `kind:` when non-trivial), Secrets (broken down by single-container vs multi-container `belongs_to:` when non-trivial). Mirror Phase 3 Step 6's grouping so the two summaries are comparable.
+- **Bidi link health.** Run `references/bidi-link-maintenance.md`'s `lint` algorithm once against the just-committed campaign state and surface any findings (`orphan` wiki-links to missing Secrets, `missing-back-reference` cases where a Secret claims a container that doesn't link back). In the fresh-ingest path this should be clean — the agent maintained bidi throughout Phase 3. Surface non-empty findings as a "to investigate" note in the closing summary; do not auto-heal post-commit, since the lint state is already in committed history. If clean, mention briefly: *"Secret bidi links: clean."*
 - **Commit status.** The commit hash and the message (or, if skipped, a copy-paste-ready commit command).
 - **`git status` output.** Confirm the working tree is clean (or, if the GM skipped the commit, surface the uncommitted file list).
 - **What's next.** Briefly: the GM can now invoke `/prep-session` to start the session loop, or `/wrap-session` if they have a session's `notes.md` already in place. Don't auto-invoke either.
@@ -803,6 +966,12 @@ End cleanly. Do not loop back into Phase 3.
 - Don't invent a party location in the Phase 4 `campaign.md` regen. If the source docs don't supply one, the section reads as a "GM to update" placeholder.
 - Don't truncate the Phase 4 Consequence list. At ingest time, every Consequence is "recent" — truncation belongs to `/wrap-session`'s regen, not `/ingest`'s.
 - Don't re-prompt for `order:` on Adventures whose source docs already supplied it (i.e., where Phase 3 wrote a non-null `order:`). The order prompt's whole point is to fill *missing* values, not re-litigate inferred ones.
+- Don't extract a Secret with empty `belongs_to:` or only-ephemeral `belongs_to:` paths — the agent refuses to write either (ADR-0014; `tests/test_secret_store.py::TestValidateBelongsTo`). If the source content reads as Secret-bearing but the extractor can't justify any non-ephemeral container, surface as ASK and have the GM pick the container set rather than writing an invalid Secret.
+- Don't skip the bidi-link maintenance step when a Secret is written. Every container in a Secret's `belongs_to:` must end up carrying a `## Secrets` section wiki-linking back to the Secret (`references/bidi-link-maintenance.md`). The maintenance is idempotent — re-running on an already-linked container is a no-op — so it is safe to run on every Secret write without checking state first.
+- Don't auto-create a container from a Secret write. If a Secret's `belongs_to:` names a container file that does not exist (an NPC or Location the agent didn't extract a Reference note for), surface to the GM — the GM owns container creation explicitly, not as a side effect of a Secret write.
+- Don't extract surface-plot facts as Secrets. A module's player-facing chapter prose is not Secret-bearing by default (`references/secret-extraction.md`); extract Reference notes and Beats from it. Reserve Secret extraction for content under known GM-only section headings ("Secrets and Lies" / "Adventure Background" / "DM-Only" / "Hidden Information") or content the GM-confirmed description identifies as GM-only.
+- Don't classify a Beat's `kind:` from body content when a section heading already classifies it (`references/beat-kind-classification.md` order of precedence: section heading > body content > unset). The heading is the source author's intent declaration; the body content is the fallback when the heading is unknown.
+- Don't pre-populate a Secret's `revealed_by:` from Beats extracted in this same doc. The Beat–Secret pairing is captured on the *Beat's* `linked_secrets:` (per the Beat shape's "Hidden Information for the DM" subsection); the symmetric `revealed_by:` on the Secret is reconciled later by `/wrap-session` when the Beat flips to `delivered`. Pre-populating both sides during ingest creates drift the linter would have to chase.
 
 ## Quick reference: which ADR governs what
 
@@ -811,6 +980,7 @@ End cleanly. Do not loop back into Phase 3.
 - **ADR-0006** — v0.1 input is flat-directory local markdown only; non-markdown is skipped, no recursion.
 - **ADR-0007** — Adventure frontmatter schema (`status` required, `order` optional/ingest-era, dates optional/nullable, durations free-form prose) and the agent-maintained `campaign.md` Campaign overview shape that Phase 4 Step 2 composes. The agent never invents dates.
 - **ADR-0008** — Ingest's full workflow is survey + per-doc + wrap-up; slice 4 implements all four phases (survey, per-doc loop with cross-doc dedup and learning, and wrap-up with the bulk order prompt, `campaign.md` composer, and follow-up commit). Bounded skim plus GM-edited descriptions plus GM-confirmed processing order steer extraction.
-- **ADR-0009** — Beats are GM-authored. Ingest is the fourth creation path (source docs are the GM's prior authoring). Extract Beat-shaped content (encounter lists, planned scenes, per-PC hooks, adventure-tagged ideas). Threads vs Beats is the party-awareness test: party knows → Thread; GM prep → Beat. Populate `linked_adventures`, `linked_locations`, `linked_pcs`, `linked_npcs` at extraction time per the proximity rules in Step 3's Beat shape subsection — these fields feed `/prep-session`'s tiered surfacing and leaving them empty forces a manual backfill. Phase 4's `campaign.md` lists pending Beats explicitly.
+- **ADR-0009** — Beats are GM-authored. Ingest is the fourth creation path (source docs are the GM's prior authoring). Extract Beat-shaped content (encounter lists, planned scenes, per-PC hooks, adventure-tagged ideas). Threads vs Beats is the party-awareness test: party knows → Thread; GM prep → Beat. Populate `linked_adventures`, `linked_locations`, `linked_pcs`, `linked_npcs` at extraction time per the proximity rules in Step 3's Beat shape subsection — these fields feed `/prep-session`'s tiered surfacing and leaving them empty forces a manual backfill. Phase 4's `campaign.md` lists pending Beats explicitly. Beat `kind:` (open enum) is classified primarily by source-section heading per `references/beat-kind-classification.md` (Scenes → set-piece; Lore/Rumors → news; Handouts → handout; Hidden Information for the DM → clue with `linked_secrets:`; Triggers → escalation; PC-attributed hooks → character-moment).
 - **ADR-0011** — Plugin doesn't own ongoing git operations beyond `/ingest`'s two bookend commits (the scaffolder's initial commit and Phase 4's follow-up commit). `/wrap-session` and every workflow downstream of `/ingest` does not auto-commit. The follow-up commit is `/ingest`'s symmetric bookend, not a precedent for steady-state auto-commit.
 - **ADR-0013** — Skill packaging (`skills/<name>/SKILL.md`); templates live under `templates/`.
+- **ADR-0014** — Secrets are a fourth lifecycle object: GM-only facts the party may not know but could discover. Stored at `secrets/<slug>.md` with required `belongs_to:` (non-empty list of non-ephemeral container paths — Adventure, NPC, PC, Location, Faction, Item). `/ingest` extracts Secrets from module GM-only sections ("Secrets and Lies" / "Adventure Background" / "DM-Only" / "Hidden Information" / equivalents — per `references/secret-extraction.md`). The Adventure container is automatic (the ingested doc's slug); additional containers come from named NPCs / Locations / Factions / Items in the Secret's own prose (proximity rule). Every container in `belongs_to:` carries a symmetric `## Secrets` section wiki-linking back to the Secret per `references/bidi-link-maintenance.md`. Secret slug dedup is `secrets/`-scoped per `references/dedup-matching.md`; the resolution shape for collisions is *merge containers / separate / rename*. Reference Python for the four query operations lives at `tests/test_secret_store.py`; for the bidi maintenance, `tests/test_bidi_link.py`.

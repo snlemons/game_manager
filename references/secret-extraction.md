@@ -129,6 +129,81 @@ The three buckets:
 
 The dedup check is what makes `/wrap-session` re-runs and `/ingest` cross-doc passes idempotent against the same Secret material. Skipping it produces duplicate `secrets/` files that drift on subsequent writes.
 
+
+## Module-source extraction (ingest-specific)
+
+This section is the `/ingest`-specific extension of the universal heuristic above. It applies during Phase 3 (per-doc extraction loop) when the source doc has been classified as Adventure-shaped (per the survey description or the GM's Step 1 override) and has explicit Secret-bearing sections.
+
+### Section-heading signals
+
+Module-shaped source docs commonly partition GM-only content from player-facing content via section headings. Treat these headings as **strong** signals that the prose underneath is Secret-bearing:
+
+- **"Secrets and Lies"** (or "Secrets & Lies") — the canonical module convention. Every fact under this heading is a Secret candidate. Most modules write the section as a bulleted list of one-line facts; extract one Secret per bullet.
+- **"Adventure Background"** (or "Background" inside an Adventure section) — typically a prose section establishing the hidden truth behind the surface plot. Extract Secrets from the load-bearing facts (who is really behind it, what really happened, what the party is being lied to about). Skip framing prose ("centuries ago, the kingdom was at peace…") — that's setting context, not a hidden fact.
+- **"DM-Only"** / **"For the DM"** / **"GM Notes"** — explicitly GM-eyes-only sections. Treat as Secret-bearing by default; extract per-fact. Watch for the substitution: some published material uses "DM" while the campaign repo's vocabulary uses "GM." Translate when extracting (the extracted Secret's body should use "GM" — or, more typically, no role label at all since the body is the fact, not GM instructions).
+- **"Hidden Information"** / **"Hidden Truth"** — analogous to "Secrets and Lies"; one Secret per fact.
+- **"What's Really Going On"** / **"The Truth"** / **"Behind the Scenes"** — narrative-shaped reveals; extract the load-bearing facts as Secrets.
+- **Subsections under any of the above** — e.g., "Secrets and Lies → About the Mayor" — the subsection heading often names the container the Secret belongs to (here, the mayor's NPC). See "Multi-container `belongs_to` population" below for how that signal flows into the `belongs_to:` set.
+
+A section heading whose **content** is GM-eyes-only but whose **name** doesn't match the patterns above (e.g., the writer used "Notes for the GM" or just "Notes") is still Secret-bearing — the heading-name signal is a *positive* trigger; absence of a known heading doesn't mean the content is player-facing. When the agent has uncertainty about whether a section is GM-only, surface it at the per-doc review as an ASK alongside any candidate Secrets extracted from it: *"Section 'Notes' in chapter 2 reads as GM-only background — extract its facts as Secrets, or treat it as Reference-note content?"*
+
+### Multi-container `belongs_to` population
+
+The ingest case has more structural signal than wrap-session: the source doc is itself adventure-shaped (so the Adventure container is automatic), and the Secret's prose often names specific NPCs, Locations, Factions, or Items the Secret is *about*. Use both signals:
+
+1. **Adventure container is automatic.** Every Secret extracted from an adventure-shaped source doc gets `belongs_to:` containing **at minimum** the slug of the Adventure being ingested, in the form `adventures/<slug>/`. This is the structural link — the Secret was found *inside* the Adventure's source doc, so the Adventure is its container by construction. Do not skip this entry even when the Secret's own prose doesn't name the Adventure.
+
+2. **Named-entity expansion — proximity rule.** Scan the Secret's prose (the body the extractor would write) for **named** NPCs, Locations, Factions, and Items. For each named entity that resolves to:
+   - A Reference note already present in the campaign repo (under `npcs/`, `locations/`, `factions/`, or `items/`), **or**
+   - A Reference note being CREATEd from earlier docs in this same `/ingest` run, **or**
+   - A Reference note being CREATEd from this same doc (i.e., named in this same Adventure's prose),
+
+   add that entity's container path to `belongs_to:`. The matching uses the same slugification rule as `references/dedup-matching.md`. The proximity radius is *the Secret's own body* — the prose the extractor is writing for the Secret file, not the surrounding section. If an entity is named in the same section but not in the Secret's own fact, it's adjacent context, not a container.
+
+   Worked example. The source doc has:
+
+   ```markdown
+   ## Secrets and Lies
+
+   - **The mayor secretly funds the cult.** Mayor Brennan diverts town
+     funds to the [[Silent Court]] through a shell merchant in the
+     [[Old Temple]] district.
+   ```
+
+   Extract one Secret with body *"Mayor Brennan diverts town funds to the [[Silent Court]] through a shell merchant in the [[Old Temple]] district."* and `belongs_to:`:
+
+   ```yaml
+   belongs_to:
+     - adventures/the-prism/        # the ingested Adventure (automatic)
+     - npcs/mayor-brennan.md        # named in the Secret's prose
+     - factions/silent-court.md     # named in the Secret's prose
+     - locations/old-temple.md      # named in the Secret's prose
+   ```
+
+3. **Subsection-heading expansion.** When a Secret is found under a subsection whose heading names a container (e.g., `### About the Mayor` under `## Secrets and Lies`), add that container to `belongs_to:` even if the Secret's own body doesn't repeat the name. The enclosing heading is the GM's implicit scope tag for the Secrets underneath, analogous to the Beat shape's "heading rule" for `linked_locations` in `skills/ingest/SKILL.md` Step 3.
+
+4. **PC containers — explicit attribution only.** A Secret may belong to a PC (`pcs/<slug>.md`) if the source material *explicitly* names the PC as the subject ("Darius's hidden parentage", "the truth about Sera's brother"). Generic mentions ("one of the party"; "a PC who carries the medallion") do not justify a PC container. PCs are author-collaborative; the GM resolves PC-tied Secrets at review rather than the agent guessing.
+
+5. **Cross-kind ambiguity.** A name that matches Reference notes in multiple kind folders (e.g., "Veil" matches both `npcs/veil.md` and `factions/the-veil.md`) surfaces as an ASK at Step 4a inline-dedup resolution, the same shape as cross-kind dedup ASKs.
+
+6. **Default to a smaller set on doubt.** If the proximity rule would expand `belongs_to:` to many containers and the extractor is uncertain about the structural justification for one or more, surface those as an ASK alongside the Secret in the per-doc review: *"Secret 'Mayor secretly funds the cult' was extracted near mentions of the Silent Court (faction), the Old Temple (location), and the council chambers (location). Include any/all in `belongs_to:`?"* Don't guess; the GM has the campaign-shape context.
+
+### Per-doc dedup against earlier docs in the same run
+
+Cross-doc dedup against already-extracted Secrets matters: a module commonly **restates the same Secret across multiple chapters** ("Chapter 1: the mayor is secretly funding the cult." "Chapter 4: as established in chapter 1, the mayor funds the cult.").
+
+Apply `references/dedup-matching.md` against the `secrets/` files written by earlier docs in this same `/ingest` run. A confident match proposes the merge action specific to Secrets (add the new container(s) to the existing Secret's `belongs_to:` rather than creating a duplicate). A near-match surfaces the multi-container reconciliation prompt at Step 4a, the same shape as the universal dedup prompt.
+
+Lessons from the prior doc's dedup decisions carry forward via the same carried-forward-lessons mechanism Phase 3 already uses for Reference notes (see `skills/ingest/SKILL.md` Step 0b / Step 5b). A confirmed identity ("the mayor's funding Secret in chapter 4 is the same as the one in chapter 1") consolidates without re-asking on chapter 7.
+
+### What not to extract from module sources
+
+- **Surface plot.** A module's player-facing chapter prose is *not* Secret-bearing by default. Extract Reference notes and Beats from it; don't extract its public statements as Secrets even when they're load-bearing.
+- **Stat blocks / monster details.** Mechanical content (HP, AC, attacks) is not Secret content even when it lives in a GM-only section. The agent extracts Reference notes for named monsters / NPCs as usual; stat blocks live in those notes' bodies (or in the source the GM keeps separately), not as Secrets.
+- **Read-aloud / boxed text.** Player-facing prose, by construction.
+- **Encounter design notes** (tactical advice, scaling guidance). GM-eyes-only but not *fact about the world*; these are about how to *run* the Adventure, not what is *true*. Skip.
+- **Pre-existing Consequences.** If a module's "Adventure Background" section states a past event the party will encounter the aftermath of and the GM-confirmed description has the party already in the world post-event, that's a Consequence (past-facing world fact), not a Secret. The agent's classifier defaults to Secret when uncertain; the GM can re-classify at review.
+
 ## What this heuristic does not handle
 
 - **Per-skill orchestration.** When the dedup ASK lands (Step 3 ambiguity clarification in `/wrap-session`, Step 4a inline resolution in `/ingest`), how the response feeds back into the staging set, how cross-doc lessons carry forward in `/ingest` — those stay in each SKILL.md.
