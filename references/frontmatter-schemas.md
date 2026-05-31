@@ -1,8 +1,8 @@
 # Frontmatter schemas
 
-Canonical YAML for the four lifecycle objects: Adventure, Thread, Consequence, Beat. CONTEXT.md is the concept-level glossary; this reference is the spec-level (exact fields, types, value formats, defaults). All three skills (`/ingest`, `/prep-session`, `/wrap-session`) write these schemas; this is the single source of truth.
+Canonical YAML for the five lifecycle objects: Adventure, Thread, Consequence, Beat, Secret. CONTEXT.md is the concept-level glossary; this reference is the spec-level (exact fields, types, value formats, defaults). All three skills (`/ingest`, `/prep-session`, `/wrap-session`) write these schemas; this is the single source of truth.
 
-The corresponding ADRs are [ADR-0007](../docs/adr/0007-temporal-model-and-campaign-overview.md) (Adventure), [ADR-0004](../docs/adr/0004-threads-consequences-via-post-session-extraction.md) (Threads and Consequences), and [ADR-0009](../docs/adr/0009-beats-as-gm-authored-lifecycle-object.md) (Beats).
+The corresponding ADRs are [ADR-0007](../docs/adr/0007-temporal-model-and-campaign-overview.md) (Adventure), [ADR-0004](../docs/adr/0004-threads-consequences-via-post-session-extraction.md) (Threads and Consequences), [ADR-0009](../docs/adr/0009-beats-as-gm-authored-lifecycle-object.md) (Beats), and [ADR-0014](../docs/adr/0014-secrets-as-multi-container-lifecycle-objects.md) (Secrets).
 
 ## Conventions
 
@@ -10,7 +10,7 @@ The corresponding ADRs are [ADR-0007](../docs/adr/0007-temporal-model-and-campai
 - **Slugs** (used in `linked_*` lists and as filenames) are produced by the normalization rule in `references/dedup-matching.md`: lowercase, ASCII-fold accents, strip leading "the ", collapse whitespace and punctuation to single hyphens, trim leading/trailing hyphens.
 - **Status enums** are lowercase string literals from the enumerated set listed per schema below. Values outside the enum are a bug.
 - **Optional list fields** default to `[]` (empty list with the YAML key present), not omission of the key. Downstream skills read these fields without conditional logic; an absent key forces a fallback that masks the "field considered, left empty" signal.
-- **Filename** is a slug of the canonical name + `.md`. One file per object. Files live in the folder named for their kind: `adventures/<slug>/adventure.md`, `threads/<slug>.md`, `consequences/<slug>.md`, `beats/<slug>.md`.
+- **Filename** is a slug of the canonical name + `.md`. One file per object. Files live in the folder named for their kind: `adventures/<slug>/adventure.md`, `threads/<slug>.md`, `consequences/<slug>.md`, `beats/<slug>.md`, `secrets/<slug>.md`.
 
 ## Adventure
 
@@ -125,6 +125,34 @@ linked_secrets: []                   # optional list of Secret slugs
 
 - `/wrap-session` Pass 7 CREATE: `status: pending`, `created: <session date>`, `delivered: ~`, all `linked_*: []` unless the scratchpad scoped them. `kind:` and `linked_secrets:` are optional — omitted unless the scratchpad classifies the Beat or names a Secret it reveals.
 - `/ingest` Phase 3 CREATE: `status: pending`, `created: ~`, `delivered: ~`, `linked_*` populated per the Beat-shape proximity rules in `skills/ingest/SKILL.md` Step 3. `kind:` and `linked_secrets:` are populated when the source doc clearly classifies the Beat (e.g., the source labels it a clue, handout, or set-piece) or names the Secret(s) it reveals; otherwise omitted.
+
+## Secret
+
+File: `secrets/<slug>.md`.
+
+```yaml
+---
+status: hidden                       # required: hidden | partially-revealed | revealed
+belongs_to:                          # required: non-empty list of non-ephemeral container paths
+  - npcs/maren.md
+  - adventures/the-prism/
+revealed_by: []                      # list of Beat slugs that reveal (part of) this Secret
+---
+```
+
+### Field semantics
+
+- **`status`** — required. The Secret's revelation lifecycle: `hidden` (no Clue Beats have landed yet), `partially-revealed` (at least one Clue Beat in `revealed_by` has flipped to `delivered`; the party has *some* of the picture), `revealed` (the GM has judged the party knows the Secret). Transitions:
+  - `hidden → partially-revealed` — automatic on `/wrap-session` when the first Beat listed in `revealed_by` flips to `status: delivered`.
+  - `partially-revealed → revealed` — GM judgement, surfaced as a `/wrap-session` prompt when relevant Clues land.
+  - Backward transitions are not supported by the agent; the GM hand-edits the file if a retcon is required.
+- **`belongs_to`** — required, non-empty list of paths to **non-ephemeral containers**. The canonical set is: `adventures/<slug>/`, `npcs/<slug>.md`, `pcs/<slug>.md`, `locations/<slug>.md`, `factions/<slug>.md`, `items/<slug>.md`. Ephemeral container paths (`threads/`, `beats/`, `consequences/`, `sessions/`, `.ttrpg-staging/`) are rejected — the agent refuses to write a Secret whose `belongs_to:` is empty or contains only ephemeral paths (ADR-0014). The set is unordered: no "primary" container. Each path here must round-trip with a `## Secrets` wiki-link back to the Secret file in that container's body (the agent maintains this symmetry on every Secret write; orphan / missing-back-reference cases are lint findings).
+- **`revealed_by`** — list of Beat slugs (the same slugs that appear as `beats/<slug>.md` filenames). Empty list at creation time is the honest default; the list grows as Clue Beats are authored pointing at this Secret. Slugs follow the same normalization rule as the other slug fields.
+
+### Defaults at creation
+
+- `/wrap-session` Pass (Secret extraction) CREATE: `status: hidden`, `belongs_to` populated by GM during approval (the extraction proposes containers; the GM confirms), `revealed_by: []`.
+- `/ingest` Phase 3 CREATE: `status: hidden`, `belongs_to: [<ingested-adventure>/]` when the source doc is an Adventure-shaped module with a "Secrets and Lies" / "Adventure Background" section, otherwise GM resolves the container set at the per-doc review screen; `revealed_by: []`.
 
 ## Validation rules
 
