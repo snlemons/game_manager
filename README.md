@@ -88,6 +88,21 @@ Templates carry a `.template` suffix in the plugin repo so they're easy to spot.
 
 This plugin uses the domain language defined in [`CONTEXT.md`](./CONTEXT.md): **GM**, **PC**, **NPC**, **Campaign**, **Adventure**, **Atlas**, **Reference note**, **Session**, **Brief**, **In-play notes**, **Log**, **Thread**, **Consequence**, **Beat**, **Campaign overview**. Files the plugin writes (its own and the templates it scaffolds) stick to this vocabulary consistently — synonyms the glossary calls out as "avoid" are off-limits.
 
+## Credits and inspiration
+
+The design is built on top of years of community work by TTRPG GMs refining their note-taking and prep workflows. Specific ideas borrowed, with sources:
+
+- **Pre/During/Post session as the operational model** — the lifecycle that `/prep-session` (**Brief**), in-play `notes.md`, and `/wrap-session` (**Log** + lifecycle extraction) collectively implement — is the framing laid out by [Sessionbound](https://sessionbound.itch.io/). Treating **Threads** and **Consequences** as first-class objects with their own surfacing and decay rules also comes from there.
+- **"Notes serve the GM, not the other way around"** and **capture-now-structure-later** as the dominant design principles come from Mike Shea / Sly Flourish, especially [Organizing Your RPG Prep Notes](https://slyflourish.com/organizing_notes.html) and [Using Obsidian for Lazy RPG Prep](https://slyflourish.com/obsidian.html). The refusal to ship templates or required fields, and the **"junk drawer"** tolerance for content that doesn't fit a category, are Shea's framing. His [Refined Five-Minute Game Prep](https://slyflourish.com/refined_five_minute_game_prep.html) — *strong opening scene*, *3–5 evocative locations*, *10 secrets and clues* — also motivated the Brief Opening Scene section, the Locations reshape with sensory hooks, and **Secret** as a first-class lifecycle object.
+- **Three principles of smart prep** — *don't duplicate improvisation*, *avoid waste (ask the players what they're planning)*, and *maximize utility (recycle and reincorporate)* — come from The Alexandrian's [Smart Prep, Part 2: The Principles of Smart Prep](https://thealexandrian.net/wordpress/39893/roleplaying-games/smart-prep-part-2-the-principles-of-smart-prep). They drove the conversational refinement loop in `/prep-session`, the Secret-persistence-over-time architecture, and the sensory-detail write-back to Location notes.
+- **The SAVE method** — *Stakes / Action / Visceral details / Escalations* — comes from Peter Lange's [Don't Write RPG Sessions, Prep Them](https://www.youtube.com/watch?v=iDPMq6wYGLc). It informed the Beat `kind:` discriminator (especially `set-piece` and `escalation` as starter values) and the Escalation Prep dialogue question, and reinforced the "flexible toolbox, not a script" framing.
+- **Separating Reference notes from Session notes**, and **linking matters more than folders**, are the Obsidian TTRPG community consensus, distilled most clearly by the [Obsidian TTRPG Tutorials](https://obsidianttrpgtutorials.com/) vault-structure material.
+- The GM Assistant blog's [Using Obsidian for D&D and TTRPG Notes](https://gmassistant.blog/2023/05/29/using-obsidian-for-dd-and-ttrpg-notes/) informed what GMs actually do day-to-day, which shaped the workflow defaults.
+
+Where this plugin departs from these sources, the relevant ADR in [`docs/adr/`](./docs/adr/) records why — most notably per-file Reference notes ([ADR-0003](./docs/adr/0003-per-file-reference-notes.md)) instead of Shea's single-page NPC dossier, done to support `[[wiki link]]` resolution and backlinks while preserving the anti-form-friction principle in what the agent defaults to writing.
+
+The original design brief is in [`DESIGN_NOTES.md`](./DESIGN_NOTES.md), which lists the priority reading order for the source material.
+
 ## License
 
 See [LICENSE](./LICENSE).
