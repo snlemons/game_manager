@@ -186,6 +186,15 @@ source explicitly in a parenthetical at the end if it's not the
 prior log — e.g., "(from adventures/lost-mines/overview.md; no
 prior session log yet)".>
 
+## Opening Scene
+
+<!-- Forward-facing opener for the session (Shea's "strong opening scene"
+principle, ADR-0015). Empty by default. The agent does NOT auto-populate
+this section in the initial draft — it stays blank for the GM to fill, or
+gets proposed via the Step 3.5 Decision Request question if the GM asks
+(issue #39). If you (the GM) draft an opener here in the staged Brief
+body before approving, that content stays as-authored. -->
+
 ## Active adventures
 
 - **<Adventure name>** — one-line current state.
@@ -243,7 +252,14 @@ _Plus <BEATS_UNLINKED_TOTAL> pending Beats with no `linked_*` tags — review an
 
 ## Locations
 
-- **<Location name>** — one-line note (where the party is, where they're likely heading).
+<!-- 3-5 entries the party is at or likely heading to. Each bullet pairs
+the location with ONE sensory/evocative detail drawn from the Location
+Reference note's body (ADR-0015 "recycle and reincorporate"). If the
+Reference note has no authored sensory hook in its body, render the
+explicit "(no sensory hook yet)" marker — do NOT fabricate a detail. -->
+
+- **[[<Location name>]]** — <one sensory/evocative detail from the Reference note body, e.g., "wind off the moors carrying the smell of wet heather">.
+- **[[<Location name>]]** — _(no sensory hook yet)_
 - ...
 
 ## Items in play that might matter
@@ -268,6 +284,8 @@ _Plus <BEATS_UNLINKED_TOTAL> pending Beats with no `linked_*` tags — review an
 - **Active adventures, Menu of next-session options, and Open threads are three distinct sections.** Don't collapse them. The menu is the forward-looking summary the GM scans first; "Active adventures" is the steady-state ongoing list; "Open threads" is the full reminder set. Sandbox campaigns may show `_None._` under "Active adventures" while the menu is rich — that's the open-world case rendering correctly, not a bug.
 - **Beats section heading must include the "optional, weave in if possible" framing** (ADR-0009). Don't shorten to just "Beats."
 - **Render Beats per the tiered surfacing classification.** The "Beats to weave in" section shows in-focus Beats in full as bullets (with a short `*(scope: …)*` hint identifying which signal hit), then a count line for out-of-focus linked Beats (with a one-line breakdown by scope), then a count line for unlinked Beats (with the "review and tag" nudge). Skip empty count lines; render `_None._` if all three are empty. Never dump every pending Beat into the Brief — that's exactly the wall of text ADR-0009 fixed.
+- **Opening Scene starts empty.** Leave the HTML-comment hint and an empty body in the initial draft. Do not auto-propose opener content during Step 3 — that proposal lives in the Step 3.5 Decision Request question (issue #39 / ADR-0015). If the GM authors an opener directly in the staged Brief body before approving, preserve it as-written.
+- **Render Locations as 3-5 sensory-detail entries, not flat directional notes.** Per ADR-0015, the Locations section is "recycle and reincorporate" surfacing: each bullet pairs a `[[Location]]` wiki link with **one** sensory or evocative detail sourced from the body of `locations/<slug>.md`. If the Reference note has no authored sensory hook in its body (or no `locations/<slug>.md` exists yet), render the explicit `_(no sensory hook yet)_` marker after the em-dash — **never fabricate a detail**. Pick the party's current location plus likely-next locations to fill 3-5 entries; if fewer than 3 plausibly apply, render only what applies — don't pad with unrelated places.
 - **GM scratchpad starts empty.** Do not pre-populate it with prompts, examples, or boilerplate beyond the HTML comment hint. The comment is fine; any content beyond the comment is not.
 - **Every section appears, even when empty.** If there are no open Threads, the section reads `_None._` (or similar terse marker) under its heading. Don't silently omit sections — the GM needs to know the agent looked and found nothing.
 - **Use `[[wiki links]]` for Reference notes** (NPCs, locations, factions, items, Threads, Consequences, Beats) so backlinks resolve. Bare names in bullets are fine as the link target.
@@ -309,6 +327,30 @@ Then ask explicitly: *"The drafted Brief is at `.ttrpg-staging/brief-draft.md`. 
 
 Do **not** create `sessions/YYYY-MM-DD-session-N/` or write `brief.md` to its final location during the review — the session directory's existence is the GM's signal that they approved a Brief for that session.
 
+### Sensory-detail write-back
+
+Per ADR-0015's "recycle and reincorporate" principle, sensory details the GM authors during prep should persist back to the relevant Location Reference note so future Briefs can reuse them. The detection window is **after the re-read on continue** (so the agent sees both chat-authored details from the refinement loop and any details the GM typed directly into the staged Brief body), and **before** writing the Brief to its final location in Step 5.
+
+**What counts as a new sensory detail.** A short evocative phrase tied to a specific Location that:
+
+- Replaced a `_(no sensory hook yet)_` marker in the Locations section, **or**
+- Was authored on a Location bullet whose Reference note body does not already contain a substantively-matching sentence (normalize whitespace and casing before comparing; treat near-duplicates as already-present), **or**
+- Was authored in chat during the Step 3.5 refinement loop in clear association with a named Location (e.g., "Old Owl Well has wind off the moors carrying wet heather").
+
+Fabricated details the agent itself produced do not qualify — only GM-authored content. If the GM didn't change the Locations section beyond what the agent drafted, there is nothing to write back.
+
+**The write-back offer.** For each qualifying detail, ask the GM in chat before writing: *"Save '<short detail>' to `locations/<slug>.md` so future Briefs reuse it?"* Accept these responses:
+
+- **Yes / approve** → append the detail to the Location Reference note's body. If `locations/<slug>.md` does not exist, offer to create it as a minimal Reference note (per `references/reference-note-extraction.md`) with the detail as its one-liner; do not silently create.
+- **No / skip** → drop the offer for this detail; do not re-prompt this run.
+- **Edit** → accept a revised wording from the GM, then write that.
+
+If the GM authored multiple new details for different Locations, batch the offers into a single chat exchange (one line per detail with yes/no/edit per line) rather than serialising N prompts.
+
+**Idempotent append.** When writing, append the detail as a new sentence/paragraph at the end of the body (after the existing one-liner and any prior appended details). Before appending, re-check the live file body for a substantively-matching sentence; if present, skip the write and tell the GM the detail was already in the note. This is what makes re-running prep with the same detail safe — the second run sees the first run's append and no-ops.
+
+The write-back happens via the same staging-then-write pattern other UPDATEs use: copy the live Location note into `.ttrpg-staging/locations/<slug>.md`, apply the append via Edit so the IDE diff surfaces the change, then move to the final location on approval. The GM's continue/cancel for the Brief gates the write-back too — cancelling the Brief drops pending write-back offers as well, with no filesystem changes.
+
 ## Step 5 — Write and commit
 
 Once the GM says continue:
@@ -324,6 +366,7 @@ Once the GM says continue:
    - `sessions/YYYY-MM-DD-session-N/brief.md`
    - `sessions/YYYY-MM-DD-session-N/notes.md` (even though empty — having it tracked is what matters)
    - `campaign.md` — only if Step 2's refresh actually produced a diff (use `git diff --quiet campaign.md` or equivalent; skip the add if unchanged)
+   - Any `locations/<slug>.md` files updated by the Step 4 sensory-detail write-back (skip if none were accepted or if the append was a no-op against the existing body)
 
    Commit message format:
    - New session: `Prep session N (YYYY-MM-DD)`
