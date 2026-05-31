@@ -649,17 +649,17 @@ Ingest-specific staging shape: write every proposed file to `.ttrpg-staging/doc-
 |---|---|
 | Adventure (CREATE) | `.ttrpg-staging/doc-<N>/adventures/<slug>/adventure.md` and any sub-files |
 | Reference note (CREATE) | `.ttrpg-staging/doc-<N>/<kind>/<slug>.md` (kind = `npcs`, `locations`, `factions`, `items`) |
-| Reference note (UPDATE) | `.ttrpg-staging/doc-<N>/<kind>/<slug>.md` — write the **full proposed new content** of the file (existing content + the proposed update), not a diff |
+| Reference note (UPDATE) | `.ttrpg-staging/doc-<N>/<kind>/<slug>.md` — stage per `~/.claude/skills/ttrpg-gm/references/staging-pattern.md` Section 2 (cp the live file, Edit to apply the proposed change so the IDE diff shows the delta) |
 | Reference note (CREATE-disambiguated from ASK) | `.ttrpg-staging/doc-<N>/<kind>/<disambiguated-slug>.md` |
 | Thread (CREATE) | `.ttrpg-staging/doc-<N>/threads/<slug>.md` |
 | Consequence (CREATE) | `.ttrpg-staging/doc-<N>/consequences/<slug>.md` |
 | Beat (CREATE) | `.ttrpg-staging/doc-<N>/beats/<slug>.md` |
 | Secret (CREATE) | `.ttrpg-staging/doc-<N>/secrets/<slug>.md` |
-| Secret (UPDATE — merged containers) | `.ttrpg-staging/doc-<N>/secrets/<slug>.md` — write the **full proposed new content** of the existing Secret with the union'd `belongs_to:` and any GM-approved body changes |
+| Secret (UPDATE — merged containers) | `.ttrpg-staging/doc-<N>/secrets/<slug>.md` — stage per `~/.claude/skills/ttrpg-gm/references/staging-pattern.md` Section 2 (cp the live Secret file, Edit to apply the union'd `belongs_to:` and any GM-approved body changes so the IDE diff shows the delta) |
 | Secret (CREATE-disambiguated from ASK) | `.ttrpg-staging/doc-<N>/secrets/<disambiguated-slug>.md` |
-| Container back-reference (UPDATE — added `## Secrets` section bullet) | `.ttrpg-staging/doc-<N>/<container-path>` — the existing container file (NPC / Location / Faction / Item / `adventures/<slug>/adventure.md`) with the proposed `## Secrets` section bullet inserted per `~/.claude/skills/ttrpg-gm/references/bidi-link-maintenance.md` |
+| Container back-reference (UPDATE — added `## Secrets` section bullet) | `.ttrpg-staging/doc-<N>/<container-path>` — stage per `~/.claude/skills/ttrpg-gm/references/staging-pattern.md` Section 2 (cp the live container file — NPC / Location / Faction / Item / `adventures/<slug>/adventure.md` — and Edit to insert the proposed `## Secrets` section bullet per `~/.claude/skills/ttrpg-gm/references/bidi-link-maintenance.md` so the IDE diff shows the delta) |
 
-For UPDATE items, read the existing file from the campaign repo, apply the proposed edit in memory, write the merged result to staging — so the GM sees and edits the full final state of the file, not just the addition.
+For UPDATE items, follow `~/.claude/skills/ttrpg-gm/references/staging-pattern.md` Section 2: `cp` the live file from the campaign repo into staging, then apply the proposed change via the Edit tool against the staged copy. Because the cp made the staged content byte-identical to the live file at that moment, the Edit's diff display surfaces the live → proposed delta — the same way Claude Code shows changes for any file edit, so the GM sees the delta rather than re-reading the whole file to spot the addition.
 
 **Bidi link staging for Secrets.** Every Secret CREATE or UPDATE drags container back-reference UPDATEs along with it: for each container in the Secret's `belongs_to:`, if that container's body doesn't already have a `## Secrets` section wiki-linking the Secret, stage an UPDATE to that container file too (per `~/.claude/skills/ttrpg-gm/references/bidi-link-maintenance.md`). The GM sees the back-reference UPDATEs alongside the Secret in the staging summary; deleting a back-reference UPDATE without also adjusting the Secret's `belongs_to:` is a contract violation the agent surfaces at re-read time (*"You deleted the back-reference UPDATE for `npcs/maren.md` but left `npcs/maren.md` in the Secret's `belongs_to:`. Re-add the back-reference, drop the container from `belongs_to:`, or cancel?"*). For container files that don't exist (a Secret's `belongs_to:` names a Reference note that this same doc is CREATEing), the back-reference is staged against the CREATEd container's staged content — so the GM sees the full final state of the new container file including the `## Secrets` section, not just the agent's split-write.
 
@@ -678,7 +678,7 @@ Files:
   adventures/the-prism/adventure.md            — CREATE
   npcs/mayor-brennan.md                        — CREATE  (gains ## Secrets section)
   npcs/maren.md                                — CREATE  (gains ## Secrets section)
-  npcs/sera.md                                 — UPDATE  (full new content staged)
+  npcs/sera.md                                 — UPDATE
   locations/old-temple.md                      — CREATE  (gains ## Secrets section)
   factions/silent-court.md                     — CREATE
   threads/find-the-spy.md                      — CREATE

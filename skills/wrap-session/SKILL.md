@@ -288,19 +288,19 @@ Wrap-session-specific staging shape: write the full proposed change set to `.ttr
 |---|---|
 | Drafted Log | `.ttrpg-staging/wrap/sessions/YYYY-MM-DD-session-N/log.md` |
 | CREATE Reference note | `.ttrpg-staging/wrap/npcs/<slug>.md` (or `locations/`, `factions/`, `items/`, `pcs/`) |
-| UPDATE Reference note | `.ttrpg-staging/wrap/<kind>/<slug>.md` — write the **full proposed new content**, not a diff |
+| UPDATE Reference note | `.ttrpg-staging/wrap/<kind>/<slug>.md` — stage per `~/.claude/skills/ttrpg-gm/references/staging-pattern.md` Section 2 (cp the live file, Edit to apply the proposed change so the IDE diff shows the delta) |
 | CREATE Thread | `.ttrpg-staging/wrap/threads/<slug>.md` |
-| UPDATE Thread (closure) | `.ttrpg-staging/wrap/threads/<slug>.md` — full proposed new content |
+| UPDATE Thread (closure) | `.ttrpg-staging/wrap/threads/<slug>.md` — stage per `~/.claude/skills/ttrpg-gm/references/staging-pattern.md` Section 2 (cp the live file, Edit to apply the closure change so the IDE diff shows the delta) |
 | CREATE Consequence | `.ttrpg-staging/wrap/consequences/<slug>.md` |
-| CREATE / DROP / DELIVER Beat | `.ttrpg-staging/wrap/beats/<slug>.md` — full proposed new content (including `kind:` and `linked_secrets:`) |
+| CREATE / DROP / DELIVER Beat | `.ttrpg-staging/wrap/beats/<slug>.md` — CREATEs write the full new file (including `kind:` and `linked_secrets:`); DROP / DELIVER are UPDATEs staged per `~/.claude/skills/ttrpg-gm/references/staging-pattern.md` Section 2 (cp the live file, Edit to apply the status flip so the IDE diff shows the delta) |
 | CREATE Secret | `.ttrpg-staging/wrap/secrets/<slug>.md` — full new file with `status: hidden`, `belongs_to:`, `revealed_by: []` |
-| UPDATE Secret (status flip, new container, body merge) | `.ttrpg-staging/wrap/secrets/<slug>.md` — full proposed new content |
-| Container back-reference (bidi-link write) | `.ttrpg-staging/wrap/<container-path>` — full proposed new content for the container file with the `## Secrets` bullet added per `~/.claude/skills/ttrpg-gm/references/bidi-link-maintenance.md` |
-| UPDATE Adventure (status transition) | `.ttrpg-staging/wrap/adventures/<slug>/adventure.md` — full proposed new content |
+| UPDATE Secret (status flip, new container, body merge) | `.ttrpg-staging/wrap/secrets/<slug>.md` — stage per `~/.claude/skills/ttrpg-gm/references/staging-pattern.md` Section 2 (cp the live file, Edit to apply the status flip, container addition, or body merge so the IDE diff shows the delta) |
+| Container back-reference (bidi-link write) | `.ttrpg-staging/wrap/<container-path>` — stage per `~/.claude/skills/ttrpg-gm/references/staging-pattern.md` Section 2 (cp the live container file, Edit to add the `## Secrets` bullet per `~/.claude/skills/ttrpg-gm/references/bidi-link-maintenance.md` so the IDE diff shows the delta) |
+| UPDATE Adventure (status transition) | `.ttrpg-staging/wrap/adventures/<slug>/adventure.md` — stage per `~/.claude/skills/ttrpg-gm/references/staging-pattern.md` Section 2 (cp the live file, Edit to apply the status transition so the IDE diff shows the delta) |
 | New Adventure | `.ttrpg-staging/wrap/adventures/<slug>/adventure.md` — full new file |
-| `campaign.md` regen | `.ttrpg-staging/wrap/campaign.md` — full proposed new content |
+| `campaign.md` regen | `.ttrpg-staging/wrap/campaign.md` — stage per `~/.claude/skills/ttrpg-gm/references/staging-pattern.md` Section 2: if a live `campaign.md` exists, cp it into staging and Edit to apply the regen so the IDE diff shows the previous-vs-regenerated delta; if the file doesn't exist yet, Write the full new content as a CREATE |
 
-For UPDATEs, the staged file contains the full file as it would land — existing content plus the proposed additions/changes — so the GM sees and edits the full final state, not just a diff. The agent does this by reading the existing file, applying proposed edits in memory, and writing the merged result to staging.
+For UPDATEs, follow `~/.claude/skills/ttrpg-gm/references/staging-pattern.md` Section 2: `cp` the live file from the campaign repo into staging, then apply the proposed change via the Edit tool against the staged copy. Because the cp made the staged content byte-identical to the live file at that moment, the Edit's diff display surfaces the live → proposed delta — so the GM sees the delta the way Claude Code shows changes for any file edit, not a wall of full-file content to spot the change inside.
 
 Then present a summary in chat listing the staged paths and what each represents:
 
@@ -311,8 +311,8 @@ Files:
   sessions/2026-05-29-session-5/log.md           — drafted Log
   npcs/sera.md                                   — CREATE (new NPC)
   locations/the-broken-mines.md                  — CREATE (new location)
-  npcs/captain-marra.md                          — UPDATE (full new content staged)
-  npcs/orin.md                                   — UPDATE (disposition change; full new content staged)
+  npcs/captain-marra.md                          — UPDATE
+  npcs/orin.md                                   — UPDATE (disposition change)
   threads/cult-of-the-broken-flame.md            — CREATE (new Thread)
   consequences/marra-owes-favor.md               — CREATE (new Consequence)
   beats/orin-armor.md                            — DROP (status: pending → dropped)
