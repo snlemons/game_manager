@@ -59,16 +59,16 @@ Run the preflight exactly once per `/ingest` invocation; cache the result across
 
 ### Step 2: Write the six template files
 
-The plugin ships six templates under `~/.claude/skills/ttrpg-gm/templates/`. For each, read the template, substitute placeholders, and write to the target. Filenames have a `.template` suffix in the plugin; strip the suffix on write.
+The plugin ships six templates under `~/.claude/skills/ttrpg-gm/templates/`. For each, read the template from its **absolute install path** (the agent's cwd is the *campaign* directory, not the plugin install — relative paths like `templates/foo` will not resolve), substitute placeholders, and write to the target. Filenames have a `.template` suffix in the plugin; strip the suffix on write.
 
-| Template source | Written to (relative to target) |
+| Template source (read from this absolute path) | Written to (relative to target) |
 |---|---|
-| `templates/CLAUDE.md.template` | `CLAUDE.md` |
-| `templates/.claude/rules/sessions.md.template` | `.claude/rules/sessions.md` |
-| `templates/.claude/rules/adventures.md.template` | `.claude/rules/adventures.md` |
-| `templates/.claude/settings.json.template` | `.claude/settings.json` |
-| `templates/campaign.md.template` | `campaign.md` |
-| `templates/.gitignore.template` | `.gitignore` |
+| `~/.claude/skills/ttrpg-gm/templates/CLAUDE.md.template` | `CLAUDE.md` |
+| `~/.claude/skills/ttrpg-gm/templates/.claude/rules/sessions.md.template` | `.claude/rules/sessions.md` |
+| `~/.claude/skills/ttrpg-gm/templates/.claude/rules/adventures.md.template` | `.claude/rules/adventures.md` |
+| `~/.claude/skills/ttrpg-gm/templates/.claude/settings.json.template` | `.claude/settings.json` |
+| `~/.claude/skills/ttrpg-gm/templates/campaign.md.template` | `campaign.md` |
+| `~/.claude/skills/ttrpg-gm/templates/.gitignore.template` | `.gitignore` |
 
 The `.gitignore` excludes `.ttrpg-staging/`, which the skills use as a scratchpad for diff-style review surfaces (proposed descriptions, brief drafts, wrap proposals) that the GM edits in their IDE before approval. Staging contents are never committed.
 
