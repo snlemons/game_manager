@@ -82,7 +82,7 @@ This is a natural fit for the [#24](https://github.com/snlemons/game_manager/iss
 - `/wrap-session` and `/ingest` maintain bidirectional Secret↔container links on every Secret write — write to N+1 files (Secret + each container in `belongs_to`).
 - `/ingest` extracts Secrets from module "Adventure Background" / "Secrets and Lies" sections into `secrets/` with `belongs_to:` pointing at the ingested Adventure.
 - `/prep-session` surfaces relevant Secrets via the **Secret Push** dialogue question (one of seven categories — see [ADR-0015](./0015-conversational-refinement-loop-in-prep-session.md)). Secrets themselves do not appear as a Brief section; Clue Beats (which are Beats) appear in the existing "Beats to weave in" section.
-- A deterministic helper script (likely `lib/find-secrets.py` riding on [#24](https://github.com/snlemons/game_manager/issues/24)) enumerates all Secrets across `secrets/`, used for dedup and for the multi-container backlink lookup.
+- Skills walk `secrets/` directly to enumerate Secrets and to perform dedup / multi-container backlink lookups. Reference Python in `tests/` mirrors the enumeration and dedup logic for spec-drift detection per the v0.1 convention; a runtime helper is a deferred decision tracked under [#24](https://github.com/snlemons/game_manager/issues/24).
 - `references/frontmatter-schemas.md` extends to include the Secret schema.
 - `references/dedup-normalization.md` extends to Secrets.
 - Bidirectional-link drift is a lint case in `/prep-session` and `/wrap-session` — the agent flags missing `## Secrets` entries or orphaned wiki-links to nonexistent Secrets, asks the GM to reconcile.

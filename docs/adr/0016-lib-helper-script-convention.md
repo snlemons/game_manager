@@ -1,5 +1,19 @@
 # Deterministic spec items live in `lib/` as Python helpers invoked via Bash
 
+> **RESCINDED 2026-05-31, before v0.2 ships.**
+>
+> This ADR was drafted alongside the v0.2 design work (Secret architecture, conversational prep loop) to formalize promoting deterministic spec items into runtime helpers under a new `lib/` directory invoked by skills via Bash. The convention never shipped.
+>
+> **Why rescinded:** the runtime path-resolution surface (how a skill running from a campaign directory finds the helpers in the plugin install) added complexity not justified by v0.2's actual needs. v0.2 instead stays pure-skill at runtime — all GM-facing work continues to happen via SKILL.md prose, as it did in v0.1. Reference Python for deterministic spec items lives in `tests/` as the existing v0.1 convention (thin near-translation of SKILL.md spec) does for `tests/test_ingest_scaffolding.py` and `tests/test_wrap_session_idempotency.py`. Issue [#24](https://github.com/snlemons/game_manager/issues/24) continues to track runtime promotion as a future option once dogfooding clarifies the trigger.
+>
+> No part of this ADR is active. The text below is preserved for context — future versions revisiting runtime helpers can pick it up as a starting draft, but should not treat it as a binding decision.
+>
+> Related: [PR #42 (salvage)](https://github.com/snlemons/game_manager/pull/42) preserved the frontmatter-schema test coverage from the rolled-back work; [PRD #31](https://github.com/snlemons/game_manager/issues/31) was amended to reflect the rollback.
+
+---
+
+# Original (rescinded) text follows
+
 The plugin establishes a **`lib/` directory at the repo root** holding Python helper scripts that encode deterministic spec items. Skills invoke helpers via Bash; SKILL.md prose tells the LLM when to call them and how to interpret their output. This formalizes the D-style optimization tracked in [#24](https://github.com/snlemons/game_manager/issues/24) and resolves the v0.1 / v0.2 asymmetry that arose when v0.2 introduced new deterministic concerns (Secret enumeration, bidirectional linking) on top of v0.1 spec items that still lived as SKILL.md prose with test-only reference Python.
 
 ## What goes in `lib/`
