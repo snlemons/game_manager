@@ -607,31 +607,37 @@ This step has two parts. First, resolve any ambiguous-dedup ASK items inline in 
 
 #### Step 4a: Resolve ambiguous-dedup questions inline
 
-If Step 3b produced any ASK items (ambiguous Reference-note matches, Secret multi-container reconciliations, Beat–Secret pairing ambiguities, Beat `linked_*` ambiguities, Beat `kind:` ambiguities, or `belongs_to:` expansion uncertainties), surface them in chat as a short numbered list of questions. Group by ASK kind so the GM can scan:
+If Step 3b produced any ASK items (ambiguous Reference-note matches, Reference-note alias relationships per [ADR-0017](../../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md), Secret multi-container reconciliations, Beat–Secret pairing ambiguities, Beat `linked_*` ambiguities, Beat `kind:` ambiguities, or `belongs_to:` expansion uncertainties), surface them in chat as a short numbered list of questions. Group by ASK kind so the GM can scan:
 
 ```
-Doc 2 of 3: The Prism.md — 5 questions to resolve before review:
+Doc 2 of 3: The Prism.md — 7 questions to resolve before review:
 
 Reference-note dedup (yes/no):
   1. Sera (proposed NPC): possible match to existing `npcs/sera.md` ("Sera the blacksmith from Lost Mines"). Same person?
   2. The Citadel (proposed location): possible match to existing `locations/the-citadel.md` ("Mountain fortress in the north"). Same place?
 
+Reference-note alias relationships (merge / separate / pick canonical):
+  3. "The Shadow" appears in this doc with the same role and location as `npcs/maren.md` (same-section dual-name pattern). Merge into `npcs/maren.md` with "The Shadow" added to its `aliases:` list, or create a separate `npcs/the-shadow.md`?
+  4. "Brother Olwen" and "Olwen of the Verdant Choir" appear in this doc as the same NPC (parenthetical re-introduction pattern). Pick canonical: `brother-olwen` or `olwen-of-the-verdant-choir`? The other goes in `aliases:`.
+
 Secret reconciliation (merge / separate / rename):
-  3. "The mayor secretly funds the cult" (proposed Secret): matches existing `secrets/mayor-funds-cult.md` (extracted from doc 1). Merge the new containers [factions/silent-court.md, locations/old-temple.md] into the existing Secret's belongs_to, or create as a separate Secret at a disambiguated slug?
+  5. "The mayor secretly funds the cult" (proposed Secret): matches existing `secrets/mayor-funds-cult.md` (extracted from doc 1). Merge the new containers [factions/silent-court.md, locations/old-temple.md] into the existing Secret's belongs_to, or create as a separate Secret at a disambiguated slug?
 
 Secret belongs_to expansion:
-  4. "Maren is the cult's inside contact" (proposed Secret) was extracted with the Silent Court (faction) and the Old Temple (location) named in incidental context, not the Secret's core fact. Include both, only the Silent Court, or only the Adventure container?
+  6. "Maren is the cult's inside contact" (proposed Secret) was extracted with the Silent Court (faction) and the Old Temple (location) named in incidental context, not the Secret's core fact. Include both, only the Silent Court, or only the Adventure container?
 
 Clue–Secret pairing:
-  5. Hidden Information item "ledgers in mayor's office" — link to which Secret(s)? `mayor-funds-cult`, `mayor-was-blackmailed`, or both?
+  7. Hidden Information item "ledgers in mayor's office" — link to which Secret(s)? `mayor-funds-cult`, `mayor-was-blackmailed`, or both?
 
-Reply with answers (e.g., "1 yes, 2 no — call it 'the-citadel-of-glass', 3 merge, 4 only-court, 5 mayor-funds-cult").
+Reply with answers (e.g., "1 yes, 2 no — call it 'the-citadel-of-glass', 3 merge, 4 brother-olwen, 5 merge, 6 only-court, 7 mayor-funds-cult").
 For Reference-note "no", supply a disambiguated slug.
 For Secret "separate" or "rename", supply the disambiguated slug.
+For alias "pick canonical", supply the slug to use; the other name goes in `aliases:` of the chosen canonical.
 ```
 
 When the GM resolves, apply per ASK kind:
 - Reference-note dedup: convert to confident UPDATE (yes) or CREATE at a disambiguated slug (no).
+- Reference-note alias relationship per [ADR-0017](../../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md): *merge into existing canonical* → propose an UPDATE on the existing canonical that appends the alias to `aliases:` (if not already present) and routes prose mentions through piped wiki links (`[[<kind>/<canonical-slug>|<alias>]]`). *Separate* → propose two CREATEs at distinct slugs with no `aliases:` linkage. *Pick canonical from two new candidates* → propose one CREATE at the chosen slug with the other name in `aliases:`; in-prose mentions of the non-canonical name use piped wiki links. The prose patterns the agent watches for (dual-name parentheticals, "also known as," "posing as," same-section dual-name) are documented in `~/.claude/skills/ttrpg-gm/references/reference-note-extraction.md` under "Alias detection at extraction time."
 - Secret reconciliation: *merge* → set `belongs_to:` to the union of existing and candidate containers; treat as UPDATE on the existing Secret. *Separate* → CREATE the candidate Secret at the disambiguated slug. *Rename* → CREATE at the GM-supplied slug.
 - Secret `belongs_to:` expansion: trim or expand the proposed `belongs_to:` per the GM's answer; the validated set feeds the Secret CREATE / UPDATE.
 - Clue–Secret pairing: set the Beat's `linked_secrets:` to the GM-confirmed Secret slug(s).
@@ -741,6 +747,8 @@ Lessons worth carrying forward include:
 - **Classification preferences.** If the GM moved an item from Thread → Consequence, or from Reference note → narrative color (dropped entirely), record the preference: *"Doc 1: the GM treats one-line rumor mentions as narrative color, not Threads."*
 - **Confirmed dedup identities.** If the GM confirmed an ambiguous dedup as "yes, same entity", record the identity link: *"`npcs/sera.md` is the campaign's Sera; future mentions consolidate here."* Use these to convert future ambiguous-match candidates into confident updates without re-asking.
 - **Confirmed dedup splits.** If the GM said "no, distinct entity" and named a disambiguated slug, record the split: *"`npcs/john.md` (innkeeper) and `npcs/john-the-bandit.md` are distinct; future mentions of 'John' need disambiguation by context."*
+- **Confirmed alias relationships per [ADR-0017](../../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md).** When the GM resolves an alias ASK as "merge into existing canonical" or "pick canonical from two new candidates," record the alias map for the rest of the run: *"`The Shadow` is an alias of `npcs/maren.md` (now in its `aliases:` list); subsequent mentions consolidate at the canonical file."* On later docs the extended dedup-matching rule (`~/.claude/skills/ttrpg-gm/references/dedup-matching.md` — scanning each candidate file's `aliases:`) catches the alias as a confident UPDATE without re-prompting; the resolution still surfaces as an UPDATE entry in the per-doc review summary, not silently. Also record any prose-rendering preferences the GM expressed (e.g., "render `The Shadow` mentions with piped wiki links to `npcs/maren`") so prose written in later docs follows the same convention.
+- **Confirmed alias splits.** When the GM resolves an alias ASK as "separate — these are distinct entities despite the dual-name pattern," record the split: *"`brother-olwen` and `olwen-of-the-verdant-choir` are distinct NPCs in this campaign; do not propose them as an alias relationship in subsequent docs."* This is the alias analog of the confirmed-dedup-split lesson.
 - **Naming preferences.** Canonical-name choices the GM made when given a dedup ambiguity ("call them the Veiled Court, slug `veiled-court`").
 - **Section-heading interpretation for Secrets and Beats.** Sections the GM treated differently from the agent's default classification (e.g., "GM treats sections labeled 'Notes' as player-facing context, not Secret-bearing"; "GM treats items under `## Scenes` as `news` when body is one-liner rumor-shaped, not `set-piece`"). Apply on subsequent docs by classifying matching sections per the GM's correction.
 - **Secret `belongs_to:` policy.** Conventions the GM established about which containers belong in `belongs_to:` (e.g., "GM excludes incidental-mention locations from `belongs_to:` — limit to entities the Secret is structurally about"). Apply on subsequent docs by being more or less aggressive about the named-entity expansion rule per the GM's policy.

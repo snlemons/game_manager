@@ -37,8 +37,35 @@ For each candidate name:
 
 - **Match against existing filenames** in the target folder (`npcs/`, `locations/`, `threads/`, `consequences/`, `beats/`, `secrets/`, etc.), with the `.md` stripped and the normalization rule applied to both sides.
 - **And match against the first-heading title (H1)** inside each existing file, normalized the same way. The first heading is the file's canonical name as the GM sees it; a candidate matching either the slug or the title is a hit.
+- **And, for Reference notes, match against each existing file's frontmatter `aliases:` entries**, normalized the same way. Per [ADR-0017](../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md), Reference notes carry an optional `aliases:` list of other names the entity goes by; a candidate that normalizes to any entry in that list is a hit on the same file as a hit on the slug or H1 would be. Missing or empty `aliases:` reads as `[]` (no alias hits; the slug + H1 match still applies).
 
-`first_heading` is the first line of the form `# <text>` after frontmatter (if any). Files without an H1 only get matched by filename.
+`first_heading` is the first line of the form `# <text>` after frontmatter (if any). Files without an H1 only get matched by filename. Files without frontmatter, or with frontmatter that has no `aliases:` key, only get matched by filename and H1.
+
+### Worked example — alias match
+
+The campaign has `npcs/maren.md`:
+
+```yaml
+---
+kind: npc
+aliases: [The Shadow, Maren the Dockworker]
+---
+
+# Maren
+
+Dock worker by day, cartel fixer at night.
+```
+
+A source doc names "The Shadow." The candidate normalizes to `shadow` (leading "the " stripped). The match scan:
+
+| Existing file | Match site | Normalized | Hit? |
+|---|---|---|---|
+| `npcs/maren.md` | filename slug | `maren` | no |
+| `npcs/maren.md` | H1 | `maren` | no |
+| `npcs/maren.md` | `aliases[0]` "The Shadow" | `shadow` | **yes** |
+| `npcs/maren.md` | `aliases[1]` "Maren the Dockworker" | `maren-the-dockworker` | no |
+
+Hit on alias → confident UPDATE on `npcs/maren.md` (not a CREATE at `npcs/the-shadow.md`). The GM still sees the UPDATE in the per-doc review summary; alias matches are not silent merges. If the surrounding prose contradicts the alias match — "The Shadow, a separate cartel fixer not to be confused with Maren" — the existing dedup rules' ASK route absorbs the case (the surrounding prose contradicts the existing file's identity; see the ASK bullet below).
 
 ## Match classification
 
@@ -67,6 +94,7 @@ A file with the same slug or a near-identical name exists, but at least one of t
 - The role or disposition implied by the candidate could be a *different* entity (existing `npcs/john.md` is "John the innkeeper of Phandalin" and the candidate is "John, a bandit in the Cragmaw Hideout").
 - The match is by similar-but-not-identical name (drafted "Sira" vs existing `npcs/sera.md`; "the Veiled Court" vs `factions/veiled-court.md` only after stripping "the").
 - The match crosses kinds (drafted location vs existing NPC of the same name).
+- The candidate normalizes to one file's slug or H1 **and** another file's `aliases:` entry (alias collision — two distinct existing canonicals both claim the same alias; the GM picks which canonical the new mention belongs to, or whether the alias relationship is wrong on one of them).
 
 Do **not** silently pick. Surface to the GM as a yes/no question. The agent's job is to ask, not to choose.
 

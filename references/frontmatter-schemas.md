@@ -1,8 +1,8 @@
 # Frontmatter schemas
 
-Canonical YAML for the five lifecycle objects: Adventure, Thread, Consequence, Beat, Secret. CONTEXT.md is the concept-level glossary; this reference is the spec-level (exact fields, types, value formats, defaults). All three skills (`/ingest`, `/prep-session`, `/wrap-session`) write these schemas; this is the single source of truth.
+Canonical YAML for the five lifecycle objects (Adventure, Thread, Consequence, Beat, Secret) plus the optional Reference-note `aliases:` field. CONTEXT.md is the concept-level glossary; this reference is the spec-level (exact fields, types, value formats, defaults). All three skills (`/ingest`, `/prep-session`, `/wrap-session`) write these schemas; this is the single source of truth.
 
-The corresponding ADRs are [ADR-0007](../docs/adr/0007-temporal-model-and-campaign-overview.md) (Adventure), [ADR-0004](../docs/adr/0004-threads-consequences-via-post-session-extraction.md) (Threads and Consequences), [ADR-0009](../docs/adr/0009-beats-as-gm-authored-lifecycle-object.md) (Beats), and [ADR-0014](../docs/adr/0014-secrets-as-multi-container-lifecycle-objects.md) (Secrets).
+The corresponding ADRs are [ADR-0007](../docs/adr/0007-temporal-model-and-campaign-overview.md) (Adventure), [ADR-0004](../docs/adr/0004-threads-consequences-via-post-session-extraction.md) (Threads and Consequences), [ADR-0009](../docs/adr/0009-beats-as-gm-authored-lifecycle-object.md) (Beats), [ADR-0014](../docs/adr/0014-secrets-as-multi-container-lifecycle-objects.md) (Secrets), and [ADR-0017](../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md) (Reference-note `aliases:`).
 
 ## Conventions
 
@@ -11,6 +11,39 @@ The corresponding ADRs are [ADR-0007](../docs/adr/0007-temporal-model-and-campai
 - **Status enums** are lowercase string literals from the enumerated set listed per schema below. Values outside the enum are a bug.
 - **Optional list fields** default to `[]` (empty list with the YAML key present), not omission of the key. Downstream skills read these fields without conditional logic; an absent key forces a fallback that masks the "field considered, left empty" signal.
 - **Filename** is a slug of the canonical name + `.md`. One file per object. Files live in the folder named for their kind: `adventures/<slug>/adventure.md`, `threads/<slug>.md`, `consequences/<slug>.md`, `beats/<slug>.md`, `secrets/<slug>.md`.
+
+## Reference note
+
+File: `<kind>/<slug>.md` where `<kind>` is `npcs`, `locations`, `factions`, `items`, or `pcs`.
+
+Reference notes do not require frontmatter (per `~/.claude/skills/ttrpg-gm/references/reference-note-extraction.md` — minimal-by-default). When frontmatter is present, the following fields are recognized; all are optional. The schema applies to every Reference-note kind.
+
+```yaml
+---
+kind: npc                            # optional: npc | location | faction | item | pc
+aliases: []                          # optional: list of other names this entity goes by
+---
+```
+
+### Field semantics
+
+- **`kind`** — optional, lowercase string. Redundant with the file's folder (an NPC lives in `npcs/`); the field exists for callers that read the file without context, and as a hand-edit hook the GM may use to declare kind for a Reference note whose folder is ambiguous. Absent is the common case.
+- **`aliases`** — optional, list of strings. Other names this entity goes by — pseudonyms, titles, masks, given-vs-order names — per [ADR-0017](../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md). The canonical name is the file's slug + H1; `aliases:` lists the others. Each entry is a human-readable string (e.g. `"The Shadow"`, `"Captain Marra"`); the dedup-matching pass normalizes each entry through the same slug rule that normalizes filenames and titles (`~/.claude/skills/ttrpg-gm/references/dedup-matching.md`), so a source-doc mention of "the shadow" or "The Shadow" routes to the canonical file as a confident UPDATE.
+
+  Default: empty list (or the key may be omitted entirely; absent reads as `[]`).
+
+  The field is most load-bearing for NPCs (double identities, pseudonyms, pre-reveal masks) but is available on every Reference-note kind. PC aliases (nickname-vs-given-name) use the same field; Location aliases (a city's historical and current names) and Item aliases (a sword's true name vs the name a faction gave it) work the same way.
+
+### Defaults at creation
+
+- `/ingest` Phase 3 CREATE: omit `aliases:` (or write `aliases: []`) unless the source doc names both the canonical and at least one alias and the GM confirms the relationship at the per-doc review per `~/.claude/skills/ttrpg-gm/references/reference-note-extraction.md`. The agent's first proposal follows the canonical-choice heuristic in ADR-0017; the GM picks canonical at review.
+- `/wrap-session` Pass 2 CREATE: omit `aliases:` unless the session notes name both the canonical and an alias and the GM confirms the relationship at Step 3 ambiguity clarification.
+- UPDATE (alias added to an existing Reference note): append the new alias to the existing `aliases:` list (do not replace); preserve every other frontmatter field byte-for-byte.
+
+### Validation
+
+- **No duplicate aliases.** An entry that normalizes to the canonical slug, the H1 of the same file, or another entry in the same `aliases:` list is a duplicate; surface to the GM at review and drop the duplicate.
+- **No cross-file alias collisions.** An alias whose normalized form collides with another canonical file's slug, H1, or `aliases:` entry in the same kind folder is an ambiguous match per `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`; surface as ASK rather than silently picking one.
 
 ## Adventure
 
