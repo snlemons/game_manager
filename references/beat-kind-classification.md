@@ -63,6 +63,79 @@ The classification often co-occurs with specific `linked_*` populations:
 
 The `linked_*` proximity heuristic itself (which slugs to populate, how close in the source the name has to be) lives in `skills/ingest/SKILL.md` — this reference doesn't restate it.
 
+
+## Module-section-heading classification (ingest-specific)
+
+This section is the `/ingest`-specific extension of the body-content classifier above. It applies during Phase 3 (per-doc extraction loop) when the source doc is module-shaped — *especially* when the source is a published module with explicit GM-eyes section headings that match well-known module conventions.
+
+### Why the heading signal is primary for ingest
+
+Published modules partition content for the GM's benefit. The same content the body-content classifier would have to infer ("is this a scene or a news drop?") is **explicitly labeled by the source doc's section structure**. The classifier should prefer the heading signal over the body-content signal for ingested Beats, because the heading is the source author's intent declaration — they wrote a chapter labeled "Scenes" because they meant scenes.
+
+The order of precedence for ingested Beats:
+
+1. **Section heading** (this section) — strongest signal; use the heading-driven classification below.
+2. **Body content** (previous section) — fallback when the heading doesn't match a known pattern.
+3. **Unset** — when neither signal supports a confident classification.
+
+### Heading → `kind` mapping
+
+Treat the **enclosing section heading** (the nearest `##` or `###` above the Beat's source paragraph) as the kind signal. Common module conventions:
+
+- **"Scenes"** / **"Set Pieces"** / **"Encounters"** / **"Locations"** (when locations describe planned encounters at each location) → `kind: set-piece`. Each scene-shaped item underneath becomes one Beat.
+- **"Lore"** / **"Rumors"** / **"Tavern Talk"** / **"What the Party Hears"** / **"News"** → `kind: news`. Each rumor / lore item is one Beat. Body is short, informational.
+- **"Handouts"** / **"Player Handouts"** / **"Props"** → `kind: handout`. Each item in the section is a Beat whose body describes the prop and its delivery context. The actual handout text (the letter, the map description) goes in the Beat's body.
+- **"Hidden Information for the DM"** / **"Hidden Information"** / **"GM Reveals"** → `kind: clue`. Each item is a Beat whose intent is to reveal something to the party. Pair with `linked_secrets:` if the section also has a corresponding Secret extracted from "Secrets and Lies" / "Adventure Background" — the structural pairing is *common in modules*: the Secrets section enumerates the hidden facts, the Hidden Information section enumerates the planned ways to reveal those facts. See "Linking Clue Beats to extracted Secrets" below.
+- **"Triggers"** / **"Escalations"** / **"What Happens If…"** / **"The Clock"** / **"If the Party Doesn't Act"** → `kind: escalation`. Each conditional item is one Beat.
+- **"Personal Hooks"** / **"PC Hooks"** / **"Spotlight Beats"** (or any section that pairs Beats with a named PC) → `kind: character-moment`. The PC name in the section header (or in the body's attribution) populates `linked_pcs:`.
+- **"Random Encounters"** / **"Wandering Monsters"** / **"Random Tables"** → `kind: set-piece` for any individual encounter substantial enough to extract; skip the random-table mechanical scaffolding (the table itself is not a Beat — the encounters *it lists* might be).
+
+### Subsection refinement
+
+When the enclosing heading matches a kind but a **subsection** narrows it further, prefer the more specific kind:
+
+- `## Scenes → ### The Ambush at the Bridge` → `kind: set-piece` (the subsection just names the scene).
+- `## Adventure Reveals → ### When the Party Searches Maren's Room` → `kind: clue` (the subsection describes a Clue Beat the source called out by name).
+
+When the enclosing heading matches one kind but the subsection content reads as a different kind (e.g., a "Scenes" section that contains an item labeled "Rumor: …"), surface as an ASK at review: *"Source heading classifies as `set-piece` but the body reads as `news` (a rumor drop) — which kind?"*
+
+### When the heading doesn't match
+
+If the enclosing heading doesn't match any known module-section pattern, fall back to the body-content classifier above. A "Notes" or "Other" section is too generic to drive classification; use what's in the Beat's actual body. If body content also doesn't yield a confident kind, leave `kind:` unset for that Beat.
+
+When the heading is a kind the agent doesn't have a starter mapping for (the source author used "Hooks" without specifying PC vs. party-level), surface as an ASK at review: *"Section heading 'Hooks' could map to `character-moment` (if PC-targeted) or to a Thread (if party-facing). The body of beat X reads as Y — classify as Z?"* The open enum allows a GM-supplied kind value if none of the starter set fits.
+
+### Linking Clue Beats to extracted Secrets
+
+A common module structure pairs:
+
+```markdown
+## Secrets and Lies
+- The mayor secretly funds the cult.
+
+## Hidden Information for the DM
+- If the party investigates the mayor's office, they find ledgers showing
+  payments to a shell merchant the cult uses.
+```
+
+The classifier should:
+
+1. Extract the Secret from "Secrets and Lies" per `references/secret-extraction.md` → `secrets/mayor-funds-cult.md` (or analogous slug).
+2. Extract the Clue Beat from "Hidden Information for the DM" → `beats/<slug>.md` with `kind: clue`.
+3. Populate the Clue Beat's `linked_secrets:` with the slug of the extracted Secret.
+
+The pairing logic uses *prose adjacency and content alignment* — the Hidden Information item describes how the party finds out something that matches a Secret extracted from the same chapter. When the alignment is unambiguous (the Clue Beat's prose names the same fact the Secret states), the link is confident. When the alignment is ambiguous (a chapter has three Secrets and four Hidden Information items, with no clear one-to-one mapping), surface as an ASK at review: *"Hidden Information item X — link to which Secret(s)? `mayor-funds-cult`, `mayor-was-blackmailed`, or both?"*
+
+When the source doc doesn't have a corresponding Secrets section but does have Hidden Information items, the items still become `kind: clue` Beats with `linked_secrets: []` — the GM can populate the link later by extracting a Secret from elsewhere or by handing the agent a Secret in a subsequent `/wrap-session` / `/ingest` run.
+
+### Carried-forward lessons for kind classification
+
+The Step 5b carried-forward lessons set in `/ingest` Phase 3 tracks kind decisions just like dedup decisions and linkage decisions. If the GM corrects a kind at review (e.g., the agent proposed `set-piece` for an item under a `## Scenes` heading but the GM reclassified to `news` because the "scene" was a one-line rumor drop the author miscategorized), record the lesson:
+
+- *"Doc 2: items under `## Scenes` may include news drops the source mislabeled — body-content check before defaulting to `set-piece`."*
+
+Subsequent docs apply the lesson with the surfacing-at-the-top-of-next-review pattern the SKILL.md already uses.
+
 ## What this heuristic does not handle
 
 - **The lifecycle status (`pending | delivered | dropped`).** That's a separate field driven by Pass 6 of `/wrap-session`, not extraction-time classification.
