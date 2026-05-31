@@ -61,7 +61,7 @@ Run the preflight exactly once per `/ingest` invocation; cache the result across
 
 The plugin ships six templates under `~/.claude/skills/ttrpg-gm/templates/`. For each, read the template from its **absolute install path** (the agent's cwd is the *campaign* directory, not the plugin install — relative paths like `templates/foo` will not resolve), substitute placeholders, and write to the target. Filenames have a `.template` suffix in the plugin; strip the suffix on write.
 
-**Order matters: `.claude/settings.json` is written FIRST so its permission rules are in effect before the remaining five writes.** The agent's first write of `.claude/settings.json` will prompt the GM for permission (the file doesn't exist yet, so no campaign-scoped permissions apply yet — this is unavoidable). After the GM accepts, the freshly-written `permissions.allow` array covers the remaining five template writes (`CLAUDE.md`, `.claude/rules/*`, `campaign.md`, `.gitignore` are all in the allow list), and the rest of Phase 1 proceeds without further prompts.
+**Order matters: `.claude/settings.json` is written FIRST so its permission rules are in effect before the remaining five writes.** The agent's first write of `.claude/settings.json` will prompt the GM for permission (the file doesn't exist yet, so no campaign-scoped permissions apply yet — this is unavoidable). After the GM accepts, the freshly-written `permissions.allow` array covers the remaining five template writes (`CLAUDE.md`, `.claude/rules/*`, `campaign.md`, `.gitignore` are all in the allow list), and the rest of Phase 1 proceeds without further prompts. The file is written first even though it isn't committed (see Step 3) — it's gitignored from the start because it carries machine-local absolute paths.
 
 Write the templates in this exact order:
 
@@ -76,7 +76,7 @@ Write the templates in this exact order:
 
 The `.gitignore` excludes `.ttrpg-staging/`, which the skills use as a scratchpad for diff-style review surfaces (proposed descriptions, brief drafts, wrap proposals) that the GM edits in their IDE before approval. Staging contents are never committed.
 
-The `.claude/settings.json` pre-approves the standard Edit/Write/MultiEdit operations the plugin's skills perform on the campaign's structured folders (`npcs/`, `locations/`, etc.) so the GM isn't prompted for every file the agent writes during routine extraction. It also pre-approves a few read-only git commands the skills run for state inspection. The file is committed (not gitignored) so the convention follows the campaign when shared.
+The `.claude/settings.json` pre-approves the standard Edit/Write/MultiEdit operations the plugin's skills perform on the campaign's structured folders (`npcs/`, `locations/`, etc.) so the GM isn't prompted for every file the agent writes during routine extraction. It also pre-approves a few read-only git commands the skills run for state inspection. The file is **gitignored** (the scaffolder's `.gitignore` excludes `.claude/settings.json`) because it carries absolute paths baked in at scaffold time — committing it would just guarantee drift on clone. The convention (which paths the plugin pre-approves) follows the campaign via the scaffolder template, not via a committed file; a fresh clone regenerates the file by re-running `/ingest` Phase 1 against the clone's location.
 
 Placeholder substitutions to apply to template content before writing:
 
@@ -92,9 +92,11 @@ Run these commands in the target directory:
 
 ```
 git init
-git add CLAUDE.md .claude/rules/sessions.md .claude/rules/adventures.md .claude/settings.json campaign.md .gitignore
+git add CLAUDE.md .claude/rules/sessions.md .claude/rules/adventures.md campaign.md .gitignore
 git commit -m "Scaffold campaign repo via ttrpg-gm /ingest"
 ```
+
+`.claude/settings.json` is **not** included in the `git add` argument list — it was written in Step 2 (so its permissions are in effect for the rest of Phase 1) but it's gitignored by the `.gitignore` Phase 1 just wrote, so it stays untracked. Five files committed; six files written.
 
 If `git init` reports the directory is already a git repo, do **not** re-init. Stage and commit on the existing branch only with explicit GM confirmation; otherwise stop and tell the GM.
 
@@ -105,7 +107,7 @@ Do not configure `user.name` or `user.email` from the plugin. Use whatever the G
 Tell the GM, concisely:
 
 - the target directory (absolute path),
-- the six files that were written (the four content templates plus `.gitignore` and `.claude/settings.json`),
+- the five files committed in the initial commit (the four content templates plus `.gitignore`); note `.claude/settings.json` was also written but is intentionally gitignored (machine-local absolute paths),
 - the initial commit's hash and message.
 
 If the GM provided an input directory of source docs, continue directly into Phase 2. If `/ingest` was invoked scaffold-only (no input directory), the workflow ends here. Either way, no confirmation prompt — Phase 2 has its own review gates (description list, processing order), and Phase 3 has per-doc approval, so the GM has natural break points downstream.
@@ -788,7 +790,7 @@ Before doing any GM-visible prompting:
    - Untracked files under the lifecycle/reference folders: `npcs/`, `locations/`, `factions/`, `items/`, `adventures/`, `threads/`, `consequences/`, `beats/`, `secrets/`. These are Phase 3's output.
    - Modified Reference notes and Adventure files in the same lifecycle folders. Phase 3 writes `## Secrets` section back-references into containers when Secrets are extracted, which appears as a modification (M-status) on existing container files. Treat those modifications as expected — they're paired with the new `secrets/` files in the same wrap-up commit.
    - Untracked files under `sessions/` (rare during fresh ingest, but allowed — Phase 3 may have proposed Adventure-side history under `adventures/<slug>/` rather than synthetic sessions; still, accept).
-   - Untracked scaffolder artifacts inside `.claude/`: notably `.claude/settings.json` and any other file the plugin's current Phase 1 templates list write. Older plugin versions did not include every current template in the initial commit; the wrap-up commit absorbs them. Treat any `.claude/<file>` that matches the current Phase 1 template set as expected.
+   - Untracked scaffolder artifacts inside `.claude/` that the plugin's current Phase 1 templates list write but older plugin versions didn't include in the initial commit; the wrap-up commit absorbs them. Treat any `.claude/<file>` that matches the current Phase 1 template set as expected — **except** `.claude/settings.json`, which is intentionally gitignored (machine-local absolute paths) and must **not** be swept into the wrap-up commit even if it appears in `git status --porcelain` (which it shouldn't, since it's gitignored, but on legacy campaigns where it was committed before this convention changed, leave it alone and let the GM migrate per the issue tracker).
    - Untracked `.gitignore` at the campaign root — same staleness reason; matches the Phase 1 template set.
    - Modified `campaign.md` (after Phase 4 Step 2 regenerates it — at *this* pre-flight check it should still be the Phase 1 placeholder, but a modified entry here is also expected if the GM is re-running wrap-up after a partial Phase 4).
 

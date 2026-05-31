@@ -7,7 +7,8 @@ correctness. The full `/ingest` workflow has four phases (see
 `skills/ingest/SKILL.md`); only **Phase 1 (Scaffold)** is fully
 deterministic — the agent reads templates, substitutes three
 placeholders (`{{CAMPAIGN_NAME}}`, `{{CAMPAIGN_SYSTEM}}`,
-`{{CAMPAIGN_PATH}}`), writes six files, runs `git init`, and makes
+`{{CAMPAIGN_PATH}}`), writes six files (five committed + one
+gitignored `.claude/settings.json`), runs `git init`, and makes
 one initial commit. Phases 2–4 (survey, per-doc extraction, wrap-up)
 are LLM-driven and out of scope here. See the README at
 `tests/README.md` for the explicit coverage gap.
@@ -30,8 +31,10 @@ ships with the plugin. The test then asserts external behavior only:
 - `.claude/settings.json` is valid JSON and contains a
   `permissions.allow` array.
 - `git init` produced a repo with exactly one commit, the commit
-  contains the six scaffolded paths and nothing else, and no
-  uncommitted state remains.
+  contains the five committed scaffolded paths (the six written
+  paths minus the gitignored `.claude/settings.json`) and nothing
+  else, and no uncommitted state remains (the gitignored
+  `.claude/settings.json` does not appear in `git status`).
 
 The test asserts *behavior at the boundary* (files written, file
 shape valid, git state clean), never internal extractor prose, never
@@ -74,6 +77,17 @@ EXPECTED_SCAFFOLDED_FILES: list[tuple[str, str]] = [
     (".claude/settings.json.template", ".claude/settings.json"),
     ("campaign.md.template", "campaign.md"),
     (".gitignore.template", ".gitignore"),
+]
+
+# The five paths actually staged into the initial commit. This is the
+# scaffolded set minus `.claude/settings.json`, which is gitignored from
+# the start because it carries machine-local absolute paths (see issue
+# #62 and `skills/ingest/SKILL.md` Phase 1 Step 3). The file is still
+# written to disk (it has to be — its permission rules are in effect
+# for the rest of Phase 1) but excluded from `git add`.
+EXPECTED_COMMITTED_FILES: list[str] = [
+    dest for (_, dest) in EXPECTED_SCAFFOLDED_FILES
+    if dest != ".claude/settings.json"
 ]
 
 # The canonical Adventure lifecycle set per CONTEXT.md ("Adventure")
@@ -160,8 +174,9 @@ def scaffold_campaign(
       placeholder substitutions, and write to the destination path,
       stripping the `.template` suffix (Step 2). Intermediate
       directories are created on demand.
-    - Run `git init`, stage the six written files explicitly, commit
-      with the documented message (Step 3).
+    - Run `git init`, stage the five committed written files
+      explicitly (the gitignored `.claude/settings.json` is excluded),
+      commit with the documented message (Step 3).
 
     The reference scaffolder skips Step 1's "existing-campaign
     markers" guard (the test creates a fresh empty `target`, so the
@@ -186,12 +201,15 @@ def scaffold_campaign(
         dst.write_text(substituted, encoding="utf-8")
 
     _run_git("init", "--initial-branch=main", cwd=target)
+    # `.claude/settings.json` is intentionally absent from this argument
+    # list — it's written to disk above (its permissions are in effect
+    # for the rest of Phase 1) but gitignored by the `.gitignore` that
+    # was also just written. See issue #62.
     _run_git(
         "add",
         "CLAUDE.md",
         ".claude/rules/sessions.md",
         ".claude/rules/adventures.md",
-        ".claude/settings.json",
         "campaign.md",
         ".gitignore",
         cwd=target,
@@ -483,10 +501,13 @@ class TestGitInit:
     ) -> None:
         """No untracked or modified files after the scaffolder runs.
 
-        Per SKILL.md Phase 1 Step 3, the scaffolder writes exactly the
-        six files and commits exactly those six files. Anything else
-        in `git status --porcelain` means the scaffolder dropped a
-        stray file or staged something that didn't get committed.
+        Per SKILL.md Phase 1 Step 3, the scaffolder writes six files
+        (five committed + one gitignored `.claude/settings.json`) and
+        commits exactly the five non-ignored files. The gitignored
+        settings file does not appear in `git status --porcelain` —
+        gitignored paths are filtered out by porcelain output. Anything
+        else here means the scaffolder dropped a stray file or staged
+        something that didn't get committed.
         """
         result = subprocess.run(
             ["git", "status", "--porcelain"],
@@ -503,6 +524,12 @@ class TestGitInit:
         self,
         scaffolded_campaign: Path,
     ) -> None:
+        """The initial commit contains the five committed files only.
+
+        `.claude/settings.json` is written to disk but gitignored from
+        the start (issue #62 — its absolute paths are machine-local).
+        It must not appear in the initial commit's tree.
+        """
         result = subprocess.run(
             ["git", "ls-tree", "-r", "--name-only", "HEAD"],
             cwd=scaffolded_campaign,
@@ -511,11 +538,15 @@ class TestGitInit:
             text=True,
         )
         tracked = set(result.stdout.splitlines())
-        expected = {dest for (_, dest) in EXPECTED_SCAFFOLDED_FILES}
+        expected = set(EXPECTED_COMMITTED_FILES)
         assert tracked == expected, (
             f"initial commit tracks the wrong set of files.\n"
             f"  expected: {sorted(expected)}\n"
             f"  actual:   {sorted(tracked)}"
+        )
+        assert ".claude/settings.json" not in tracked, (
+            "`.claude/settings.json` should be gitignored (machine-local "
+            "absolute paths); it must not appear in the initial commit."
         )
 
 
