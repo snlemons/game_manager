@@ -196,6 +196,39 @@ Apply `~/.claude/skills/ttrpg-gm/references/dedup-matching.md` against the `secr
 
 Lessons from the prior doc's dedup decisions carry forward via the same carried-forward-lessons mechanism Phase 3 already uses for Reference notes (see `skills/ingest/SKILL.md` Step 0b / Step 5b). A confirmed identity ("the mayor's funding Secret in chapter 4 is the same as the one in chapter 1") consolidates without re-asking on chapter 7.
 
+### Extraction-time partial-reveal handling
+
+`/ingest` runs against historical notes: source docs commonly describe past sessions where the party already learned part of a Secret. There is no in-flight Beat delivery to drive the `hidden → partially-revealed` status flip the way `/wrap-session` does, so the agent has to recognize the partial-reveal shape at extraction time and emit the right structure directly.
+
+**Signals that a Secret is already partially revealed in the source.** Prose shapes to watch for:
+
+- "The party learned in session 3 that the mayor's involved, but they don't yet know which faction."
+- "By the end of chapter 2, the PCs have figured out the curse but not its source."
+- "After the Whitebridge interlude, the players know Maren is a spy. They still don't know who she reports to."
+- GM commentary on a Secret-bearing fact that says, in effect, "this much is out; this much isn't."
+
+When the GM (in the source doc or at the per-doc review) confirms a candidate Secret has already been partly revealed in play, extract the four-piece structure below — **do not** restructure the Secret itself.
+
+**The four-piece shape.**
+
+1. **Extract the Secret with its body intact** — the full GM-known fact, written exactly as you would for a still-hidden Secret. The body is the underlying truth, not "the part the party doesn't yet know." Keeping the body whole preserves the auditable boundary: the Secret file always describes the complete fact, and the partial-reveal state is carried in frontmatter and linked Beats, not by editing the body.
+2. **Extract the past scene that revealed part of it as a `kind: clue` Beat with `status: delivered`.** The Beat's body describes what the party learned in that scene — that is the auditable record of which portion is now out. The Beat's `linked_secrets:` points at the Secret. See `~/.claude/skills/ttrpg-gm/references/beat-extraction.md` for the Beat file shape and the `status:` field.
+3. **Populate `revealed_by:` on the Secret** pointing at that delivered Beat (and any other prior Beats whose delivery contributed to the partial reveal). `revealed_by:` is the back-link from the Secret to the Clues that have landed against it.
+4. **Set the Secret's `status: partially-revealed`** in frontmatter (instead of the default `hidden`).
+
+This shape keeps the Secret surfacing through `/prep-session`'s Secret Push question (which filters on `status: partially-revealed`), keeps the GM-known fact intact for future Clue authoring, and gives the Beat-body description of what's out the same shape every other delivered Clue has. When the next partial reveal lands in play, `/wrap-session` adds another Beat to `revealed_by:` without needing to reconcile a fragmented Secret.
+
+**Anti-pattern: do not split the Secret into a Consequence + tightened Secret.** It can feel auditable to extract the revealed portion as a Consequence ("the party knows the mayor is involved") and rewrite the Secret body to cover only the still-hidden portion ("the mayor funds the Silent Court"). **Do not do this.** Per ADR-0014, a Secret becomes a Consequence only when **fully revealed and acted upon** — a partial reveal is a *status*, not a structural decomposition. The split breaks four things at once:
+
+- The Secret body no longer describes the full GM-known fact, so subsequent Clue authoring has to reconstruct what's still hidden from what's already out across two files.
+- `/prep-session`'s Secret Push filter (`status: partially-revealed`) no longer surfaces the Secret, because the split Secret got rewritten as still `hidden`.
+- The Consequence file carries a fact about the world that arrived through *party discovery*, not through *party action* — which is what Consequences are for (ADR-0014 line 18, ADR-0003).
+- The bidirectional `## Secrets` back-references on the containers in `belongs_to:` now point at a Secret whose body has been narrowed; the symmetry the dedup rule depends on drifts.
+
+If the source notes describe a past *action the party took* whose downstream world-state effect happens to also resolve part of a Secret (the party burned the mayor's records, so the funding link is now public knowledge in-world), that **action's outcome** is a Consequence on its own merits — extract it as a Consequence per `~/.claude/skills/ttrpg-gm/references/consequence-extraction.md`, and *separately* mark the underlying Secret partially revealed with the four-piece shape above. Two artifacts for two different facts, not one Secret cut in half.
+
+**Carried-forward lesson capture.** A GM correction during per-doc review that confirms a Secret as partially revealed is a Step 5b lesson worth recording for the rest of the run — *not* the anti-pattern split, but the recognition signal: *"Doc 3: the GM treats 'the party learned X in session Y' commentary as a partial-reveal flag; extract the past scene as a delivered Clue Beat with linked_secrets, not as a Consequence."* The carried-forward-lessons surface in `skills/ingest/SKILL.md` Step 5b must never canonize the Consequence-split as a learned pattern; if a prior review accidentally landed on the split, drop it at the next review and reconstruct the four-piece shape.
+
 ### What not to extract from module sources
 
 - **Surface plot.** A module's player-facing chapter prose is *not* Secret-bearing by default. Extract Reference notes and Beats from it; don't extract its public statements as Secrets even when they're load-bearing.
@@ -207,6 +240,6 @@ Lessons from the prior doc's dedup decisions carry forward via the same carried-
 ## What this heuristic does not handle
 
 - **Per-skill orchestration.** When the dedup ASK lands (Step 3 ambiguity clarification in `/wrap-session`, Step 4a inline resolution in `/ingest`), how the response feeds back into the staging set, how cross-doc lessons carry forward in `/ingest` — those stay in each SKILL.md.
-- **Secret status transitions.** `hidden → partially-revealed` and the `partially-revealed → revealed` prompt are `/wrap-session` Beat-delivery side effects, not extraction-time decisions. See `skills/wrap-session/SKILL.md`.
+- **In-play Secret status transitions.** `hidden → partially-revealed` and the `partially-revealed → revealed` prompt as **side effects of in-play Beat delivery** are `/wrap-session`'s job, not extraction-time decisions. See `skills/wrap-session/SKILL.md`. The separate case — `/ingest` discovering that a Secret in the source notes is *already* partially revealed because past sessions are baked into the source — *is* an extraction-time concern and is handled by the "Extraction-time partial-reveal handling" section above.
 - **Bidirectional link writes.** Once the Secret is approved, writing the `## Secrets` section into every container in `belongs_to:` is the bidi-link maintenance algorithm in `~/.claude/skills/ttrpg-gm/references/bidi-link-maintenance.md`. The extraction heuristic stops at the file shape; the link maintenance is its own concern.
 - **Cross-Secret queries.** "Which Secrets does this NPC own?" / "Which Secrets are partially revealed?" — those queries live in `~/.claude/skills/ttrpg-gm/references/secret-store.md` and are consumed by `/prep-session` (the Secret Push question) and `/wrap-session` (the Clue-delivery status flip).
