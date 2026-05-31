@@ -1,6 +1,6 @@
 # Dedup name matching
 
-When the agent has a candidate name (a proposed new Reference note, Thread, Consequence, Beat, or Adventure) and needs to decide whether it collides with an existing file, this is the rule it applies. Used by `/wrap-session` (Step 2 "Dedup" — re-run safety) and `/ingest` (Phase 3 Step 3b — cross-doc dedup).
+When the agent has a candidate name (a proposed new Reference note, Thread, Consequence, Beat, Secret, or Adventure) and needs to decide whether it collides with an existing file, this is the rule it applies. Used by `/wrap-session` (Step 2 "Dedup" — re-run safety) and `/ingest` (Phase 3 Step 3b — cross-doc dedup).
 
 The rule is pinned by `tests/test_wrap_session_idempotency.py::TestDedupOnRerun`; changes here must keep that suite green.
 
@@ -35,7 +35,7 @@ Note: "Deliver **the** letter" keeps the internal "the" (only the *leading* "the
 
 For each candidate name:
 
-- **Match against existing filenames** in the target folder (`npcs/`, `locations/`, `threads/`, `consequences/`, `beats/`, etc.), with the `.md` stripped and the normalization rule applied to both sides.
+- **Match against existing filenames** in the target folder (`npcs/`, `locations/`, `threads/`, `consequences/`, `beats/`, `secrets/`, etc.), with the `.md` stripped and the normalization rule applied to both sides.
 - **And match against the first-heading title (H1)** inside each existing file, normalized the same way. The first heading is the file's canonical name as the GM sees it; a candidate matching either the slug or the title is a hit.
 
 `first_heading` is the first line of the form `# <text>` after frontmatter (if any). Files without an H1 only get matched by filename.
@@ -56,6 +56,7 @@ A file with the same normalized slug **and** the same kind (target folder) exist
 - Same kind (the folder matches).
 - No obvious "this is a different person who happens to share a name" signal in the surrounding prose.
 - For Threads / Consequences / Beats: recent provenance — the existing file's `created:` (or the session referenced in its body) is recent (within the last few sessions). A new candidate that name-matches an existing **open** Thread created last session is almost certainly the same Thread.
+- For Secrets: name normalization is the same rule, scoped to the `secrets/` folder. Per [ADR-0014](../docs/adr/0014-secrets-as-multi-container-lifecycle-objects.md), dedup is a `secrets/`-only scan: when `/wrap-session` or `/ingest` proposes a new Secret, the agent normalizes the candidate slug and matches it against the existing `secrets/<slug>.md` filenames (and their first-heading titles). A confident match proposes an UPDATE on the same Secret file; a near-match surfaces the multi-container reconciliation prompt — *"You may already have this Secret at `secrets/<existing-slug>` — merge, separate, or rename?"* — so the GM resolves whether the new container belongs in `belongs_to` of the existing Secret or whether the candidate is a distinct Secret that happens to share a name.
 
 Propose an UPDATE: append the candidate's content as a new sentence to the existing body, or if the candidate would fully restate what's already there, propose a no-op with a note. Preserve any GM-authored prose — never overwrite.
 
