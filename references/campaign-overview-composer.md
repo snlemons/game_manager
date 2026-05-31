@@ -204,6 +204,15 @@ Two surface-level differences from the base spec are intentional, both flowing f
 - **No `## Adventures` section.** Skip from the menu straight to `## Open threads`.
 - Truncate Consequences to top 5–10 by recency.
 
+### `/prep-session` Brief composer (separate surface from `campaign.md`)
+
+The `campaign.md` composer above is unchanged for the Brief, but the Brief itself has its own section shape (see `skills/prep-session/SKILL.md` Step 3) with two variants seeded by ADR-0015:
+
+- **`## Opening Scene` section** sits between `## Last time` and `## Active adventures`. Empty by default in the initial draft; the agent does not auto-populate it. It is filled either by the GM authoring directly into the staged Brief body, or via the Step 3.5 Decision Request question once that ships (issue #39).
+- **`## Locations` section** renders 3-5 entries, each pairing `[[<Location>]]` with **one** sensory/evocative detail sourced from the body of `locations/<slug>.md`. If the Reference note has no authored sensory hook, render the explicit `_(no sensory hook yet)_` marker — never fabricate. The Brief composer pulls the detail by reading the Location Reference note body; the composer is read-only against Location notes at compose time. The complementary **sensory-detail write-back** (appending GM-authored details to the Location note's body for future reuse, per ADR-0015's "recycle and reincorporate") is a Brief-skill workflow step described in `skills/prep-session/SKILL.md` Step 4, not a composer concern.
+
+These variants apply only to the Brief surface produced by `/prep-session`. The campaign-root `campaign.md` produced by the composer above does not gain an Opening Scene section and does not render Locations with sensory details — its menu-led "Where the party might go next session" surface still uses a single `**Party location:**` line.
+
 ## Determinism contract
 
 Given identical campaign state, two composer runs must produce byte-identical output. Impose deterministic ordering everywhere — never rely on filesystem enumeration order. The test suite at `tests/test_wrap_session_idempotency.py` (`TestCampaignMdRegenerationIsDeterministic`) pins this property.
