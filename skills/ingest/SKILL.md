@@ -147,20 +147,28 @@ ADR-0008 explicitly prefers surfaced ambiguity over confident wrong commits. If 
 
 Use the campaign repo's `.ttrpg-staging/` directory as the review surface — it's gitignored (Phase 1 Step 2) and is purpose-built for exactly this. Create it if it doesn't exist.
 
-Write the proposed descriptions to `.ttrpg-staging/survey-descriptions.md` using the Write tool, so Claude Code's standard file-write diff shows the GM the full proposed list in their IDE. Format the file as one editable line per doc, with a short header explaining the edit contract:
+Write the proposed descriptions to `.ttrpg-staging/survey-descriptions.md` using the Write tool, so Claude Code's standard file-write diff shows the GM the full proposed list in their IDE. Format each doc as a path header line followed by its description on the next line, with a blank line between entries, and a short header explaining the edit contract:
 
 ```markdown
 # Survey: proposed descriptions
 
-Edit any line below to refine the description. Lines have the shape
-`<relative path> — <classification>: <short summary>`. Keep one line per doc.
-Don't add or remove lines (those reflect the docs discovered in the input
-directory). When done, save the file and tell me to continue.
+Edit any description below to refine it. Each entry is a relative path on
+its own line, followed by `<classification>: <short summary>` on the next
+line. Keep one entry per doc and don't add or remove path lines (those
+reflect the docs discovered in the input directory). When done, save the
+file and tell me to continue.
 
-lost-mines.md         — Adventure: a published-module-shaped writeup of the Lost Mines arc.
-faerun-gods.md        — World info: notes on the gods and calendar of Faerun, no Adventure structure.
-session-1-notes.md    — Session log: the party's first delve into the Citadel, written as narrative.
-campaign-overview.md  — Mixed / ambiguous: could be world info or campaign-meta notes; not enough in the skim to tell.
+lost-mines.md
+Adventure: a published-module-shaped writeup of the Lost Mines arc.
+
+faerun-gods.md
+World info: notes on the gods and calendar of Faerun, no Adventure structure.
+
+session-1-notes.md
+Session log: the party's first delve into the Citadel, written as narrative.
+
+campaign-overview.md
+Mixed / ambiguous: could be world info or campaign-meta notes; not enough in the skim to tell.
 ```
 
 Below the description block, append a non-editable footer summary listing any non-markdown files that were skipped, so the GM has full context:
