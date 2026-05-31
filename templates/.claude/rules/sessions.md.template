@@ -60,3 +60,19 @@ Future briefs and the campaign overview consult `log.md`, never `notes.md`.
 ## Session-scoped artifacts
 
 Handouts, maps, recording snippets, or other session-specific files may live alongside the three documents in the same directory. They don't have prescribed names.
+
+## Per-campaign prep options
+
+The `/prep-session` skill's Step 3.5 conversational refinement loop (per ADR-0015) evaluates a fixed set of rule-based question categories against current campaign state. Most categories fire unconditionally when their predicate hits; one is opt-out per-campaign because not every GM runs escalation-shaped prep.
+
+### Disable the Escalation Prep question
+
+The **Escalation Prep** question fires when no in-focus Beat has `kind: escalation`, prompting the GM to flag (or propose) a back-pocket escalation lever for the session. GMs whose play style doesn't lean on pre-prepped escalation Beats (improvisation-heavy GMs, one-shot campaigns, low-stakes campaigns) can disable the category for this campaign by adding the following line anywhere in this file's body:
+
+```
+prep-session escalation-prep: off
+```
+
+The match is the literal line (whitespace-tolerant). When present, `/prep-session` skips the Escalation Prep category in its question pass; every other category continues to fire by its own predicate. To re-enable, delete the line.
+
+No other question category has a per-campaign opt-out in v0.2 — the others are either silent-by-predicate (only fire when there's something to surface) or universally useful enough that disabling them would defeat the loop's purpose.
