@@ -110,18 +110,28 @@ def _substitute_placeholders(
     campaign_name: str,
     campaign_system: str,
     campaign_path: Path,
+    home_path: Path | None = None,
 ) -> str:
-    """Apply the three documented placeholder substitutions verbatim.
+    """Apply the four documented placeholder substitutions verbatim.
 
-    Per SKILL.md Phase 1 Step 2, `{{CAMPAIGN_PATH}}` is the resolved
-    absolute path *without* a trailing slash. The template inserts a
-    leading `/` in the matcher pattern, so the substituted value should
-    not start with one — `str(Path)` already produces the bare form.
+    Per SKILL.md Phase 1 Step 2:
+
+    - `{{CAMPAIGN_PATH}}` is the resolved absolute campaign path
+      *without* a trailing slash. The template inserts a leading `/`
+      in the matcher pattern, so the substituted value should not
+      start with one — `str(Path)` already produces the bare form.
+    - `{{HOME}}` is the resolved absolute home directory of the user
+      running `/ingest` (per issue #63). `Path.home()` is the default
+      since that's what the production scaffolder uses; tests may
+      override it to assert portability across machines.
     """
+    if home_path is None:
+        home_path = Path.home()
     return (
         text.replace("{{CAMPAIGN_NAME}}", campaign_name)
         .replace("{{CAMPAIGN_SYSTEM}}", campaign_system)
         .replace("{{CAMPAIGN_PATH}}", str(campaign_path))
+        .replace("{{HOME}}", str(home_path))
     )
 
 
@@ -442,6 +452,55 @@ class TestSettingsJson:
         assert absolute in text, (
             "settings.json does not contain the absolute campaign "
             "path the matcher was supposed to be parameterised by."
+        )
+
+    def test_settings_plugin_read_rule_uses_absolute_home(
+        self,
+        scaffolded_campaign: Path,
+    ) -> None:
+        """Issue #63: the plugin-install Read rule bakes in `$HOME`.
+
+        Claude Code's permission matcher does not expand `~` at match
+        time — the matcher compares the agent's resolved-absolute Read
+        target against the rule string verbatim. Commit 8f64219 shipped
+        a `Read(~/.claude/skills/ttrpg-gm/**)` rule on the assumption
+        that the matcher would expand `~`; empirically (issue #63) it
+        does not, and the GM was still prompted for plugin reads.
+
+        The fix: the template renders a `Read({{HOME}}/...)` rule that
+        the scaffolder substitutes to an absolute-home form. We keep
+        the literal-`~` rule as belt-and-suspenders in case some
+        future matcher version expands `~` in some scenarios, but the
+        substituted form is the load-bearing one.
+
+        This test asserts the substituted rule lands as an absolute
+        path in `permissions.allow`, on the test machine's actual home
+        path (so it stays portable across machines and CI).
+        """
+        data = json.loads(
+            (
+                scaffolded_campaign / ".claude/settings.json"
+            ).read_text(encoding="utf-8")
+        )
+        allow = data["permissions"]["allow"]
+        home = str(Path.home())
+        expected_rule = f"Read({home}/.claude/skills/ttrpg-gm/**)"
+        assert expected_rule in allow, (
+            "settings.json does not contain the substituted "
+            f"plugin-install Read rule {expected_rule!r}; the "
+            "scaffolder's `{{HOME}}` substitution did not land in "
+            "permissions.allow. Without this rule, the agent is "
+            "prompted for permission on every plugin-install read "
+            "(issue #63)."
+        )
+        # The literal `{{HOME}}` token must not survive substitution.
+        text = (
+            scaffolded_campaign / ".claude/settings.json"
+        ).read_text(encoding="utf-8")
+        assert "{{HOME}}" not in text, (
+            "settings.json still contains the unsubstituted "
+            "`{{HOME}}` placeholder; the scaffolder's substitution "
+            "map and the template have drifted apart."
         )
 
 
