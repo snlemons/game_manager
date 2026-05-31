@@ -14,14 +14,26 @@ v0.1 is the ingest workflow plus the full session loop:
 
 All three skills share a `references/` directory at the plugin root holding the canonical specs for dedup matching, frontmatter schemas, the `campaign.md` composer, the staging-file review pattern, and the settings-path preflight ([#14](https://github.com/snlemons/game_manager/issues/14)). Skills do their reads and writes against a campaign-local `.claude/settings.json` scaffolded at `/ingest` time with absolute paths baked into the permission rules ([#21](https://github.com/snlemons/game_manager/issues/21) for the moved-campaign preflight).
 
+## What v0.2 adds
+
+v0.2 ships a richer prep workflow and a new lifecycle object:
+
+- **Secret** as a new multi-container lifecycle object ([ADR-0014](./docs/adr/0014-secrets-as-multi-container-lifecycle-objects.md)) — facts the party might not know yet but could learn. One file per Secret in `secrets/<slug>.md`. Frontmatter `belongs_to` is an unordered set of non-ephemeral container paths (Adventure / NPC / PC / Location / Faction / Item) with ≥1 required. Three-state status (`hidden | partially-revealed | revealed`). Containers maintain symmetric `## Secrets` sections wiki-linking back; the agent keeps the symmetry on every Secret write and surfaces drift as a lint case.
+- **Beat `kind:` discriminator** ([ADR-0014](./docs/adr/0014-secrets-as-multi-container-lifecycle-objects.md)) — optional open-enum field on Beats; starter values `news | handout | character-moment | set-piece | clue | escalation`. `kind: clue` Beats pair with `linked_secrets:` to drive Secret revelation tracking.
+- **`/prep-session` conversational refinement loop** ([ADR-0015](./docs/adr/0015-conversational-refinement-loop-in-prep-session.md)) — Step 3.5 wraps the existing draft → review flow in a multi-turn dialogue. Seven question categories (Coverage Check, Tiering Check, Thread Decay, Decision Request, Secret Push, Escalation Prep, GM Focus Check) fire by documented rules in `references/prep-session-questions.md`; the agent revises the staged Brief via Edit so each turn shows as a native IDE diff. Verbal skip exits the loop without writing extra revisions.
+- **Brief shape changes** — new `## Opening Scene` section (empty by default; populated via Decision Request if the GM asks); `## Locations` reshapes to 3–5 entries with one sensory detail each; sensory details authored in dialogue write back to the relevant Location Reference note (Alexandrian "recycle and reincorporate").
+- **`/wrap-session` and `/ingest` adoption** — extract proposed new Secrets from in-play notes (wrap-session) and module docs (ingest), classify proposed Beats by `kind:`, auto-flip Secret status `hidden → partially-revealed` on Clue delivery, prompt the GM for `partially-revealed → revealed` transitions.
+
+Runtime helpers (`lib/`) were explored and rolled back before ship — v0.2 stays pure-skill at runtime, matching v0.1's pattern. Reference Python in `tests/` mirrors the deterministic algorithms (frontmatter validation, dedup, Secret enumeration, bidirectional link maintenance) for spec-drift detection. Runtime promotion stays tracked under [#24](https://github.com/snlemons/game_manager/issues/24).
+
 ## Roadmap
 
 Rough cross-version horizon. Scope shifts based on dogfooding; per-version PRDs in GitHub Issues are the source of truth for committed work.
 
 - **v0.1** *(shipped 2026-05-30)* — ingest workflow + session loop. Three skills (`/ingest`, `/prep-session`, `/wrap-session`).
-- **v0.2** *(planned)* — richer prep workflow + Secret architecture. Conversational prep-session dialogue with rule-based question categories; Secret as a new multi-container lifecycle object; Beat `kind:` discriminator (`news | handout | character-moment | set-piece | clue | escalation`); Brief Opening Scene section + evocative Locations.
+- **v0.2** *(shipped 2026-05-31)* — Secret architecture + conversational prep loop. New `Secret` lifecycle object with multi-container ownership and bidirectional linking; Beat `kind:` discriminator with `linked_secrets:`; `/prep-session` Step 3.5 conversational refinement loop with 7 rule-based question categories; Brief Opening Scene section + reshaped Locations with sensory write-back. See [PRD #31](https://github.com/snlemons/game_manager/issues/31) for the full scope.
 - **v0.3** *(planned)* — campaign and adventure scaffolding. `/init-campaign` and `/init-adventure` skills for net-new content (vs. `/ingest` for existing notes).
-- **Post-v0.3 candidates** *(not committed)* — Atlas + cross-repo linking, context-management for large campaigns ([#11](https://github.com/snlemons/game_manager/issues/11)), deterministic spec helpers ([#24](https://github.com/snlemons/game_manager/issues/24)), pre-approval stage for large batches ([#27](https://github.com/snlemons/game_manager/issues/27)), continuity catching.
+- **Post-v0.3 candidates** *(not committed)* — Atlas + cross-repo linking, context-management for large campaigns ([#11](https://github.com/snlemons/game_manager/issues/11)), runtime `lib/` helper promotion ([#24](https://github.com/snlemons/game_manager/issues/24); explored and rolled back during v0.2 design), pre-approval stage for large batches ([#27](https://github.com/snlemons/game_manager/issues/27)), continuity catching.
 
 ## Install
 
