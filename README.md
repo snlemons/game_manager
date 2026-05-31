@@ -14,6 +14,15 @@ v0.1 is the ingest workflow plus the minimum session loop:
 
 In this slice, `/prep-session` and `/wrap-session` respond "not yet implemented". `/ingest` runs only its scaffolder phase; survey, per-doc extraction, and wrap-up are stubs.
 
+## Roadmap
+
+Rough cross-version horizon. Scope shifts based on dogfooding; per-version PRDs in GitHub Issues are the source of truth for committed work.
+
+- **v0.1** *(shipped 2026-05-30)* — ingest workflow + session loop. Three skills (`/ingest`, `/prep-session`, `/wrap-session`).
+- **v0.2** *(planned)* — richer prep workflow + Secret architecture. Conversational prep-session dialogue with rule-based question categories; Secret as a new multi-container lifecycle object; Beat `kind:` discriminator (`news | handout | character-moment | set-piece | clue | escalation`); Brief Opening Scene section + evocative Locations.
+- **v0.3** *(planned)* — campaign and adventure scaffolding. `/init-campaign` and `/init-adventure` skills for net-new content (vs. `/ingest` for existing notes).
+- **Post-v0.3 candidates** *(not committed)* — Atlas + cross-repo linking, context-management for large campaigns ([#11](https://github.com/snlemons/game_manager/issues/11)), deterministic spec helpers ([#24](https://github.com/snlemons/game_manager/issues/24)), pre-approval stage for large batches ([#27](https://github.com/snlemons/game_manager/issues/27)), continuity catching.
+
 ## Install
 
 The plugin installs as a Claude Code skills directory at `~/.claude/skills/ttrpg-gm/`.
