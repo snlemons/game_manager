@@ -51,18 +51,24 @@ A folder root not in either set (e.g., `random/foo`, or a typo like `npc/maren.m
 
 **Behavior:**
 
-1. Call `list_all` to get the enumeration.
-2. For each Secret, check whether the supplied `container_path` is **exact-string-equal** to any entry in the Secret's `belongs_to:` list.
-3. Return the matching Secrets in `list_all` order (slug-sorted).
+1. **Normalize the query path through the alias map.** Per [ADR-0017](../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md), Reference-note containers may carry a frontmatter `aliases:` list of other names the entity goes by. Before matching, the query path is canonicalized:
+   - If the path resolves directly to an existing canonical file (the file at `container_path` exists and its frontmatter does not redirect), use `container_path` as-is.
+   - If the path does **not** resolve to an existing file (e.g., the caller queried `npcs/the-shadow.md` but no such file exists), scan the relevant kind folder for a Reference note whose normalized `aliases:` (per the slug rule in `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`) includes the query path's slug. If exactly one canonical claims the alias, substitute that canonical's path as the matching target. If zero or more than one canonical claims the alias, fall back to the literal `container_path` (matching nothing or the literal entry as it appears).
+   - Adventure containers (directory-form paths like `adventures/the-prism/`) and PC files do not currently use `aliases:` for canonicalization; the field is available on every Reference-note kind but the v0.2 cut targets NPCs / Locations / Factions / Items.
+2. Call `list_all` to get the enumeration.
+3. For each Secret, check whether the canonicalized query path is **exact-string-equal** to any entry in the Secret's `belongs_to:` list.
+4. Return the matching Secrets in `list_all` order (slug-sorted).
 
-**Exact-string matching, not fuzzy.** The spec is deliberately literal:
+**Exact-string matching after canonicalization.** Inside the loop, matching remains literal:
 
 - Trailing slashes are preserved (`adventures/the-prism/` is distinct from `adventures/the-prism`). The canonical form for Adventure containers is the directory-form with trailing slash; querying without the trailing slash returns zero hits even if the canonical form exists in `belongs_to:`.
 - Case-sensitive (`npcs/Maren.md` does not match `npcs/maren.md`).
 
-Predictability wins over convenience. The bidi-link linter handles symmetry repair; this query just answers "is anything claiming to belong to this exact path?" The runtime caller (the LLM) is responsible for passing the canonical form of the container path.
+Predictability wins over convenience. The bidi-link linter handles symmetry repair; this query just answers "is anything claiming to belong to this canonical path?" The runtime caller (the LLM) is responsible for passing a reasonable form of the container path; the alias-canonicalization step is the one accommodation, so that *"what Secrets touch The Shadow?"* gives the same answer as *"what Secrets touch Maren?"* when both refer to the same NPC.
 
-**Non-existence is fine.** `find_by_container` does not check that the container file exists — that's the linter's job. A query against `npcs/does-not-exist.md` returns an empty list (nothing claims it), not an error.
+**Why canonicalize at the query, not at write time.** Secrets' `belongs_to:` is authored by the GM (with agent proposals at extraction time); the field's source of truth is the Secret file. Silently rewriting `belongs_to:` during a read query would mask drift (a Secret authored against the wrong slug should surface at the bidi-link linter, not be quietly canonicalized away). Normalizing at the query keeps the Secret file's content stable and routes the corrective write through the lint pass per `~/.claude/skills/ttrpg-gm/references/bidi-link-maintenance.md` instead.
+
+**Non-existence is fine.** `find_by_container` does not check that the container file exists — that's the linter's job. A query against `npcs/does-not-exist.md` that doesn't resolve via aliases returns an empty list (nothing claims it), not an error.
 
 ## `find_dedup_candidates` — write-time dedup scan
 

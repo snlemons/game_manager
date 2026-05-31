@@ -68,12 +68,68 @@ kind: npc
 ---
 ```
 
+When the entity has more than one name the campaign uses (a pseudonym, a title, a mask, an order name), add an `aliases:` list per [ADR-0017](../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md):
+
+```yaml
+---
+kind: npc
+aliases: [The Shadow, Maren the Dockworker]
+---
+```
+
+The canonical name (the file slug + H1) is the GM's choice at extraction-time review. The default proposal follows the ADR-0017 canonical-choice heuristic — real identity wins as canonical; pseudonyms, titles, and masks go in `aliases:` — but the GM picks at review and the GM's answer wins. See "Alias detection at extraction time" below for the prose patterns the agent watches for.
+
 But:
 
 - **Do not invent fields the source doesn't supply.** Empty placeholder fields are worse than no frontmatter.
 - **Do not invent values.** If the source doesn't say where Sera is or what she does, the one-liner says only what the source said.
+- **Do not invent aliases.** A name in the source that the agent suspects might be an alias but the source doesn't connect to the canonical entity is **not** added to `aliases:` silently — it's surfaced at review (see below) and either confirmed by the GM or treated as a separate candidate Reference note.
 
 When a more specific schema is needed for an extracted object (a Thread, a Consequence, an Adventure, a Beat), that's not a Reference note — see `~/.claude/skills/ttrpg-gm/references/frontmatter-schemas.md`.
+
+## Alias detection at extraction time
+
+A common case: a single NPC (or location, or faction, or item) is referred to by more than one name in the same source doc. Per [ADR-0017](../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md), one entity gets one Reference note (the canonical), and the other names go in frontmatter `aliases:`. The agent's job at extraction time is to *detect the relationship* and *surface it for GM confirmation*, not to silently pick canonical and merge.
+
+### Prose patterns that signal a dual-name entity
+
+The agent watches for these in source-doc prose:
+
+- **"also known as"** / **"a.k.a."** / **"sometimes called"** — "Maren, also known as The Shadow, runs cartel routes through the docks."
+- **"going by the name"** / **"under the name"** — "She enters the city under the name Annika Marra."
+- **"posing as"** / **"under the alias"** / **"using the alias"** — "The cult leader poses as Brother Olwen of the Verdant Choir."
+- **"whose real name is"** / **"whose true identity is"** — "The masked figure, whose real name is Lord Vael, walked out unchallenged."
+- **Parenthetical re-introduction.** Source-doc prose that introduces an entity by one name and re-states another in parentheses: "Brother Olwen (Olwen of the Verdant Choir)" or "Captain Marra (Annika Marra of the City Watch)."
+- **Same-paragraph or same-section dual-name pattern.** Two names appear in the same paragraph or section, both referring to the same role or position — the prose makes the equivalence clear via shared pronouns, shared role, or shared location. "Maren works the docks by day. By night, The Shadow clears cartel routes through the same warehouses."
+- **Honorific + given name pairing used interchangeably.** "Queen Vael" and "Vael Stormwind" used in the same passage with no role distinction; "Captain Marra" and "Annika" used by different in-fiction speakers for the same person.
+
+When borderline (the agent can't tell if two names refer to the same entity or two different ones), prefer to **surface the question** rather than silently merging or silently splitting. The GM picks; the agent records.
+
+### ASK shape at per-doc review
+
+When the agent detects a possible alias relationship, surface it at the per-doc review (`/ingest` Step 4a) or the ambiguity clarification step (`/wrap-session` Step 3) as a yes/no question:
+
+> *"`The Shadow` in this doc appears to be the same NPC as `npcs/maren.md` (matches a known alias in its `aliases:` list). Confirm merge into `maren.md` with `The Shadow` already covered by the alias list — no schema change needed?"*
+
+Or, if the alias is new and not yet in the existing file's `aliases:`:
+
+> *"`Maren the Dockworker` in this doc appears to be the same NPC as `npcs/maren.md` (same paragraph dual-name pattern). Add `Maren the Dockworker` to `npcs/maren.md`'s `aliases:` list, or create a separate `npcs/maren-the-dockworker.md`?"*
+
+Or, when both names are new and the agent can't tell which should be canonical:
+
+> *"`Brother Olwen` and `Olwen of the Verdant Choir` appear to be the same NPC (parenthetical re-introduction pattern). Pick canonical: `brother-olwen` or `olwen-of-the-verdant-choir`? The other goes in `aliases:`."*
+
+The GM's answer routes the proposal:
+
+- **Confirm merge into existing canonical** → propose an UPDATE on the existing canonical file (append the alias to `aliases:` if not already present; preserve the rest of the file byte-for-byte). The agent's prose-side reference to the alias uses a piped wiki link (e.g., `[[npcs/maren|The Shadow]]`) per ADR-0017's rendering convention.
+- **Create separate files** → propose two CREATEs at disambiguated slugs; no `aliases:` linkage.
+- **Pick a canonical from two new candidates** → propose one CREATE at the chosen slug with the other name in `aliases:`; future mentions of either route to the canonical file.
+
+### Carried-forward lessons
+
+In `/ingest` (multi-doc runs), confirmed alias relationships join the carried-forward lessons set (per the carried-forward-lessons logic in `skills/ingest/SKILL.md` Step 5b). Subsequent docs in the same run that mention the alias route to the canonical as a silent confident UPDATE (the alias is now in `aliases:`, so the extended dedup-matching rule in `~/.claude/skills/ttrpg-gm/references/dedup-matching.md` catches it without re-prompting). The agent still surfaces the resulting UPDATE in the per-doc review summary — the lesson skips the ASK, not the review.
+
+`/wrap-session` is single-session; no carried-forward lessons. Each session's alias confirmations are local to that wrap run.
 
 ## Missing or unclear names
 

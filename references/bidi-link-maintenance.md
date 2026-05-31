@@ -38,6 +38,16 @@ This reference covers two operations, both invoked from `/wrap-session`, `/prep-
 
 **Adventure container resolution.** `adventures/the-prism/` resolves to `adventures/the-prism/adventure.md`. The directory itself is not a markdown file; the link goes into the Adventure's main markdown file. The `## Secrets` section sits in the body of `adventure.md` just like any other Reference note.
 
+**Alias resolution.** Per [ADR-0017](../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md), an NPC (or other Reference-note entity) may have multiple names — one canonical file with optional `aliases:` in frontmatter. `## Secrets` and every other bidi-link section live on the **canonical** container only — never on an alias-named file (alias-named files don't exist; the canonical is the only file). When a Secret's prose mentions an entity by alias, the resolution rule before writing the back-reference is:
+
+1. If `belongs_to:` lists a Reference-note path (e.g., `npcs/the-shadow.md`), check whether that file exists on disk.
+2. If the file does not exist, scan the relevant kind folder (`npcs/`, etc.) for a Reference note whose frontmatter `aliases:` (normalized per `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`) includes the alias slug. If exactly one canonical claims the alias, surface to the GM as a `belongs_to:` correction prompt: *"`belongs_to: [npcs/the-shadow.md]` resolves via aliases to `npcs/maren.md`. Update the Secret's `belongs_to:` to the canonical path before writing the back-reference?"* Do not silently rewrite `belongs_to:` — the Secret file is the source of truth, and a silent rewrite would mask a wider drift (the Secret was authored against the wrong slug).
+3. If zero or more than one canonical claims the alias, surface the case as an unresolvable container path — same shape as the missing-file case in step 2 of the per-container algorithm.
+
+The resolution rule applies symmetrically in the `lint` pass: when a container file at the path named in `belongs_to:` does not exist, the linter checks whether the path's slug appears in another file's `aliases:` in the same kind folder before emitting `"missing-back-reference"`. A path resolvable via aliases surfaces as a distinct finding (*"`belongs_to:` path `npcs/the-shadow.md` resolves to `npcs/maren.md` via aliases; canonicalize the Secret's `belongs_to:`"*) rather than as a missing-file finding.
+
+`## Secrets` section content always uses the canonical slug in its wiki-links (`- [[secrets/<slug>]] — <summary>`); the alias is never the back-reference target. Prose elsewhere in the container's body — or in other containers' bodies — may use piped wiki links (`[[npcs/maren|The Shadow]]`) for in-context rendering per ADR-0017, but the bidi-link bullet itself is canonical-only.
+
 ## When to invoke `apply_belongs_to`
 
 Every time a Secret is created or its `belongs_to:` is modified:
