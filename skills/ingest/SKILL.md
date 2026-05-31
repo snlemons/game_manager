@@ -61,14 +61,18 @@ Run the preflight exactly once per `/ingest` invocation; cache the result across
 
 The plugin ships six templates under `~/.claude/skills/ttrpg-gm/templates/`. For each, read the template from its **absolute install path** (the agent's cwd is the *campaign* directory, not the plugin install — relative paths like `templates/foo` will not resolve), substitute placeholders, and write to the target. Filenames have a `.template` suffix in the plugin; strip the suffix on write.
 
-| Template source (read from this absolute path) | Written to (relative to target) |
-|---|---|
-| `~/.claude/skills/ttrpg-gm/templates/CLAUDE.md.template` | `CLAUDE.md` |
-| `~/.claude/skills/ttrpg-gm/templates/.claude/rules/sessions.md.template` | `.claude/rules/sessions.md` |
-| `~/.claude/skills/ttrpg-gm/templates/.claude/rules/adventures.md.template` | `.claude/rules/adventures.md` |
-| `~/.claude/skills/ttrpg-gm/templates/.claude/settings.json.template` | `.claude/settings.json` |
-| `~/.claude/skills/ttrpg-gm/templates/campaign.md.template` | `campaign.md` |
-| `~/.claude/skills/ttrpg-gm/templates/.gitignore.template` | `.gitignore` |
+**Order matters: `.claude/settings.json` is written FIRST so its permission rules are in effect before the remaining five writes.** The agent's first write of `.claude/settings.json` will prompt the GM for permission (the file doesn't exist yet, so no campaign-scoped permissions apply yet — this is unavoidable). After the GM accepts, the freshly-written `permissions.allow` array covers the remaining five template writes (`CLAUDE.md`, `.claude/rules/*`, `campaign.md`, `.gitignore` are all in the allow list), and the rest of Phase 1 proceeds without further prompts.
+
+Write the templates in this exact order:
+
+| # | Template source (read from this absolute path) | Written to (relative to target) |
+|---|---|---|
+| 1 | `~/.claude/skills/ttrpg-gm/templates/.claude/settings.json.template` | `.claude/settings.json` |
+| 2 | `~/.claude/skills/ttrpg-gm/templates/CLAUDE.md.template` | `CLAUDE.md` |
+| 3 | `~/.claude/skills/ttrpg-gm/templates/.claude/rules/sessions.md.template` | `.claude/rules/sessions.md` |
+| 4 | `~/.claude/skills/ttrpg-gm/templates/.claude/rules/adventures.md.template` | `.claude/rules/adventures.md` |
+| 5 | `~/.claude/skills/ttrpg-gm/templates/campaign.md.template` | `campaign.md` |
+| 6 | `~/.claude/skills/ttrpg-gm/templates/.gitignore.template` | `.gitignore` |
 
 The `.gitignore` excludes `.ttrpg-staging/`, which the skills use as a scratchpad for diff-style review surfaces (proposed descriptions, brief drafts, wrap proposals) that the GM edits in their IDE before approval. Staging contents are never committed.
 
