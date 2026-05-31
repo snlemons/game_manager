@@ -32,7 +32,7 @@ Don't synthesize new kinds. If something doesn't fit one of these four, surface 
 
 ## Filename — slug rule
 
-Filenames are slugs of the canonical name. Lowercase, ASCII-fold accents, strip leading "the ", collapse whitespace and punctuation to single hyphens, trim leading/trailing hyphens. See `references/dedup-matching.md` for the full normalization rule — Reference-note slugs use the same normalization as dedup matching so that a candidate slug and an existing filename collide cleanly.
+Filenames are slugs of the canonical name. Lowercase, ASCII-fold accents, strip leading "the ", collapse whitespace and punctuation to single hyphens, trim leading/trailing hyphens. See `~/.claude/skills/ttrpg-gm/references/dedup-matching.md` for the full normalization rule — Reference-note slugs use the same normalization as dedup matching so that a candidate slug and an existing filename collide cleanly.
 
 Example: *"The Broken Mines"* → `the-broken-mines.md`. Wait — "the" gets stripped — `broken-mines.md`. *"Sera Stoneforge"* → `sera-stoneforge.md`. *"Café du Monde"* → `cafe-du-monde.md`.
 
@@ -73,7 +73,7 @@ But:
 - **Do not invent fields the source doesn't supply.** Empty placeholder fields are worse than no frontmatter.
 - **Do not invent values.** If the source doesn't say where Sera is or what she does, the one-liner says only what the source said.
 
-When a more specific schema is needed for an extracted object (a Thread, a Consequence, an Adventure, a Beat), that's not a Reference note — see `references/frontmatter-schemas.md`.
+When a more specific schema is needed for an extracted object (a Thread, a Consequence, an Adventure, a Beat), that's not a Reference note — see `~/.claude/skills/ttrpg-gm/references/frontmatter-schemas.md`.
 
 ## Missing or unclear names
 
@@ -82,7 +82,7 @@ A common case: source content references "the blacksmith" or "the captain" witho
 - **`/ingest`:** surface the unnamed entity at the per-doc review as an ASK: *"The blacksmith in section 2 is unnamed. Propose a Reference note (with a placeholder name), skip, or wait until the GM names them?"*
 - **`/wrap-session`:** route the unnamed entity to ambiguity clarification (Step 3) before staging: *"An unnamed blacksmith appears in the notes. Provide a name, or skip creating a Reference note?"*
 
-If the agent can match the unnamed reference to an existing Reference note via clear context ("the captain" used to refer to `npcs/captain-marra.md` in the prior session's Log), that's a confident UPDATE, not a CREATE — see `references/dedup-matching.md`.
+If the agent can match the unnamed reference to an existing Reference note via clear context ("the captain" used to refer to `npcs/captain-marra.md` in the prior session's Log), that's a confident UPDATE, not a CREATE — see `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`.
 
 ## Updates to existing Reference notes
 
@@ -92,7 +92,7 @@ When the source content mentions an entity that already has a Reference note and
 - **Edit** for changes that contradict the existing line ("Sera moved from the village to the city" — replace the location half).
 - **Never lose GM-authored prose.** If overwriting would discard content, surface both versions and flag for review.
 
-Dedup matching (slug + first-heading title, normalized) is what routes a candidate to UPDATE vs CREATE — see `references/dedup-matching.md`.
+Dedup matching (slug + first-heading title, normalized) is what routes a candidate to UPDATE vs CREATE — see `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`.
 
 ## What not to do
 

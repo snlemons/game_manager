@@ -94,6 +94,6 @@ The preflight is designed so the same campaign at the same path on different run
 
 ## What the skills should do with this
 
-Each SKILL.md has a pointer at the top: *"Before any other work, follow the procedure in `references/preflight.md`. If the GM declines regeneration, continue with the current settings — do not warn again this run."* The pointer is the only thing the skill says about the preflight; the procedure stays here.
+Each SKILL.md has a pointer at the top: *"Before any other work, follow the procedure in `~/.claude/skills/ttrpg-gm/references/preflight.md`. If the GM declines regeneration, continue with the current settings — do not warn again this run."* The pointer is the only thing the skill says about the preflight; the procedure stays here.
 
 If a skill needs to know whether regeneration happened (it currently doesn't — the regenerated file is just used implicitly by Claude Code's permission matcher on subsequent Edit/Write calls), it can read `.claude/settings.json` itself; the preflight does not return structured state to the skill.

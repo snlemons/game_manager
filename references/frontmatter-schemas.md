@@ -7,7 +7,7 @@ The corresponding ADRs are [ADR-0007](../docs/adr/0007-temporal-model-and-campai
 ## Conventions
 
 - **Dates** are real-world `YYYY-MM-DD` strings unless otherwise noted. Never invent dates — ADR-0007: "the agent never asks the GM to invent dates it doesn't have." Null is written as `~` (YAML null literal). Empty strings are never used in place of null.
-- **Slugs** (used in `linked_*` lists and as filenames) are produced by the normalization rule in `references/dedup-matching.md`: lowercase, ASCII-fold accents, strip leading "the ", collapse whitespace and punctuation to single hyphens, trim leading/trailing hyphens.
+- **Slugs** (used in `linked_*` lists and as filenames) are produced by the normalization rule in `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`: lowercase, ASCII-fold accents, strip leading "the ", collapse whitespace and punctuation to single hyphens, trim leading/trailing hyphens.
 - **Status enums** are lowercase string literals from the enumerated set listed per schema below. Values outside the enum are a bug.
 - **Optional list fields** default to `[]` (empty list with the YAML key present), not omission of the key. Downstream skills read these fields without conditional logic; an absent key forces a fallback that masks the "field considered, left empty" signal.
 - **Filename** is a slug of the canonical name + `.md`. One file per object. Files live in the folder named for their kind: `adventures/<slug>/adventure.md`, `threads/<slug>.md`, `consequences/<slug>.md`, `beats/<slug>.md`, `secrets/<slug>.md`.
@@ -111,7 +111,7 @@ linked_secrets: []                   # optional list of Secret slugs
 - **`created`** — YYYY-MM-DD. For Beats `/wrap-session` proposes, the session date when the GM scratched it down. For ingest-era Beats, null unless the source supplies a date.
 - **`delivered`** — YYYY-MM-DD of the session that landed the Beat. Null until status transitions to `delivered`. On `dropped`, leave `delivered:` null — the lifecycle terminates without a delivery date.
 - **`kind`** — optional, open-enum string. Classifies the Beat for kind-specific surfacing in `/prep-session` (see ADR-0014 for the Clue/Escalation cases). Starter values: `news | handout | character-moment | set-piece | clue | escalation`. The enum is intentionally **open** — any string is accepted at schema-validation time, and new kinds may be added as dogfooding reveals distinct prep-surfacing needs without a schema change. Absent or `~` means "unclassified"; unclassified Beats surface normally.
-- **`linked_secrets`** — optional list of Secret slugs. Populated on Beats whose intent (or incidental content) reveals one or more Secrets — see ADR-0014. A Beat with `kind: clue` conventionally has `linked_secrets:` populated pointing to the Secret it reveals; the agent queries Clues per Secret to track revelation progress. A Beat with `linked_secrets:` populated but `kind:` other than `clue` (or unset) is a Beat that incidentally touches a Secret. Values are Secret slugs, slugified per the same rule as `references/dedup-matching.md`.
+- **`linked_secrets`** — optional list of Secret slugs. Populated on Beats whose intent (or incidental content) reveals one or more Secrets — see ADR-0014. A Beat with `kind: clue` conventionally has `linked_secrets:` populated pointing to the Secret it reveals; the agent queries Clues per Secret to track revelation progress. A Beat with `linked_secrets:` populated but `kind:` other than `clue` (or unset) is a Beat that incidentally touches a Secret. Values are Secret slugs, slugified per the same rule as `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`.
 - **`linked_*`** — optional lists of slugs. These feed `/prep-session`'s tiered surfacing (ADR-0009 surfacing-at-scale). Empty `[]` is honest; missing keys are a schema violation. **Populate at extraction time when the source clearly supports it** — the `/ingest` SKILL.md has detailed proximity heuristics (Step 3, **Beat shape** subsection) for which links the source justifies. Empty is better than wrong.
 
   - `linked_pcs` — PC canonical names the Beat is for or about. Explicit attribution required ("for Darius:", "Darius's hook:"); generic "the party" does not justify a link.
@@ -119,7 +119,7 @@ linked_secrets: []                   # optional list of Secret slugs
   - `linked_adventures` — Adventure slugs this Beat belongs to. For ingest, if the source doc is itself adventure-shaped, every Beat from it links to that Adventure automatically (structural link). For world-info-shaped sources, require explicit naming in the Beat's own paragraph or enclosing heading.
   - `linked_locations` — Location slugs the Beat is set at or near. The "near" radius is the Beat's own paragraph / bullet or the enclosing heading.
 
-  All `linked_*` values are slugs using the same normalization rule as `references/dedup-matching.md`.
+  All `linked_*` values are slugs using the same normalization rule as `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`.
 
 ### Defaults at creation
 

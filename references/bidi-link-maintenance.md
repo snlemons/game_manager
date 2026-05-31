@@ -4,7 +4,7 @@ Per [ADR-0014](../docs/adr/0014-secrets-as-multi-container-lifecycle-objects.md)
 
 The reference Python at [`tests/test_bidi_link.py`](../tests/test_bidi_link.py) (shipped by issue #36) is a near-translation of the algorithm described here; the v0.1 convention is that the SKILL.md prose describes the algorithm the LLM follows at runtime, and the reference Python pins the spec so drift between the prose and the algorithm becomes a test failure. Changes here must keep that suite green and stay reflected in the prose.
 
-The Secret schema (where `belongs_to:` is defined as a non-empty list of non-ephemeral container paths) lives in [`references/frontmatter-schemas.md`](./frontmatter-schemas.md). The Secret extraction heuristic that produces the candidate `belongs_to:` list lives in [`references/secret-extraction.md`](./secret-extraction.md). The store enumeration that the linter walks lives in [`references/secret-store.md`](./secret-store.md).
+The Secret schema (where `belongs_to:` is defined as a non-empty list of non-ephemeral container paths) lives in [`~/.claude/skills/ttrpg-gm/references/frontmatter-schemas.md`](./frontmatter-schemas.md). The Secret extraction heuristic that produces the candidate `belongs_to:` list lives in [`~/.claude/skills/ttrpg-gm/references/secret-extraction.md`](./secret-extraction.md). The store enumeration that the linter walks lives in [`~/.claude/skills/ttrpg-gm/references/secret-store.md`](./secret-store.md).
 
 ## Two operations
 
@@ -44,13 +44,13 @@ Every time a Secret is created or its `belongs_to:` is modified:
 
 - **`/wrap-session`** Step 5 — after writing a newly approved Secret file, call `apply_belongs_to` with the Secret's slug, `belongs_to:` list, and a summary derived from the Secret's H1.
 - **`/ingest`** Phase 3 — same shape: after writing each approved Secret in a doc's batch, call `apply_belongs_to` to maintain the back-references in every named container.
-- **`/wrap-session` Secret merge (dedup UPDATE).** When the dedup rule (`references/dedup-matching.md`) routes a candidate Secret to a confident UPDATE on an existing Secret with an added container in `belongs_to:`, the new container needs a back-reference too. Call `apply_belongs_to` with the full updated `belongs_to:` list — the previously-linked containers short-circuit (idempotent no-op) and only the newly added container is modified.
+- **`/wrap-session` Secret merge (dedup UPDATE).** When the dedup rule (`~/.claude/skills/ttrpg-gm/references/dedup-matching.md`) routes a candidate Secret to a confident UPDATE on an existing Secret with an added container in `belongs_to:`, the new container needs a back-reference too. Call `apply_belongs_to` with the full updated `belongs_to:` list — the previously-linked containers short-circuit (idempotent no-op) and only the newly added container is modified.
 
 Do **not** invoke `apply_belongs_to` when a Secret's body changes without the `belongs_to:` set changing — the back-references already exist and the summary on the bullet is a stable one-liner, not a live mirror of the Secret's body. (A future revision of this spec might re-sync summaries on body changes; v0.1 leaves the bullet text stable to avoid spurious file churn.)
 
 ## The staging-pattern wrapper
 
-`apply_belongs_to` operates on **live files**, not staged files. The staging pattern (`references/staging-pattern.md`) defers writes outside `.ttrpg-staging/` until after GM approval, so the bidi-link maintenance follows the same two-step shape every UPDATE entry does:
+`apply_belongs_to` operates on **live files**, not staged files. The staging pattern (`~/.claude/skills/ttrpg-gm/references/staging-pattern.md`) defers writes outside `.ttrpg-staging/` until after GM approval, so the bidi-link maintenance follows the same two-step shape every UPDATE entry does:
 
 1. **At staging time (Step 4 of `/wrap-session`'s and `/ingest`'s respective review steps):** for each container in the Secret's `belongs_to:` that does not already back-link the Secret, stage an UPDATE entry for that container — `cp` the live container file into `.ttrpg-staging/wrap/<container-path>` (or `.ttrpg-staging/doc-<N>/<container-path>` for `/ingest`), then Edit the staged copy to add the `## Secrets` bullet. This makes the proposed change visible in the GM's IDE diff alongside the Secret's CREATE entry.
 2. **At promotion time (Step 5):** the staged container file moves to the live container path, replacing the previous content. The `apply_belongs_to` algorithm runs against the *live* tree as a verification pass — if the GM didn't edit the staged container away, the verification is a no-op; if the GM deleted the staged container (rejecting the back-reference write), the live container retains its prior state and a lint finding will surface the missing back-reference on the next preflight.
