@@ -178,10 +178,11 @@ Below the description block, append a non-editable footer summary listing any no
 Non-markdown files (skipped): art/map.png, art/sera.jpg.
 ```
 
-Then ask explicitly: *"Edit the descriptions in `.ttrpg-staging/survey-descriptions.md` if you want changes, then tell me to continue. Or say cancel to exit cleanly."* Accept two response shapes:
+Then ask explicitly: *"Edit the descriptions in `.ttrpg-staging/survey-descriptions.md` if you want changes, then tell me to continue. Or say cancel to exit cleanly."* Accept three response shapes:
 
 1. **Continue** → re-read `.ttrpg-staging/survey-descriptions.md` from disk to capture any GM edits, parse the description lines, record them verbatim, continue to Step 4. If the GM removed or added lines (a contract violation), surface that and re-ask before proceeding.
 2. **Cancel** → delete `.ttrpg-staging/`, write nothing else, exit cleanly (still report the non-markdown skip summary).
+3. **Verbal refinement** ("rephrase X to Y", "the Foo description should mention Bar", etc.) → apply each requested change to `.ttrpg-staging/survey-descriptions.md` using the **Edit** tool, one surgical edit per change so the IDE shows a native hunk diff per [ADR-0015](../../docs/adr/0015-conversational-refinement-loop-in-prep-session.md). Do **not** rewrite the whole file with Write (the bulk overwrite buries the diff) and do **not** use Bash redirects (no diff surfaces at all). After the edits, name in your reply which entries changed and re-ask the same continue / refine-more / cancel prompt. Loop until the GM says continue or cancel.
 
 GM-corrected descriptions become the steering input each doc's full read uses in Phase 3 — don't silently re-classify a doc later in extraction. If Phase 3's full read reveals the GM-confirmed description was wrong, surface that to the GM and re-confirm before continuing.
 
@@ -209,10 +210,11 @@ docs are slotted after world info by default.
 4. session-1-notes.md    — Session log: the party's first delve into the Citadel.
 ```
 
-Then ask explicitly: *"Edit the order in `.ttrpg-staging/survey-order.md` if you want changes, then tell me to continue. Or say cancel to exit cleanly."* Accept two response shapes:
+Then ask explicitly: *"Edit the order in `.ttrpg-staging/survey-order.md` if you want changes, then tell me to continue. Or say cancel to exit cleanly."* Accept three response shapes:
 
 1. **Continue** → re-read `.ttrpg-staging/survey-order.md` to capture GM edits, parse the order, renumber to match the GM's arrangement (the agent owns the integer indices; the GM owns the sequence). Continue to Step 5.
 2. **Cancel** → delete `.ttrpg-staging/`, write nothing else, exit cleanly.
+3. **Verbal refinement** ("move X above Y", "drop the session log", or a refinement to a description in `.ttrpg-staging/survey-descriptions.md` that's still on disk) → apply each requested change to the named staging file using the **Edit** tool, one surgical edit per change so the IDE shows a native hunk diff per [ADR-0015](../../docs/adr/0015-conversational-refinement-loop-in-prep-session.md). Do **not** rewrite the whole file with Write (the bulk overwrite buries the diff) and do **not** use Bash redirects (no diff surfaces at all). After the edits, name in your reply which entries changed and re-ask the same continue / refine-more / cancel prompt. Loop until the GM says continue or cancel.
 
 If the GM removed a doc entirely during ordering, drop it from the survey set — Phase 3 will not process it. Note removed docs in the closing summary so it's visible they were skipped on purpose.
 
