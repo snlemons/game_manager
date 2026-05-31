@@ -1,13 +1,13 @@
 ---
 name: wrap-session
-description: Read a session's in-play notes, draft the Log, propose new Threads, Consequences, Reference notes, Beat updates, and Adventure status changes, resolve ambiguity with the GM, write approved changes, and regenerate campaign.md. Use when the GM invokes `/wrap-session`, asks to wrap a session, says the session is over and they want to extract structure from their notes, or wants to turn in-play notes into a canonical Log.
+description: Read a session's in-play notes, draft the Log, propose new Threads, Consequences, Secrets, Reference notes, Beat updates (including kind classification), and Adventure status changes, resolve ambiguity with the GM, write approved changes (maintaining bidirectional Secret↔container links and auto-transitioning Secret status when Clue Beats deliver), and regenerate campaign.md. Use when the GM invokes `/wrap-session`, asks to wrap a session, says the session is over and they want to extract structure from their notes, or wants to turn in-play notes into a canonical Log.
 ---
 
 # /wrap-session
 
-You are completing a TTRPG **Session** for a **GM**. The campaign repo is the current working directory (or a directory the GM names). This workflow is the **Post-session extraction** moment — where messy **In-play notes** become canonical content: a written **Log**, new and updated **Reference notes**, opened and closed **Threads**, new **Consequences**, **Beat** deliveries and proposals, **Adventure** status transitions, and a regenerated **Campaign overview** (`campaign.md`).
+You are completing a TTRPG **Session** for a **GM**. The campaign repo is the current working directory (or a directory the GM names). This workflow is the **Post-session extraction** moment — where messy **In-play notes** become canonical content: a written **Log**, new and updated **Reference notes**, opened and closed **Threads**, new **Consequences**, **Secrets** (with bidirectional `## Secrets` sections in every container they belong to), **Beat** deliveries and proposals (including `kind:` classification and `linked_secrets:` for Clue Beats), **Adventure** status transitions, **Secret** status transitions driven by Clue Beat deliveries, and a regenerated **Campaign overview** (`campaign.md`).
 
-Follow the domain vocabulary defined in the campaign repo's `CLAUDE.md` and the plugin's `CONTEXT.md`: **GM**, **PC**, **NPC**, **Campaign**, **Adventure**, **Atlas**, **Reference note**, **Session**, **Brief**, **In-play notes**, **Log**, **Thread**, **Consequence**, **Beat**, **Campaign overview**, **Post-session extraction**. Don't drift to synonyms the glossary explicitly avoids (no "DM", "module" for non-published adventures, "hook" for Thread, "seed" for Beat, "recap"/"summary" for Log, "fact"/"event" for Consequence, etc.).
+Follow the domain vocabulary defined in the campaign repo's `CLAUDE.md` and the plugin's `CONTEXT.md`: **GM**, **PC**, **NPC**, **Campaign**, **Adventure**, **Atlas**, **Reference note**, **Session**, **Brief**, **In-play notes**, **Log**, **Thread**, **Consequence**, **Beat**, **Secret**, **Non-ephemeral container**, **Campaign overview**, **Post-session extraction**. Don't drift to synonyms the glossary explicitly avoids (no "DM", "module" for non-published adventures, "hook" for Thread, "seed" for Beat, "recap"/"summary" for Log, "fact"/"event" for Consequence, "hidden info"/"twist" for Secret, etc.).
 
 ## Locate the campaign repo
 
@@ -19,10 +19,11 @@ The campaign repo has this shape (per ADR-0002, ADR-0005, ADR-0007, ADR-0012):
 ├── campaign.md
 ├── .claude/rules/
 ├── adventures/<name>/        # each with frontmatter status: introduced|active|completed|abandoned
-├── npcs/        locations/   factions/   items/
+├── npcs/        locations/   factions/   items/   pcs/
 ├── threads/                  # status: open | closed | decayed
 ├── consequences/
-├── beats/                    # status: pending | delivered | dropped
+├── beats/                    # status: pending | delivered | dropped; optional kind: + linked_secrets:
+├── secrets/                  # status: hidden | partially-revealed | revealed; belongs_to: ≥1 non-ephemeral container
 └── sessions/YYYY-MM-DD-session-N/
                   ├── brief.md      (read for context if present)
                   ├── notes.md      (input — never modified)
@@ -48,6 +49,14 @@ Don't repeat the pre-flight if the campaign root is already determined in this r
 Before any other work, follow the procedure in `references/preflight.md` against the campaign root resolved above. If the baked paths in `.claude/settings.json` no longer match the current campaign root, the preflight surfaces a regenerate-or-proceed prompt to the GM and handles either outcome. If the GM declines regeneration, continue with the current settings — do not warn again this run. If the GM accepts, the file is rewritten and the skill continues with no further preflight output.
 
 Run the preflight exactly once per `/wrap-session` invocation; cache the result for the rest of the run.
+
+### Bidi-link lint (run once alongside the preflight)
+
+After the settings preflight resolves, walk the `secrets/`-to-container symmetry using the linter described in `references/bidi-link-maintenance.md` (the `lint` operation: scan every container under `npcs/`, `pcs/`, `locations/`, `factions/`, `items/`, and `adventures/<slug>/adventure.md` for `[[secrets/<slug>]]` wiki-links; cross-reference against `secrets/*.md` filenames; emit `orphan` and `missing-back-reference` findings).
+
+Cache the lint output for this run. If there are findings, surface a short summary to the GM up front (do not list every finding inline — name the counts and offer to walk through them at ambiguity clarification): *"Found N bidi-link drift cases in `secrets/` (M orphan wiki-links, K missing back-references). I'll surface specifics during ambiguity clarification."* If a finding overlaps with a container the wrap is touching this run, fold the reconciliation into the staging review for that container.
+
+If `secrets/` does not exist (no Secrets in this campaign yet), the lint is a no-op.
 
 ## Step 1 — Select the target session
 
@@ -79,7 +88,7 @@ Read `notes.md` in full. Also read these for context (do not modify):
 - The prior session's `log.md` if present — gives you continuity for what was already established.
 - `campaign.md` — current state snapshot, useful for cross-checking what's already active or open.
 - Active `adventures/<name>/adventure.md` files — to evaluate status transitions and adventure relevance.
-- Existing `threads/`, `consequences/`, `beats/`, and Reference-note files you might be updating or matching against (lazy-read; list directories first, then read files when an extraction candidate plausibly matches by name).
+- Existing `threads/`, `consequences/`, `beats/`, `secrets/`, and Reference-note files you might be updating or matching against (lazy-read; list directories first, then read files when an extraction candidate plausibly matches by name). For `secrets/` enumeration, follow `references/secret-store.md` — the `list_all` and `find_by_container` operations support reverse-lookup queries when notes name an NPC / location / Adventure whose Secrets might be relevant.
 
 Run the extraction in **this exact order**. Each pass uses prior-pass context (ADR-0011).
 
@@ -146,6 +155,19 @@ For each Beat currently in `beats/` with `status: pending`:
 
 Use the prior `brief.md` (if present) as a hint to which Beats the GM intended to land. The notes' content is the source of truth for whether they actually landed.
 
+#### Secret-status side effects on delivery
+
+When a Beat being proposed as `delivered` carries `linked_secrets:` populated (every entry is a Secret slug, see `references/frontmatter-schemas.md` Beat section), the delivery has knock-on effects on those Secrets — Clue Beats are the primary path, but any Beat with `linked_secrets:` incidentally contributes to revelation per ADR-0014. For each linked Secret slug:
+
+1. **Look up the Secret file.** Resolve to `secrets/<slug>.md` (enumeration spec: `references/secret-store.md`, `list_all`). If the file does not exist, surface as ambiguity: *"Beat `<beat-slug>` has `linked_secrets: [<slug>]` but `secrets/<slug>.md` does not exist. Rename the link, create the Secret, or drop the entry?"* Do not silently invent the Secret file.
+2. **Append this Beat's slug to `revealed_by:`** on the Secret if it is not already present. The `revealed_by:` list is the historical record of which Beats have contributed to revealing this Secret; idempotent on re-run.
+3. **Auto-transition `hidden → partially-revealed`.** If the Secret's current `status:` is `hidden`, propose updating it to `partially-revealed`. This is automatic on the first Clue delivery (or first incidental linked Beat delivery) per ADR-0014. Do not skip this transition — `partially-revealed` is what `/prep-session`'s Secret Push question filters on, so a missed flip means the Secret silently doesn't surface in future Briefs.
+4. **Prompt for `partially-revealed → revealed` only when `kind: clue`.** When the delivering Beat is `kind: clue` (the canonical Clue-Beat shape) and the Secret's current `status:` is `partially-revealed` (either already, or as a result of step 3), surface a prompt at ambiguity clarification: *"This Clue revealed [[secrets/<slug>]] ([Secret title]). Is the Secret now fully revealed (`revealed`), or still partial?"* **Default to partial if no answer; never auto-promote to `revealed`.** The GM's judgment is required because partial-to-revealed is the "the party has the picture" line, not a structural condition the agent can compute.
+5. **Do not auto-promote for incidental linked Beats.** A Beat with `linked_secrets:` populated but `kind:` other than `clue` is an incidental link; it can flip `hidden → partially-revealed` (step 3) but does not surface the `partially-revealed → revealed` prompt — that prompt is reserved for `kind: clue` to match GM authorial intent (ADR-0014 distinguishes Clue from incidental: a Clue is *primarily* about revelation).
+6. **Stage the Secret update.** Every Secret whose `status:` or `revealed_by:` changed is staged as an UPDATE entry under `.ttrpg-staging/wrap/secrets/<slug>.md` per the staging pattern (`references/staging-pattern.md`: cp the live file, Edit to apply the change so the IDE diff shows the delta). The Beat-delivery staging and the Secret-update staging both surface in the same Step 4 review.
+
+When the GM is reviewing, if they reject the Beat delivery (delete the staged Beat file), also drop the corresponding Secret updates — the side effects only land when the Beat delivery lands.
+
 ### Pass 7 — New Beat candidates
 
 Propose new Beats from:
@@ -154,6 +176,41 @@ Propose new Beats from:
 - Notes phrases like "I want to set up X next session", "remind me to land Y", "save Z for later".
 
 Propose each as `beats/<slug>.md` with frontmatter `status: pending`, `created: <session date>`, `delivered: ~`, and optional `linked_pcs:` / `linked_npcs:` lists if the scratchpad scoped them. Body: one or two sentences stating the intent. If the Beat is scoped to a specific Adventure, include a `[[wiki link]]` to that Adventure in the body so backlinks resolve (ADR-0009).
+
+#### Classify `kind:` at proposal time
+
+**Apply `references/beat-kind-classification.md`** to draft a `kind:` value (one of `news | handout | character-moment | set-piece | clue | escalation`, or `~` unclassified) for every proposed Beat from the Beat's description. The classification is a draft — the GM confirms or overrides at the staging review. A wrong classification the GM corrects at review is cheaper than no classification at all.
+
+When the classification is `kind: clue`, **also draft `linked_secrets:`**:
+
+- If the description names a Secret that already exists (`references/secret-store.md`'s `find_dedup_candidates` returns a hit), populate `linked_secrets:` with that Secret's slug.
+- If the description names a Secret that does not yet exist (the scratchpad says "Clue: drop that Maren is the spy" and `secrets/maren-is-the-spy.md` is absent), **also propose the Secret** in Pass 7.5 below — the Beat and the Secret are co-proposed for the same staging review.
+- If `kind: clue` is the right call but no specific Secret is named, surface as ambiguity at Step 3: *"This Beat is classified as a Clue but doesn't name the Secret it reveals. Which Secret? Or reclassify as `news` / `set-piece`?"*
+
+If the description doesn't clearly match any starter `kind:` value, leave the field unset (`kind: ~`) rather than guessing.
+
+### Pass 7.5 — New Secret candidates
+
+**Apply `references/secret-extraction.md`** to identify hints in the notes (and in any Pass 7 Beat proposals classified `kind: clue`) that suggest a hidden fact worth promoting to a Secret. The full extraction heuristic — what shapes of prose suggest a Secret, what shouldn't (already a Consequence, already a Thread the party is pursuing, etc.), how to draft `belongs_to:`, how to dedup — lives in that reference; this Pass is the wrap-session orchestration on top.
+
+Wrap-session-specific orchestration:
+
+- **Source content** is the session's `notes.md` *plus* any Pass 7 Beat candidates whose `kind:` was classified as `clue`. A "Clue: drop that the duke has a half-dragon son" scratchpad item produces both a Beat (Pass 7) and a co-proposed Secret (this Pass) wired together via `linked_secrets:` on the Beat and an implicit `revealed_by:` add on the Secret when that Beat eventually delivers (Pass 6's side-effect step, on the next wrap).
+- **Validate `belongs_to:`** for each candidate via `references/secret-store.md`'s `validate_belongs_to`. Reject empty, all-ephemeral, or unknown-folder-root candidates and surface to ambiguity clarification rather than staging an invalid Secret.
+- **Dedup against existing `secrets/`** via `references/secret-store.md`'s `find_dedup_candidates`. Apply the dedup classification per `references/secret-extraction.md` and `references/dedup-matching.md`:
+  - CREATE → stage a new `secrets/<slug>.md`.
+  - Confident UPDATE (same Secret, possibly with a new container in `belongs_to:`) → stage an UPDATE on the existing Secret per the staging pattern (cp + Edit).
+  - ASK (near-match or ambiguous) → surface at Step 3 ambiguity clarification with the *"merge, separate, or rename?"* prompt.
+- **Confirm `belongs_to:` with the GM at the staging review.** The drafted `belongs_to:` list is the agent's best read; the GM trims, adds, or replaces entries by editing the staged file. Per the staging pattern, the GM's edits are the source of truth re-read at promotion time.
+- **If `belongs_to:` references a container that does not exist yet** (e.g., the candidate Secret claims `npcs/maren.md` but Maren doesn't have a Reference note), the container needs to land in the same wrap. Propose the Reference note in Pass 2 (CREATE) and the Secret in this Pass; the staging review presents both together, and the GM approves the dependency chain or rejects the unwoven half.
+
+Propose each new Secret as `secrets/<slug>.md` with frontmatter:
+
+- `status: hidden` (Secrets start hidden at extraction time — `partially-revealed` only happens when a linked Beat delivers).
+- `belongs_to:` — the GM-confirmed list (drafted at extraction, finalized at approval).
+- `revealed_by: []` (empty at creation; populated by Pass 6's delivery side effects on subsequent wraps).
+
+Body: H1 + one or two sentences stating the fact for the GM, drawn from the notes. Use `[[wiki links]]` to the containers in `belongs_to:` so backlinks resolve.
 
 ### Pass 8 — Log draft
 
@@ -180,11 +237,12 @@ The Log should be readable as a standalone narrative by someone catching up on t
 
 ### Dedup (applies across passes; matters most on re-runs)
 
-**Before proposing any new Thread / Consequence / Beat / Reference note, apply the matching rule from `references/dedup-matching.md`** — it defines the normalization (case-insensitive, strip leading "the", collapse whitespace, hyphenate), what to match against (existing filenames and the first-heading title inside each file), and the three buckets (CREATE / UPDATE / ASK). The test suite at `tests/test_wrap_session_idempotency.py::TestDedupOnRerun` pins this rule against this skill's behavior.
+**Before proposing any new Thread / Consequence / Beat / Secret / Reference note, apply the matching rule from `references/dedup-matching.md`** — it defines the normalization (case-insensitive, strip leading "the", collapse whitespace, hyphenate), what to match against (existing filenames and the first-heading title inside each file), and the three buckets (CREATE / UPDATE / ASK). The test suite at `tests/test_wrap_session_idempotency.py::TestDedupOnRerun` pins this rule against this skill's behavior. For Secrets specifically, the enumeration query is `references/secret-store.md`'s `find_dedup_candidates` — scoped to the `secrets/` folder per ADR-0014.
 
 Wrap-session-specific orchestration on top of the shared rule:
 
 - **Recent provenance bias.** For Threads / Consequences / Beats, prefer files whose `created:` (or the session referenced in their body) is recent — within the last few sessions. A new Thread proposal that name-matches an existing **open** Thread created last session is almost certainly the same Thread; treat as a confident UPDATE (or a no-op) rather than a new file. This is what makes a `/wrap-session` re-run idempotent against the same `notes.md`.
+- **Secret-specific UPDATE shape: new container in `belongs_to:`.** A confident Secret dedup match may carry a new container the existing Secret doesn't yet list. Treat as a confident UPDATE that *adds* the new container to `belongs_to:` (and triggers a bidi-link write into that container at promotion time per `references/bidi-link-maintenance.md`); do not create a duplicate Secret file. The existing Secret's other containers stay in `belongs_to:` unchanged.
 - **ASK routes to Step 3 ambiguity clarification** (before the staging review). Don't carry ambiguity into Step 4.
 
 The goal is that re-running `/wrap-session` against the same `notes.md` (after the GM corrected something downstream) produces zero spurious duplicates.
@@ -202,6 +260,12 @@ Typical ambiguity buckets:
 - **Dedup matches** — "`threads/deliver-the-letter.md` already exists. Is this the same Thread, an update, or a new one?"
 - **Adventure transitions** — "The party left the Sunless Citadel mid-arc to chase another lead. Mark Sunless Citadel as `abandoned`, or keep `active` because they might return?"
 - **Beat deliveries on the edge** — "The 'Sera reveals the locket' Beat was set up but the reveal didn't quite land. Delivered, still pending, or dropped?"
+- **Beat kind** — "I classified the 'messenger arrives with warfront news' Beat as `news`. Confirm, or reclassify (e.g., `clue` if this is dropping a Secret-shaped fact)?"
+- **Clue-Beat without `linked_secrets:`** — "This Beat is classified as a Clue but doesn't name the Secret it reveals. Which Secret? Or reclassify as `news` / `set-piece`?"
+- **Secret `belongs_to:`** — "I drafted the new Secret 'Maren is the spy' with `belongs_to: [npcs/maren.md, adventures/the-prism/]`. Confirm both containers, drop one, or add another?"
+- **Secret dedup near-match** — "You may already have this Secret at `secrets/<existing-slug>` — merge (add the new container to its `belongs_to:`), separate (treat as a distinct Secret at a disambiguated slug), or rename?"
+- **Secret `partially-revealed → revealed`** — "The Clue `<beat-slug>` revealed `[[secrets/<slug>]]` ([Secret title]). Is the Secret now fully revealed (`revealed`), or still partial? (Default: partial.)"
+- **Bidi-link drift** — "I found an orphan wiki-link `[[secrets/orin-betrayed-us]]` in `npcs/orin.md` but no `secrets/orin-betrayed-us.md` exists. Heal by removing the link, or do you want to write the Secret?"
 
 Present the questions as a short numbered list. The GM answers in whatever form is easiest (numbered replies, free prose). Apply each resolution back into the extraction set:
 
@@ -223,12 +287,15 @@ Wrap-session-specific staging shape: write the full proposed change set to `.ttr
 | Proposed change | Staging path |
 |---|---|
 | Drafted Log | `.ttrpg-staging/wrap/sessions/YYYY-MM-DD-session-N/log.md` |
-| CREATE Reference note | `.ttrpg-staging/wrap/npcs/<slug>.md` (or `locations/`, `factions/`, `items/`) |
+| CREATE Reference note | `.ttrpg-staging/wrap/npcs/<slug>.md` (or `locations/`, `factions/`, `items/`, `pcs/`) |
 | UPDATE Reference note | `.ttrpg-staging/wrap/<kind>/<slug>.md` — write the **full proposed new content**, not a diff |
 | CREATE Thread | `.ttrpg-staging/wrap/threads/<slug>.md` |
 | UPDATE Thread (closure) | `.ttrpg-staging/wrap/threads/<slug>.md` — full proposed new content |
 | CREATE Consequence | `.ttrpg-staging/wrap/consequences/<slug>.md` |
-| CREATE / DROP / DELIVER Beat | `.ttrpg-staging/wrap/beats/<slug>.md` — full proposed new content |
+| CREATE / DROP / DELIVER Beat | `.ttrpg-staging/wrap/beats/<slug>.md` — full proposed new content (including `kind:` and `linked_secrets:`) |
+| CREATE Secret | `.ttrpg-staging/wrap/secrets/<slug>.md` — full new file with `status: hidden`, `belongs_to:`, `revealed_by: []` |
+| UPDATE Secret (status flip, new container, body merge) | `.ttrpg-staging/wrap/secrets/<slug>.md` — full proposed new content |
+| Container back-reference (bidi-link write) | `.ttrpg-staging/wrap/<container-path>` — full proposed new content for the container file with the `## Secrets` bullet added per `references/bidi-link-maintenance.md` |
 | UPDATE Adventure (status transition) | `.ttrpg-staging/wrap/adventures/<slug>/adventure.md` — full proposed new content |
 | New Adventure | `.ttrpg-staging/wrap/adventures/<slug>/adventure.md` — full new file |
 | `campaign.md` regen | `.ttrpg-staging/wrap/campaign.md` — full proposed new content |
@@ -249,6 +316,12 @@ Files:
   threads/cult-of-the-broken-flame.md            — CREATE (new Thread)
   consequences/marra-owes-favor.md               — CREATE (new Consequence)
   beats/orin-armor.md                            — DROP (status: pending → dropped)
+  beats/drop-warfront-news.md                    — CREATE (new Beat; kind: news)
+  beats/maren-true-allegiance.md                 — CREATE (new Beat; kind: clue, linked_secrets: [maren-is-the-spy])
+  secrets/maren-is-the-spy.md                    — CREATE (new Secret; belongs_to: [npcs/maren.md, adventures/the-prism/])
+  npcs/maren.md                                  — UPDATE (## Secrets back-link to maren-is-the-spy)
+  adventures/the-prism/adventure.md              — UPDATE (## Secrets back-link to maren-is-the-spy)
+  secrets/prism-core-is-cursed.md                — UPDATE (status: hidden → partially-revealed; revealed_by appended)
   adventures/lost-mines/adventure.md             — UPDATE (status: active → completed)
   campaign.md                                    — regenerate
 ```
@@ -266,21 +339,35 @@ Once the GM says continue, move every file that's still in `.ttrpg-staging/wrap/
 
 Order doesn't matter for correctness (files are independent) but a sensible order helps the GM read git diffs later. The per-file rules below describe **what gets written to the final location** — the content was already prepared and edited in staging during Step 4, so by the time you reach this step you're just translating paths.
 
-**Before writing any lifecycle-object frontmatter, consult `references/frontmatter-schemas.md`** — it is the canonical spec for the Thread, Consequence, Beat, and Adventure schemas (required fields, optional fields, value formats, defaults at CREATE, and update rules). Use it to write every new file and every status transition.
+**Before writing any lifecycle-object frontmatter, consult `references/frontmatter-schemas.md`** — it is the canonical spec for the Thread, Consequence, Beat, Secret, and Adventure schemas (required fields, optional fields, value formats, defaults at CREATE, and update rules). Use it to write every new file and every status transition.
 
 1. **Write `log.md`** to `sessions/YYYY-MM-DD-session-N/log.md`. Overwrite if confirmed in the re-run guard.
-2. **Create or update Reference notes** under `npcs/`, `locations/`, `factions/`, `items/`. Create parent directories if missing. Folder layout and one-liner body shape: see `references/reference-note-extraction.md`.
+2. **Create or update Reference notes** under `npcs/`, `locations/`, `factions/`, `items/`, `pcs/`. Create parent directories if missing. Folder layout and one-liner body shape: see `references/reference-note-extraction.md`.
 3. **Create or update Threads** under `threads/`. Schema and defaults: see `references/frontmatter-schemas.md` ("Thread" section). On closure, set `status: closed` (or `decayed`) and `closed: <session date>`.
 4. **Create Consequences** under `consequences/`. Schema and defaults: see `references/frontmatter-schemas.md` ("Consequence" section). `/wrap-session` Pass 5 sets `created: <session date>` precisely.
-5. **Create or update Beats** under `beats/`. Schema and defaults: see `references/frontmatter-schemas.md` ("Beat" section). On delivery, set `status: delivered`, `delivered: <session date>`. On drop, set `status: dropped` and leave `delivered:` null.
-6. **Update Adventure frontmatter** in `adventures/<name>/adventure.md`. Schema: see `references/frontmatter-schemas.md` ("Adventure" section). Transitions specific to `/wrap-session`:
+5. **Create or update Beats** under `beats/`. Schema and defaults: see `references/frontmatter-schemas.md` ("Beat" section). On delivery, set `status: delivered`, `delivered: <session date>`. On drop, set `status: dropped` and leave `delivered:` null. Preserve `kind:` and `linked_secrets:` from the staged file — these were classified at Pass 7 and confirmed at Step 4 review; do not strip them.
+6. **Create or update Secrets** under `secrets/`. Schema and defaults: see `references/frontmatter-schemas.md` ("Secret" section). Two write shapes for `/wrap-session`:
+
+   - **CREATE (Pass 7.5):** write a new `secrets/<slug>.md` with `status: hidden`, GM-confirmed `belongs_to:`, `revealed_by: []`. Before writing, re-run `validate_belongs_to` from `references/secret-store.md` against the GM-edited `belongs_to:` (the GM may have edited the staged file) to catch hand-edit damage — empty / all-ephemeral / unknown-folder-root cases. If validation fails, surface the failure verbatim and skip this Secret's write; the GM can re-stage.
+   - **UPDATE (Pass 6 side effect or dedup merge):** apply the proposed status transition (`hidden → partially-revealed` on linked-Beat delivery; `partially-revealed → revealed` on GM confirmation at ambiguity clarification) and / or append the new Beat slug to `revealed_by:` and / or extend `belongs_to:` with a new container. Preserve every other frontmatter field and every body byte from the staged file.
+
+7. **Maintain bidirectional Secret↔container symmetry.** For every Secret CREATE or `belongs_to:`-extending UPDATE in step 6, run the `apply_belongs_to` algorithm from `references/bidi-link-maintenance.md` against each container in the Secret's `belongs_to:` list:
+
+   - Resolve each container path to its file (Reference-note containers ARE the file; Adventure containers resolve to `adventures/<slug>/adventure.md`).
+   - If the container file does not exist, surface to the GM and stop the Secret write — do not silently scaffold a container from a Secret. (This case should have been caught at Step 3 ambiguity clarification or at Pass 7.5 dependency-chain handling; if it slipped through, surface now.)
+   - Add a `## Secrets` section with the bullet `- [[secrets/<slug>]] — <summary>` if the container does not already back-link this Secret. Idempotent on re-apply (a container that already links does not get a duplicate bullet).
+   - The container file edits land in the same step's write pass; the staged container files (per the staging table's "Container back-reference" entry) carry the final content the GM saw and edited.
+
+   For Secret UPDATEs that do not change `belongs_to:` (a pure status flip or `revealed_by:` append), no bidi-link write is needed — the back-references already exist.
+
+8. **Update Adventure frontmatter** in `adventures/<name>/adventure.md`. Schema: see `references/frontmatter-schemas.md` ("Adventure" section). Transitions specific to `/wrap-session`:
 
    - `introduced → active`: set `status: active`, set `started: <session date>` if currently null. Leave `order:` alone — it's ingest-era data.
    - `active → completed`: set `status: completed`, set `completed: <session date>`.
    - `active → abandoned`: set `status: abandoned`, set `completed: <session date>` (per ADR-0007).
    - New adventure that began this session: write the full file with the GM-approved name and slug, `status: active`, `started: <session date>`, other dates null, `order: ~`.
 
-7. **Regenerate `campaign.md`** at the campaign root using the shared composer spec.
+9. **Regenerate `campaign.md`** at the campaign root using the shared composer spec.
 
    **Run the composer at `references/campaign-overview-composer.md`** — that file is the canonical spec for section ordering, sub-bucket rendering, derivation rules (party location from the just-written Log's closing state), and the determinism contract pinned by `tests/test_wrap_session_idempotency.py::TestCampaignMdRegenerationIsDeterministic`. `/wrap-session` runs the **base composer** with no skill-specific variants: no `## Adventures` history section, no Status / Last event header lines, Consequences truncated to the top 5–10 by recency. See the reference's "Skill-specific variants" section for the full list.
 
@@ -291,10 +378,11 @@ Order doesn't matter for correctness (files are independent) but a sensible orde
 
 **Do not modify `notes.md`.** It is the source of truth and stays unchanged (ADR-0005, ADR-0011).
 
-8. **Commit the wrap.** `/wrap-session` auto-commits its discrete checkpoint, matching `/ingest` and `/prep-session` (ADR-0011 amended — see that ADR's "Amendment" section). Stage **only** the files this run wrote or modified:
+10. **Commit the wrap.** `/wrap-session` auto-commits its discrete checkpoint, matching `/ingest` and `/prep-session` (ADR-0011 amended — see that ADR's "Amendment" section). Stage **only** the files this run wrote or modified:
 
    - `sessions/YYYY-MM-DD-session-N/log.md`
-   - New and updated files under `npcs/`, `locations/`, `factions/`, `items/`, `threads/`, `consequences/`, `beats/` — exactly the ones approved at Step 4.
+   - New and updated files under `npcs/`, `locations/`, `factions/`, `items/`, `pcs/`, `threads/`, `consequences/`, `beats/`, `secrets/` — exactly the ones approved at Step 4.
+   - Container files under `npcs/`, `pcs/`, `locations/`, `factions/`, `items/`, `adventures/<slug>/adventure.md` modified by bidi-link maintenance (`## Secrets` back-references added or extended). These are the same container files surfaced in the staging table's "Container back-reference" rows.
    - Updated `adventures/<slug>/adventure.md` files where status transitioned.
    - `campaign.md`
 
@@ -322,15 +410,19 @@ Tell the GM, concisely:
   > - 1 Reference note updated
   > - 2 Threads opened, 1 closed
   > - 1 Consequence added
-  > - 1 Beat delivered, 2 new Beat candidates
+  > - 1 Beat delivered (kind: clue), 2 new Beat candidates (1 news, 1 unclassified)
+  > - 1 new Secret (*Maren is the spy*; `belongs_to: [npcs/maren.md, adventures/the-prism/]`)
+  > - 1 Secret status flip: *Prism core is cursed* → `partially-revealed` (revealed by delivered Clue)
+  > - 2 container `## Secrets` back-references written
   > - Adventure status: *The Broken Mines* → `active`
   > - `campaign.md` regenerated
 
-  Multi-arc sessions list each Adventure transition on its own line. A session that touched no arc (pure exploration) omits the "Adventure status" line entirely — don't manufacture a transition to fill the bullet (issue #13).
+  Multi-arc sessions list each Adventure transition on its own line. A session that touched no arc (pure exploration) omits the "Adventure status" line entirely — don't manufacture a transition to fill the bullet (issue #13). Sessions that produced no new Secrets and no Secret status flips omit the Secret-related lines — same posture as Adventure status.
 
 - If the regenerated `campaign.md` overwrote hand-edits, say so explicitly.
+- If the Step 0 bidi-link lint surfaced findings the wrap did not heal (orphans the GM declined to address, missing back-references on Secrets the wrap did not touch), name the residual count and the path to act on them. Findings the wrap did heal (Secrets the wrap touched whose containers got their `## Secrets` back-references written this run) do not need to surface separately.
 - **The commit that was just made**: hash and message. Example: *"Committed as `a1b2c3d` — `Wrap session 5 (2026-05-29)`."*
-- If the commit was skipped (failure from Step 5#8 or the GM had unrelated uncommitted changes the agent couldn't isolate), say so explicitly and tell the GM what's staged or unstaged for them to handle manually.
+- If the commit was skipped (failure from Step 5#10 or the GM had unrelated uncommitted changes the agent couldn't isolate), say so explicitly and tell the GM what's staged or unstaged for them to handle manually.
 
 ## Quick reference: which ADR governs what
 
@@ -338,9 +430,10 @@ Tell the GM, concisely:
 - **ADR-0004** — Threads and Consequences are per-file with status frontmatter, created via Post-session extraction. This is the lifecycle reference for both kinds.
 - **ADR-0005** — Session is a directory of three documents. `notes.md` is input, `log.md` is output, `notes.md` is never modified.
 - **ADR-0007** — Adventure frontmatter (`status`, `started`, `completed`) and the agent-maintained `campaign.md` — you regenerate it at the end.
-- **ADR-0009** — Beats are GM-authored or proposed by `/wrap-session`; status `pending | delivered | dropped`; brief-scratchpad items are a primary creation path.
+- **ADR-0009** — Beats are GM-authored or proposed by `/wrap-session`; status `pending | delivered | dropped`; brief-scratchpad items are a primary creation path. Optional `kind:` discriminator (open enum, starter values include `clue`) and `linked_secrets:` field added alongside ADR-0014.
 - **ADR-0011** — This skill's primary spec: sequence, ambiguity-before-review, single-batch grouped review, auto-commit the discrete checkpoint (per the amendment in that ADR — wrap is the third place the plugin commits, alongside ingest and prep).
 - **ADR-0012** — Honor `.claude/rules/sessions.md` and `.claude/rules/adventures.md` when present.
+- **ADR-0014** — Secrets are the fourth lifecycle object; multi-container `belongs_to:` with bidi-link `## Secrets` sections; `hidden → partially-revealed` auto-flips on linked-Beat delivery; `partially-revealed → revealed` is GM-confirmed via a wrap prompt. Clue Beats are `kind: clue` with `linked_secrets:` populated.
 
 ## What to avoid
 
@@ -351,6 +444,11 @@ Tell the GM, concisely:
 - Don't put `[ambiguous]` markers in the proposed-wrap review — clarify before review (ADR-0011).
 - Don't invent NPC names, dates, or facts the notes don't support. If the notes don't say, the wrap doesn't say.
 - Don't double-write the same fact as both a Thread and a Consequence without explaining the split.
-- Don't use the words "DM", "module" (for non-published adventures), "hook" (for Thread), "seed" (for Beat), "recap" / "summary" (for Log), "fact" / "event" (for Consequence). Use the glossary.
+- Don't auto-promote a Secret from `partially-revealed` to `revealed`. That transition is GM judgment — surface the prompt, default to partial if no answer, never promote silently (ADR-0014).
+- Don't silently scaffold a container from a Secret write. If a Secret's `belongs_to:` claims a container that doesn't exist, surface to the GM and resolve at ambiguity clarification before writing.
+- Don't write a Secret without `belongs_to:` validation. Run `validate_belongs_to` from `references/secret-store.md` on the GM-edited final list before promoting — empty / all-ephemeral / unknown-folder-root cases must be caught.
+- Don't write duplicate `## Secrets` back-reference bullets. The bidi-link maintenance algorithm is idempotent — a container that already links a Secret does not get a second bullet.
+- Don't invent new `kind:` values for Beats. The enum is open, but the agent classifies only the documented starter values (`news | handout | character-moment | set-piece | clue | escalation` or `~`); GM-introduced kinds via hand-edit are GM-owned.
+- Don't use the words "DM", "module" (for non-published adventures), "hook" (for Thread), "seed" (for Beat), "recap" / "summary" (for Log), "fact" / "event" (for Consequence), "hidden info" / "spoiler" / "twist" (for Secret). Use the glossary.
 - Don't surface every pending Beat in the closing summary — only ones whose status changed.
 - Don't dump the entire campaign's Consequence history into `campaign.md`. Keep "Recent significant consequences" glance-readable.
