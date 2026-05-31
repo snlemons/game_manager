@@ -11,7 +11,7 @@ The user of this system. Runs the campaign, owns the campaign repo, makes all fi
 _Avoid_: DM, Dungeon Master, referee, storyteller.
 
 **PC** (Player Character):
-A character controlled by a player at the table. Lives in the `Characters` page of a campaign.
+A character controlled by a player at the table. Lives at `pcs/<slug>.md` in a campaign — one file per PC, same convention as NPCs and other Reference notes (per [ADR-0003](./docs/adr/0003-per-file-reference-notes.md)). PCs are non-ephemeral containers and may own Secrets via `belongs_to`.
 _Avoid_: Hero, party member (use "party" as a collective only).
 
 **NPC** (Non-Player Character):
@@ -95,7 +95,7 @@ The workflow where, after a session, the agent reads in-play session notes and p
 
 ## Flagged ambiguities
 
-**Character** is ambiguous in TTRPG usage. The brief's recommended `Characters` page holds PCs only, with NPCs in a separate `NPCs` page. **In this project, "Character" without qualifier means PC.** When the referent could be either, say "PC" or "NPC."
+**Character** is ambiguous in TTRPG usage. **In this project, "Character" without qualifier means PC.** When the referent could be either, say "PC" or "NPC." PCs and NPCs live in separate directories (`pcs/` and `npcs/`), one file per character per [ADR-0003](./docs/adr/0003-per-file-reference-notes.md).
 
 **Campaign-local override** is the rule that resolves Atlas-vs-campaign conflicts: a campaign's own content is authoritative within that campaign, even when it contradicts the Atlas. "Waterdeep was destroyed in this campaign" wins over the Atlas's thriving Waterdeep, without disturbing the Atlas itself or other campaigns that reference it. The override is by-name lookup at the Reference note level; granularity (full-replace vs fact-level merge) is not yet decided.
 

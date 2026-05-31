@@ -27,6 +27,7 @@ The campaign is organized around a small set of file kinds, each in its own dire
 
 **Reference notes** — static, linked-to entries about things in the world. One file per item.
 
+- `pcs/` — player characters at the table. One file per PC.
 - `npcs/` — non-player characters voiced by the GM (recurring or one-off).
 - `locations/` — places.
 - `factions/` — groups, organizations, courts.
@@ -41,7 +42,8 @@ The campaign is organized around a small set of file kinds, each in its own dire
 
 - `threads/` — open hooks, promises, foreshadowed dangers. Future-facing. Status: `open`, `closed`, `decayed`.
 - `consequences/` — persistent facts about the world resulting from the party's actions. Past-facing; persists, doesn't close.
-- `beats/` — GM-authored intentions to deliver a specific moment opportunistically. Future-facing. Status: `pending`, `delivered`, `dropped`.
+- `beats/` — GM-authored intentions to deliver a specific moment opportunistically. Future-facing. Status: `pending`, `delivered`, `dropped`. Optional `kind:` discriminator (`news | handout | character-moment | set-piece | clue | escalation`).
+- `secrets/` — facts about the world the party might not know yet but could learn. Status: `hidden`, `partially-revealed`, `revealed`. Each Secret's `belongs_to:` lists the non-ephemeral containers (Adventures / NPCs / PCs / Locations / Factions / Items) it belongs to; those containers carry a back-reference `## Secrets` section that the agent maintains symmetrically.
 
 **Campaign overview**
 
