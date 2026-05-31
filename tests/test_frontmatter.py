@@ -135,6 +135,7 @@ def validate_schema(schema: str, frontmatter: dict, body: str) -> None:
             )
     elif schema == "beat":
         _require_status_enum(frontmatter, "status", BEAT_STATUSES)
+        _validate_beat_optional_fields(frontmatter)
     elif schema == "rule":
         if "paths" not in frontmatter:
             raise FrontmatterError(
@@ -169,6 +170,41 @@ def _require_status_enum(
             f"`{key}: {value!r}` is not in the allowed enum "
             f"{sorted(allowed)}."
         )
+
+
+def _validate_beat_optional_fields(frontmatter: dict) -> None:
+    """Shape-check the two optional Beat-only fields added in slice 3.
+
+    - `kind:` is an **open enum** — when present it must be a string
+      (starter values `news | handout | character-moment | set-piece |
+      clue | escalation`), but any string value is accepted so new
+      kinds can be introduced without a schema change. Absence is fine
+      (unclassified Beat).
+    - `linked_secrets:` when present must be a list of strings (Secret
+      slugs). Absence and `[]` are both fine.
+    """
+    if "kind" in frontmatter:
+        value = frontmatter["kind"]
+        # YAML `~` parses to None — treat as "unclassified", same as
+        # an absent key. Otherwise the value must be a string.
+        if value is not None and not isinstance(value, str):
+            raise FrontmatterError(
+                f"Beat `kind:` must be a string (open enum) or null; "
+                f"got {type(value).__name__}."
+            )
+    if "linked_secrets" in frontmatter:
+        value = frontmatter["linked_secrets"]
+        if not isinstance(value, list):
+            raise FrontmatterError(
+                f"Beat `linked_secrets:` must be a list of Secret "
+                f"slugs; got {type(value).__name__}."
+            )
+        for item in value:
+            if not isinstance(item, str):
+                raise FrontmatterError(
+                    f"Beat `linked_secrets:` entries must be strings "
+                    f"(Secret slugs); got {type(item).__name__}."
+                )
 
 
 def validate_file(campaign_root: Path, file_path: Path) -> dict:
@@ -413,6 +449,210 @@ class TestBeatSchema:
         )
         result = validate_file(tmp_path, beat)
         assert result["schema"] == "beat"
+
+    # ----- `kind:` open-enum + `linked_secrets:` — slice 3 (#35) -----
+
+    def test_beat_without_kind_or_linked_secrets_accepted(
+        self, tmp_path: Path
+    ) -> None:
+        """Backward compat: v0.1 Beats with neither field still validate."""
+        beat = _write(
+            tmp_path / "beats" / "legacy.md",
+            """\
+            ---
+            status: pending
+            created: ~
+            delivered: ~
+            linked_pcs: []
+            linked_npcs: []
+            linked_adventures: []
+            linked_locations: []
+            ---
+
+            # A v0.1-shaped Beat.
+            """,
+        )
+        result = validate_file(tmp_path, beat)
+        assert result["schema"] == "beat"
+        assert "kind" not in result["frontmatter"]
+        assert "linked_secrets" not in result["frontmatter"]
+
+    @pytest.mark.parametrize(
+        "kind",
+        [
+            # Starter values documented in references/frontmatter-schemas.md.
+            "news",
+            "handout",
+            "character-moment",
+            "set-piece",
+            "clue",
+            "escalation",
+            # Open-enum: any string value passes — `gm-aside` is a
+            # plausible future kind, but the test doesn't depend on it
+            # ever being added.
+            "gm-aside",
+            "totally-made-up",
+        ],
+    )
+    def test_beat_kind_open_enum_accepts_any_string(
+        self, tmp_path: Path, kind: str
+    ) -> None:
+        beat = _write(
+            tmp_path / "beats" / f"kind-{kind}.md",
+            f"""\
+            ---
+            status: pending
+            created: ~
+            kind: {kind}
+            ---
+
+            # A classified Beat.
+            """,
+        )
+        result = validate_file(tmp_path, beat)
+        assert result["frontmatter"]["kind"] == kind
+
+    def test_beat_kind_null_accepted(self, tmp_path: Path) -> None:
+        """`kind: ~` (explicit null) means unclassified — accepted."""
+        beat = _write(
+            tmp_path / "beats" / "kind-null.md",
+            """\
+            ---
+            status: pending
+            created: ~
+            kind: ~
+            ---
+
+            # Explicitly unclassified.
+            """,
+        )
+        result = validate_file(tmp_path, beat)
+        assert result["frontmatter"]["kind"] is None
+
+    def test_beat_kind_non_string_rejected(self, tmp_path: Path) -> None:
+        """`kind:` must be a string (or null); a list is a schema bug."""
+        beat = _write(
+            tmp_path / "beats" / "kind-list.md",
+            """\
+            ---
+            status: pending
+            created: ~
+            kind: [clue, escalation]
+            ---
+
+            # `kind:` is single-valued.
+            """,
+        )
+        with pytest.raises(FrontmatterError) as exc:
+            validate_file(tmp_path, beat)
+        assert "kind" in str(exc.value)
+
+    def test_beat_with_linked_secrets_accepted(self, tmp_path: Path) -> None:
+        beat = _write(
+            tmp_path / "beats" / "clue-the-statue-weeps.md",
+            """\
+            ---
+            status: pending
+            created: ~
+            kind: clue
+            linked_secrets: [the-statue-is-alive, maren-is-the-spy]
+            ---
+
+            # The statue weeps when Maren walks past.
+            """,
+        )
+        result = validate_file(tmp_path, beat)
+        assert result["frontmatter"]["kind"] == "clue"
+        assert result["frontmatter"]["linked_secrets"] == [
+            "the-statue-is-alive",
+            "maren-is-the-spy",
+        ]
+
+    def test_beat_with_empty_linked_secrets_accepted(
+        self, tmp_path: Path
+    ) -> None:
+        """Empty list (key present, no entries) is honest and allowed."""
+        beat = _write(
+            tmp_path / "beats" / "no-secrets.md",
+            """\
+            ---
+            status: pending
+            created: ~
+            linked_secrets: []
+            ---
+
+            # No Secret revealed.
+            """,
+        )
+        result = validate_file(tmp_path, beat)
+        assert result["frontmatter"]["linked_secrets"] == []
+
+    def test_beat_linked_secrets_non_list_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        beat = _write(
+            tmp_path / "beats" / "bad-linked-secrets.md",
+            """\
+            ---
+            status: pending
+            created: ~
+            linked_secrets: the-statue-is-alive
+            ---
+
+            # Should have been a list.
+            """,
+        )
+        with pytest.raises(FrontmatterError) as exc:
+            validate_file(tmp_path, beat)
+        assert "linked_secrets" in str(exc.value)
+
+    def test_beat_linked_secrets_non_string_entry_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        beat = _write(
+            tmp_path / "beats" / "bad-linked-secrets-entry.md",
+            """\
+            ---
+            status: pending
+            created: ~
+            linked_secrets: [the-statue-is-alive, 42]
+            ---
+
+            # Entries must be slugs (strings).
+            """,
+        )
+        with pytest.raises(FrontmatterError) as exc:
+            validate_file(tmp_path, beat)
+        assert "linked_secrets" in str(exc.value)
+
+    def test_beat_kind_escalation_with_linked_secrets_roundtrips(
+        self, tmp_path: Path
+    ) -> None:
+        """Acceptance-criteria fixture: `kind: escalation` + `linked_secrets`
+        validate and round-trip through a second parse intact.
+        """
+        beat = _write(
+            tmp_path / "beats" / "escalation.md",
+            """\
+            ---
+            status: pending
+            created: ~
+            kind: escalation
+            linked_secrets: [example-secret]
+            ---
+
+            # The cult moves on the temple this session.
+            """,
+        )
+        result = validate_file(tmp_path, beat)
+        assert result["frontmatter"]["kind"] == "escalation"
+        assert result["frontmatter"]["linked_secrets"] == ["example-secret"]
+
+        # Round-trip: re-validate via a second read to confirm the fields
+        # survive a second parse (no in-place mutation, no lossy coercion).
+        second = validate_file(tmp_path, beat)
+        assert second["frontmatter"]["kind"] == "escalation"
+        assert second["frontmatter"]["linked_secrets"] == ["example-secret"]
 
 
 class TestRuleSchema:
