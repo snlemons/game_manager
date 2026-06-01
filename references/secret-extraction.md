@@ -2,7 +2,7 @@
 
 When does a hint in source content (a session's `notes.md` for `/wrap-session`, a GM-authored source doc for `/ingest`) warrant proposing a new Secret, and what does the proposed file look like? This is the shared spec used by `/wrap-session` (Secret extraction pass) and `/ingest` (Phase 3 extraction over module-shaped or world-shaped source docs). The orchestration around extraction (cross-doc learning in `/ingest`, session-context dedup in `/wrap-session`) stays in each SKILL.md; this reference is just the heuristic and the default file shape.
 
-The corresponding ADR is [ADR-0014](../docs/adr/0014-secrets-as-multi-container-lifecycle-objects.md) (Secret as the fourth lifecycle object). The Secret frontmatter schema lives in [`~/.claude/skills/ttrpg-gm/references/frontmatter-schemas.md`](./frontmatter-schemas.md). The dedup rule (slug normalization, `secrets/`-only scan, near-match prompt) lives in [`~/.claude/skills/ttrpg-gm/references/dedup-matching.md`](./dedup-matching.md). The bidirectional `## Secrets` link writes live in [`~/.claude/skills/ttrpg-gm/references/bidi-link-maintenance.md`](./bidi-link-maintenance.md). The store enumeration / query operations live in [`~/.claude/skills/ttrpg-gm/references/secret-store.md`](./secret-store.md).
+The corresponding ADR is [ADR-0014](../docs/adr/0014-secrets-as-multi-container-lifecycle-objects.md) (Secret as the fourth lifecycle object). The Secret frontmatter schema lives in [`frontmatter-schemas.md`](./frontmatter-schemas.md). The dedup rule (slug normalization, `secrets/`-only scan, near-match prompt) lives in [`dedup-matching.md`](./dedup-matching.md). The bidirectional `## Secrets` link writes live in [`bidi-link-maintenance.md`](./bidi-link-maintenance.md). The store enumeration / query operations live in [`secret-store.md`](./secret-store.md).
 
 ## What counts as a Secret
 
@@ -55,7 +55,7 @@ Reject these even if they look plausible at a glance:
 
 ## Container set (`belongs_to`)
 
-Per ADR-0014 and the Secret schema in `~/.claude/skills/ttrpg-gm/references/frontmatter-schemas.md`, every Secret's `belongs_to:` is a non-empty unordered list of paths to non-ephemeral containers. The canonical set:
+Per ADR-0014 and the Secret schema in `frontmatter-schemas.md`, every Secret's `belongs_to:` is a non-empty unordered list of paths to non-ephemeral containers. The canonical set:
 
 - `adventures/<slug>/` — Adventure container (directory form, trailing slash)
 - `npcs/<slug>.md` — NPC
@@ -64,7 +64,7 @@ Per ADR-0014 and the Secret schema in `~/.claude/skills/ttrpg-gm/references/fron
 - `factions/<slug>.md` — Faction
 - `items/<slug>.md` — Item
 
-Ephemeral paths (`threads/`, `beats/`, `consequences/`, `sessions/`, `.ttrpg-staging/`) are rejected — the validation algorithm in `~/.claude/skills/ttrpg-gm/references/secret-store.md` (`validate_belongs_to`) refuses to write a Secret whose `belongs_to:` is empty or contains only ephemeral paths.
+Ephemeral paths (`threads/`, `beats/`, `consequences/`, `sessions/`, `.ttrpg-staging/`) are rejected — the validation algorithm in `secret-store.md` (`validate_belongs_to`) refuses to write a Secret whose `belongs_to:` is empty or contains only ephemeral paths.
 
 ### Drafting `belongs_to` at extraction time
 
@@ -79,7 +79,7 @@ When in doubt between one container and several, draft **all** the plausible one
 
 ### Validation
 
-Run the candidate `belongs_to:` list through the validator from `~/.claude/skills/ttrpg-gm/references/secret-store.md` (`validate_belongs_to`) before staging the Secret file. The validator rejects:
+Run the candidate `belongs_to:` list through the validator from `secret-store.md` (`validate_belongs_to`) before staging the Secret file. The validator rejects:
 
 - empty lists (no containers proposed),
 - all-ephemeral lists (only `threads/`, `beats/`, `consequences/`, `sessions/`, `.ttrpg-staging/` entries),
@@ -89,7 +89,7 @@ If validation fails, surface the failure to the GM at ambiguity clarification ra
 
 ## Filename — slug rule
 
-Filenames are slugs of the canonical Secret name, normalized by the rule in `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`. The Secret's canonical name is the H1 in the file body — usually a short factual statement: *"Maren is the spy"*, *"The Prism core is cursed"*, *"Vault key in the temple"*, *"Jhera survived the purge"*.
+Filenames are slugs of the canonical Secret name, normalized by the rule in `dedup-matching.md`. The Secret's canonical name is the H1 in the file body — usually a short factual statement: *"Maren is the spy"*, *"The Prism core is cursed"*, *"Vault key in the temple"*, *"Jhera survived the purge"*.
 
 Files live at `secrets/<slug>.md`. One file per Secret.
 
@@ -117,7 +117,7 @@ Length scales with how much the source supplies. A one-sentence Secret is fine; 
 
 ## Dedup at extraction time
 
-**Before staging any new Secret, apply the dedup rule from `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`** scoped to the `secrets/` folder (the rule is `secrets/`-only per ADR-0014). The query operation lives in `~/.claude/skills/ttrpg-gm/references/secret-store.md` (`find_dedup_candidates`); it returns Secrets whose slug or first-heading title normalizes to the same form as the candidate name.
+**Before staging any new Secret, apply the dedup rule from `dedup-matching.md`** scoped to the `secrets/` folder (the rule is `secrets/`-only per ADR-0014). The query operation lives in `secret-store.md` (`find_dedup_candidates`); it returns Secrets whose slug or first-heading title normalizes to the same form as the candidate name.
 
 The three buckets:
 
@@ -125,7 +125,7 @@ The three buckets:
 - **Confident UPDATE — same slug, same kind, no contradicting context.** The candidate is the same Secret as an existing one. Two sub-cases:
   - Same `belongs_to:` set. UPDATE the existing Secret's body (append the new fact or merge the prose) — never lose GM-authored prose.
   - **New container in `belongs_to:`.** The candidate extends an existing Secret's ownership. Propose adding the new container to `belongs_to:` rather than creating a duplicate Secret file. The bidi-link maintenance pass then writes the `## Secrets` section into the new container.
-- **ASK — near-match or ambiguous.** Surface to the GM with the prompt shape from `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`: *"You may already have this Secret at `secrets/<existing-slug>` — merge, separate, or rename?"* The merge response converts to UPDATE; separate converts to CREATE at a disambiguated slug the GM names; rename converts to UPDATE with the existing file renamed.
+- **ASK — near-match or ambiguous.** Surface to the GM with the prompt shape from `dedup-matching.md`: *"You may already have this Secret at `secrets/<existing-slug>` — merge, separate, or rename?"* The merge response converts to UPDATE; separate converts to CREATE at a disambiguated slug the GM names; rename converts to UPDATE with the existing file renamed.
 
 The dedup check is what makes `/wrap-session` re-runs and `/ingest` cross-doc passes idempotent against the same Secret material. Skipping it produces duplicate `secrets/` files that drift on subsequent writes.
 
@@ -158,7 +158,7 @@ The ingest case has more structural signal than wrap-session: the source doc is 
    - A Reference note being CREATEd from earlier docs in this same `/ingest` run, **or**
    - A Reference note being CREATEd from this same doc (i.e., named in this same Adventure's prose),
 
-   add that entity's container path to `belongs_to:`. The matching uses the same slugification rule as `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`. The proximity radius is *the Secret's own body* — the prose the extractor is writing for the Secret file, not the surrounding section. If an entity is named in the same section but not in the Secret's own fact, it's adjacent context, not a container.
+   add that entity's container path to `belongs_to:`. The matching uses the same slugification rule as `dedup-matching.md`. The proximity radius is *the Secret's own body* — the prose the extractor is writing for the Secret file, not the surrounding section. If an entity is named in the same section but not in the Secret's own fact, it's adjacent context, not a container.
 
    Worked example. The source doc has:
 
@@ -192,7 +192,7 @@ The ingest case has more structural signal than wrap-session: the source doc is 
 
 Cross-doc dedup against already-extracted Secrets matters: a module commonly **restates the same Secret across multiple chapters** ("Chapter 1: the mayor is secretly funding the cult." "Chapter 4: as established in chapter 1, the mayor funds the cult.").
 
-Apply `~/.claude/skills/ttrpg-gm/references/dedup-matching.md` against the `secrets/` files written by earlier docs in this same `/ingest` run. A confident match proposes the merge action specific to Secrets (add the new container(s) to the existing Secret's `belongs_to:` rather than creating a duplicate). A near-match surfaces the multi-container reconciliation prompt at Step 4a, the same shape as the universal dedup prompt.
+Apply `dedup-matching.md` against the `secrets/` files written by earlier docs in this same `/ingest` run. A confident match proposes the merge action specific to Secrets (add the new container(s) to the existing Secret's `belongs_to:` rather than creating a duplicate). A near-match surfaces the multi-container reconciliation prompt at Step 4a, the same shape as the universal dedup prompt.
 
 Lessons from the prior doc's dedup decisions carry forward via the same carried-forward-lessons mechanism Phase 3 already uses for Reference notes (see `skills/ingest/SKILL.md` Step 0b / Step 5b). A confirmed identity ("the mayor's funding Secret in chapter 4 is the same as the one in chapter 1") consolidates without re-asking on chapter 7.
 
@@ -212,7 +212,7 @@ When the GM (in the source doc or at the per-doc review) confirms a candidate Se
 **The four-piece shape.**
 
 1. **Extract the Secret with its body intact** — the full GM-known fact, written exactly as you would for a still-hidden Secret. The body is the underlying truth, not "the part the party doesn't yet know." Keeping the body whole preserves the auditable boundary: the Secret file always describes the complete fact, and the partial-reveal state is carried in frontmatter and linked Beats, not by editing the body.
-2. **Extract the past scene that revealed part of it as a `kind: clue` Beat with `status: delivered`.** The Beat's body describes what the party learned in that scene — that is the auditable record of which portion is now out. The Beat's `linked_secrets:` points at the Secret. See `~/.claude/skills/ttrpg-gm/references/beat-extraction.md` for the Beat file shape and the `status:` field.
+2. **Extract the past scene that revealed part of it as a `kind: clue` Beat with `status: delivered`.** The Beat's body describes what the party learned in that scene — that is the auditable record of which portion is now out. The Beat's `linked_secrets:` points at the Secret. See `beat-extraction.md` for the Beat file shape and the `status:` field.
 3. **Populate `revealed_by:` on the Secret** pointing at that delivered Beat (and any other prior Beats whose delivery contributed to the partial reveal). `revealed_by:` is the back-link from the Secret to the Clues that have landed against it.
 4. **Set the Secret's `status: partially-revealed`** in frontmatter (instead of the default `hidden`).
 
@@ -225,7 +225,7 @@ This shape keeps the Secret surfacing through `/prep-session`'s Secret Push ques
 - The Consequence file carries a fact about the world that arrived through *party discovery*, not through *party action* — which is what Consequences are for (ADR-0014 line 18, ADR-0003).
 - The bidirectional `## Secrets` back-references on the containers in `belongs_to:` now point at a Secret whose body has been narrowed; the symmetry the dedup rule depends on drifts.
 
-If the source notes describe a past *action the party took* whose downstream world-state effect happens to also resolve part of a Secret (the party burned the mayor's records, so the funding link is now public knowledge in-world), that **action's outcome** is a Consequence on its own merits — extract it as a Consequence per `~/.claude/skills/ttrpg-gm/references/consequence-extraction.md`, and *separately* mark the underlying Secret partially revealed with the four-piece shape above. Two artifacts for two different facts, not one Secret cut in half.
+If the source notes describe a past *action the party took* whose downstream world-state effect happens to also resolve part of a Secret (the party burned the mayor's records, so the funding link is now public knowledge in-world), that **action's outcome** is a Consequence on its own merits — extract it as a Consequence per `consequence-extraction.md`, and *separately* mark the underlying Secret partially revealed with the four-piece shape above. Two artifacts for two different facts, not one Secret cut in half.
 
 **Carried-forward lesson capture.** A GM correction during per-doc review that confirms a Secret as partially revealed is a Step 5b lesson worth recording for the rest of the run — *not* the anti-pattern split, but the recognition signal: *"Doc 3: the GM treats 'the party learned X in session Y' commentary as a partial-reveal flag; extract the past scene as a delivered Clue Beat with linked_secrets, not as a Consequence."* The carried-forward-lessons surface in `skills/ingest/SKILL.md` Step 5b must never canonize the Consequence-split as a learned pattern; if a prior review accidentally landed on the split, drop it at the next review and reconstruct the four-piece shape.
 
@@ -241,5 +241,5 @@ If the source notes describe a past *action the party took* whose downstream wor
 
 - **Per-skill orchestration.** When the dedup ASK lands (Step 3 ambiguity clarification in `/wrap-session`, Step 4a inline resolution in `/ingest`), how the response feeds back into the staging set, how cross-doc lessons carry forward in `/ingest` — those stay in each SKILL.md.
 - **In-play Secret status transitions.** `hidden → partially-revealed` and the `partially-revealed → revealed` prompt as **side effects of in-play Beat delivery** are `/wrap-session`'s job, not extraction-time decisions. See `skills/wrap-session/SKILL.md`. The separate case — `/ingest` discovering that a Secret in the source notes is *already* partially revealed because past sessions are baked into the source — *is* an extraction-time concern and is handled by the "Extraction-time partial-reveal handling" section above.
-- **Bidirectional link writes.** Once the Secret is approved, writing the `## Secrets` section into every container in `belongs_to:` is the bidi-link maintenance algorithm in `~/.claude/skills/ttrpg-gm/references/bidi-link-maintenance.md`. The extraction heuristic stops at the file shape; the link maintenance is its own concern.
-- **Cross-Secret queries.** "Which Secrets does this NPC own?" / "Which Secrets are partially revealed?" — those queries live in `~/.claude/skills/ttrpg-gm/references/secret-store.md` and are consumed by `/prep-session` (the Secret Push question) and `/wrap-session` (the Clue-delivery status flip).
+- **Bidirectional link writes.** Once the Secret is approved, writing the `## Secrets` section into every container in `belongs_to:` is the bidi-link maintenance algorithm in `bidi-link-maintenance.md`. The extraction heuristic stops at the file shape; the link maintenance is its own concern.
+- **Cross-Secret queries.** "Which Secrets does this NPC own?" / "Which Secrets are partially revealed?" — those queries live in `secret-store.md` and are consumed by `/prep-session` (the Secret Push question) and `/wrap-session` (the Clue-delivery status flip).

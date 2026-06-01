@@ -1,0 +1,11 @@
+{
+  "name": "ttrpg-gm",
+  "version": "0.2.0",
+  "description": "TTRPG GM workflow plugin: /ingest, /prep-session, /wrap-session.",
+  "author": {
+    "name": "Sofia Lemons"
+  },
+  "homepage": "https://github.com/snlemons/game_manager",
+  "repository": "https://github.com/snlemons/game_manager",
+  "license": "GPL-3.0"
+}

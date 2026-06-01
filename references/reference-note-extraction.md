@@ -34,7 +34,7 @@ Don't synthesize new kinds. If something doesn't fit one of these four (or PC, e
 
 ## Filename — slug rule
 
-Filenames are slugs of the canonical name. Lowercase, ASCII-fold accents, strip leading "the ", collapse whitespace and punctuation to single hyphens, trim leading/trailing hyphens. See `~/.claude/skills/ttrpg-gm/references/dedup-matching.md` for the full normalization rule — Reference-note slugs use the same normalization as dedup matching so that a candidate slug and an existing filename collide cleanly.
+Filenames are slugs of the canonical name. Lowercase, ASCII-fold accents, strip leading "the ", collapse whitespace and punctuation to single hyphens, trim leading/trailing hyphens. See `dedup-matching.md` for the full normalization rule — Reference-note slugs use the same normalization as dedup matching so that a candidate slug and an existing filename collide cleanly.
 
 Example: *"The Broken Mines"* → `the-broken-mines.md`. Wait — "the" gets stripped — `broken-mines.md`. *"Sera Stoneforge"* → `sera-stoneforge.md`. *"Café du Monde"* → `cafe-du-monde.md`.
 
@@ -87,17 +87,17 @@ But:
 - **Do not invent values.** If the source doesn't say where Sera is or what she does, the one-liner says only what the source said.
 - **Do not invent aliases.** A name in the source that the agent suspects might be an alias but the source doesn't connect to the canonical entity is **not** added to `aliases:` silently — it's surfaced at review (see below) and either confirmed by the GM or treated as a separate candidate Reference note.
 
-When a more specific schema is needed for an extracted object (a Thread, a Consequence, an Adventure, a Beat), that's not a Reference note — see `~/.claude/skills/ttrpg-gm/references/frontmatter-schemas.md`.
+When a more specific schema is needed for an extracted object (a Thread, a Consequence, an Adventure, a Beat), that's not a Reference note — see `frontmatter-schemas.md`.
 
 ## PC vs NPC discriminator
 
 Per [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md), the PC roster is established by GM confirmation — at `/ingest` Phase 2 (Survey), at the Phase 3 per-doc PC-vs-NPC safety-net ASK, or at `/wrap-session` Step 3 ambiguity clarification. The Reference-note extraction heuristic respects the established PC roster as an exclusion set:
 
-- **A named character matching a `pcs/<slug>.md` filename or `aliases:` entry resolves to PC, never proposed as an NPC.** Apply the same matching rule used for NPC dedup (`~/.claude/skills/ttrpg-gm/references/dedup-matching.md`'s normalization — lowercase, ASCII-fold accents, strip leading "the ", collapse non-alphanumerics to hyphens, trim) against both the file's slug and each entry in its `aliases:` list. A hit means the candidate is the PC and no NPC Reference note is proposed.
+- **A named character matching a `pcs/<slug>.md` filename or `aliases:` entry resolves to PC, never proposed as an NPC.** Apply the same matching rule used for NPC dedup (`dedup-matching.md`'s normalization — lowercase, ASCII-fold accents, strip leading "the ", collapse non-alphanumerics to hyphens, trim) against both the file's slug and each entry in its `aliases:` list. A hit means the candidate is the PC and no NPC Reference note is proposed.
 - **A named character matching no `pcs/<slug>.md` AND no `npcs/<slug>.md`** is the safety-net case (per [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md)): in `/ingest` Phase 3, the candidate routes to the Step 4a PC-vs-NPC ASK (see `skills/ingest/SKILL.md`); in `/wrap-session`, the candidate routes to Step 3 ambiguity clarification with the same prompt shape. The GM's answer ("PC" or "NPC") determines the file's final location, and `/ingest` records the answer as a carried-forward lesson so subsequent docs in the same run apply silently.
 - **The agent does not infer PC status from prose alone.** Frequency-of-mention and party-pronoun proximity are signals the Phase 2 survey uses to *propose* candidates, not to *commit* identities. Outside the survey, the agent always defers to the established roster + safety-net ASK shape.
 
-Reference-note extraction never writes to `pcs/`. PC files are created by the survey roster promotion (`/ingest` Phase 2 Step 5a) or by the safety-net ASK promotion (`/ingest` Phase 3 Step 4a, `/wrap-session` Step 3). The PC stub shape — `kind: pc` frontmatter, optional `aliases:`, H1, optional one-line body — is documented in `~/.claude/skills/ttrpg-gm/references/frontmatter-schemas.md` under "Reference note → Worked example: PC stub."
+Reference-note extraction never writes to `pcs/`. PC files are created by the survey roster promotion (`/ingest` Phase 2 Step 5a) or by the safety-net ASK promotion (`/ingest` Phase 3 Step 4a, `/wrap-session` Step 3). The PC stub shape — `kind: pc` frontmatter, optional `aliases:`, H1, optional one-line body — is documented in `frontmatter-schemas.md` under "Reference note → Worked example: PC stub."
 
 ## Alias detection at extraction time
 
@@ -139,7 +139,7 @@ The GM's answer routes the proposal:
 
 ### Carried-forward lessons
 
-In `/ingest` (multi-doc runs), confirmed alias relationships join the carried-forward lessons set (per the carried-forward-lessons logic in `skills/ingest/SKILL.md` Step 5b). Subsequent docs in the same run that mention the alias route to the canonical as a silent confident UPDATE (the alias is now in `aliases:`, so the extended dedup-matching rule in `~/.claude/skills/ttrpg-gm/references/dedup-matching.md` catches it without re-prompting). The agent still surfaces the resulting UPDATE in the per-doc review summary — the lesson skips the ASK, not the review.
+In `/ingest` (multi-doc runs), confirmed alias relationships join the carried-forward lessons set (per the carried-forward-lessons logic in `skills/ingest/SKILL.md` Step 5b). Subsequent docs in the same run that mention the alias route to the canonical as a silent confident UPDATE (the alias is now in `aliases:`, so the extended dedup-matching rule in `dedup-matching.md` catches it without re-prompting). The agent still surfaces the resulting UPDATE in the per-doc review summary — the lesson skips the ASK, not the review.
 
 `/wrap-session` is single-session; no carried-forward lessons. Each session's alias confirmations are local to that wrap run.
 
@@ -150,7 +150,7 @@ A common case: source content references "the blacksmith" or "the captain" witho
 - **`/ingest`:** surface the unnamed entity at the per-doc review as an ASK: *"The blacksmith in section 2 is unnamed. Propose a Reference note (with a placeholder name), skip, or wait until the GM names them?"*
 - **`/wrap-session`:** route the unnamed entity to ambiguity clarification (Step 3) before staging: *"An unnamed blacksmith appears in the notes. Provide a name, or skip creating a Reference note?"*
 
-If the agent can match the unnamed reference to an existing Reference note via clear context ("the captain" used to refer to `npcs/captain-marra.md` in the prior session's Log), that's a confident UPDATE, not a CREATE — see `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`.
+If the agent can match the unnamed reference to an existing Reference note via clear context ("the captain" used to refer to `npcs/captain-marra.md` in the prior session's Log), that's a confident UPDATE, not a CREATE — see `dedup-matching.md`.
 
 ## Updates to existing Reference notes
 
@@ -160,7 +160,7 @@ When the source content mentions an entity that already has a Reference note and
 - **Edit** for changes that contradict the existing line ("Sera moved from the village to the city" — replace the location half).
 - **Never lose GM-authored prose.** If overwriting would discard content, surface both versions and flag for review.
 
-Dedup matching (slug + first-heading title, normalized) is what routes a candidate to UPDATE vs CREATE — see `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`.
+Dedup matching (slug + first-heading title, normalized) is what routes a candidate to UPDATE vs CREATE — see `dedup-matching.md`.
 
 ## What not to do
 

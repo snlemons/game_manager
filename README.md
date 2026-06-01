@@ -37,15 +37,29 @@ Rough cross-version horizon. Scope shifts based on dogfooding; per-version PRDs 
 
 ## Install
 
-The plugin installs as a Claude Code skills directory at `~/.claude/skills/ttrpg-gm/`.
+The plugin ships a canonical `.claude-plugin/plugin.json` manifest, so the same repo supports both install paths Claude Code offers:
+
+### Marketplace install (recommended)
+
+From inside a Claude Code session, run:
+
+```
+/plugin install https://github.com/snlemons/game_manager
+```
+
+Claude Code clones the plugin into its plugin cache (`~/.claude/plugins/cache/`) and registers it automatically. Updates flow via the same `/plugin` command set; versioning is git tags.
+
+### Local-development install
+
+Clone the repo into your user-level skills directory:
 
 ```sh
 git clone https://github.com/snlemons/game_manager.git ~/.claude/skills/ttrpg-gm
 ```
 
-Updates flow via `git pull` in `~/.claude/skills/ttrpg-gm/`. Versioning is git tags.
+Claude Code auto-discovers the plugin as `ttrpg-gm@skills-dir`. Updates flow via `git pull` in `~/.claude/skills/ttrpg-gm/`. This mode is convenient if you want to hack on the plugin yourself — the working tree is your install.
 
-After cloning, the three slash commands (`/ingest`, `/prep-session`, `/wrap-session`) resolve globally in Claude Code — you can invoke them from any working directory.
+Either way, the three slash commands (`/ingest`, `/prep-session`, `/wrap-session`) resolve globally in Claude Code — you can invoke them from any working directory. The plugin's internal cross-references use relative markdown paths so both install modes resolve correctly.
 
 ## First run
 
@@ -78,7 +92,9 @@ Then it runs `git init` and commits those files as the campaign repo's first com
 ## Repo layout
 
 ```
-ttrpg-gm/                              # → ~/.claude/skills/ttrpg-gm/
+ttrpg-gm/                              # plugin repo root
+├── .claude-plugin/
+│   └── plugin.json                    # plugin manifest (name, version, author)
 ├── skills/
 │   ├── ingest/SKILL.md                # /ingest workflow
 │   ├── prep-session/SKILL.md          # /prep-session workflow

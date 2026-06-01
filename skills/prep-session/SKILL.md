@@ -43,7 +43,7 @@ Don't repeat the pre-flight if the campaign root is already determined in this r
 
 ### Settings preflight (run once before Step 1)
 
-Before any other work, follow the procedure in `~/.claude/skills/ttrpg-gm/references/preflight.md` against the campaign root resolved above. If the baked paths in `.claude/settings.json` no longer match the current campaign root, the preflight surfaces a regenerate-or-proceed prompt to the GM and handles either outcome. If the GM declines regeneration, continue with the current settings — do not warn again this run. If the GM accepts, the file is rewritten and the skill continues with no further preflight output.
+Before any other work, follow the procedure in `../../references/preflight.md` against the campaign root resolved above. If the baked paths in `.claude/settings.json` no longer match the current campaign root, the preflight surfaces a regenerate-or-proceed prompt to the GM and handles either outcome. If the GM declines regeneration, continue with the current settings — do not warn again this run. If the GM accepts, the file is rewritten and the skill continues with no further preflight output.
 
 Run the preflight exactly once per `/prep-session` invocation; cache the result for the rest of the run.
 
@@ -164,7 +164,7 @@ Carry these results into Step 3:
 - The Brief's "Active adventures" / "Open threads" / "Recent consequences" sections reflect actually-current state, not what a stale `campaign.md` said.
 - The overview file is honest by the time the GM opens it for any reason.
 
-**Run the composer at `~/.claude/skills/ttrpg-gm/references/campaign-overview-composer.md`** — that file is the canonical spec for section ordering, sub-bucket rendering, derivation rules, and the determinism contract. `/prep-session` runs the **base composer** with no skill-specific variants: no `## Adventures` history section, no Status / Last event header lines, Consequences truncated to the top 5–10. See the reference's "Skill-specific variants" section for the full list of where `/wrap-session` / `/prep-session` differ from `/ingest`.
+**Run the composer at `../../references/campaign-overview-composer.md`** — that file is the canonical spec for section ordering, sub-bucket rendering, derivation rules, and the determinism contract. `/prep-session` runs the **base composer** with no skill-specific variants: no `## Adventures` history section, no Status / Last event header lines, Consequences truncated to the top 5–10. See the reference's "Skill-specific variants" section for the full list of where `/wrap-session` / `/prep-session` differ from `/ingest`.
 
 Write the regenerated `campaign.md` to `<campaign-root>/campaign.md`.
 
@@ -326,7 +326,7 @@ Do **not** create `sessions/YYYY-MM-DD-session-N/` or write `brief.md` to its fi
 
 ### 3.5b — Compute the question queue
 
-Evaluate every question category in `~/.claude/skills/ttrpg-gm/references/prep-session-questions.md` against current campaign state and the just-staged Brief. Each category whose predicate is true contributes one (or, where the category produces multiple findings, a small batched set of) question(s) to the loop's queue.
+Evaluate every question category in `../../references/prep-session-questions.md` against current campaign state and the just-staged Brief. Each category whose predicate is true contributes one (or, where the category produces multiple findings, a small batched set of) question(s) to the loop's queue.
 
 **The seven categories, in firing order:**
 
@@ -334,11 +334,11 @@ Evaluate every question category in `~/.claude/skills/ttrpg-gm/references/prep-s
 2. **Tiering Check.** Per-Adventure ask for `status: introduced` Adventures that are **off-menu** but have out-of-focus Beats linked. Offers to surface a Beat as foreshadowing this session. Batched across qualifying Adventures.
 3. **Thread Decay.** Per-Thread ask for Threads that have been `open` for 5+ sessions without any `delivered` Beat backlinking them. Three-action ask (decay / push / leave). Capped at 5 per run; batched.
 4. **Decision Request.** Per-empty-section ask for drafted-empty Brief sections in the recognized category set. v0.2 starter case: Opening Scene. Offers to propose content from prior-Log closing state, in-focus Adventures, and the party's current location's sensory hooks.
-5. **Secret Push.** Walk `secrets/` directly per `~/.claude/skills/ttrpg-gm/references/secret-store.md`'s `list_all` algorithm. Keep Secrets whose `status:` is `hidden` or `partially-revealed` and whose `belongs_to:` intersects the in-focus Adventure set. Group by (Adventure, status); fire one question per non-empty bucket (batched). Suppress a Secret if some in-focus `kind: clue` Beat in `BEATS_IN_FOCUS` names it in `linked_secrets:`.
+5. **Secret Push.** Walk `secrets/` directly per `../../references/secret-store.md`'s `list_all` algorithm. Keep Secrets whose `status:` is `hidden` or `partially-revealed` and whose `belongs_to:` intersects the in-focus Adventure set. Group by (Adventure, status); fire one question per non-empty bucket (batched). Suppress a Secret if some in-focus `kind: clue` Beat in `BEATS_IN_FOCUS` names it in `linked_secrets:`.
 6. **Escalation Prep.** Single ask when no in-focus Beat has `kind: escalation`. Three-action ask (flag / propose / skip). **Per-campaign opt-out:** the category is silent if `.claude/rules/sessions.md` contains the literal line `prep-session escalation-prep: off` (documented in `templates/.claude/rules/sessions.md.template`'s "Per-campaign prep options" section).
 7. **GM Focus Check.** Always fires; runs **last**. Open-ended catch-all: *"Anything you're planning this session that's not in the draft?"* No opt-out; never silent.
 
-See `~/.claude/skills/ttrpg-gm/references/prep-session-questions.md` for each category's full predicate (including silent-cases), phrasing templates, response handling (per the accept / decline / defer shapes or the category-specific shape set), and worked examples. The file's order matches the firing order above, and the SKILL.md enumeration should be kept in sync if a future slice adds or reorders categories.
+See `../../references/prep-session-questions.md` for each category's full predicate (including silent-cases), phrasing templates, response handling (per the accept / decline / defer shapes or the category-specific shape set), and worked examples. The file's order matches the firing order above, and the SKILL.md enumeration should be kept in sync if a future slice adds or reorders categories.
 
 When multiple categories' predicates fire, batch closely-related questions into the same turn (ADR-0015's "ideally batching closely-related questions into a single turn so the GM isn't pinged seven separate times"). Unrelated categories surface in separate turns. GM Focus Check is always its own turn — its open-ended framing doesn't compose with rule-shaped asks.
 
@@ -346,16 +346,16 @@ If no category's predicate is true (the question queue is empty), skip directly 
 
 ### 3.5c — Run the loop
 
-The loop iterates until the GM explicitly approves or cancels. Each turn has this shape (per `~/.claude/skills/ttrpg-gm/references/staging-pattern.md`'s "Iterative agent revisions during a review loop" section):
+The loop iterates until the GM explicitly approves or cancels. Each turn has this shape (per `../../references/staging-pattern.md`'s "Iterative agent revisions during a review loop" section):
 
 1. **Open the turn with the loop preamble.** First turn after staging: *"Brief draft is at `.ttrpg-staging/brief-draft.md`. I have `N` follow-up question(s) to help you refine it — or say 'looks good' / 'skip questions' to finalize as-is."* Subsequent turns: just present the next queued question. The preamble's mention of the verbal skip ("looks good" / "skip questions" / "draft is good") is the GM's escape from the loop without writing additional revisions.
-2. **Present queued questions.** Per ADR-0015, present rule-based questions one batch at a time, not all seven categories serialised. Closely-related questions (e.g., multiple Secret-Push buckets across Adventures) batch into the same turn; unrelated categories surface in separate turns. Apply the per-category phrasing templates from `~/.claude/skills/ttrpg-gm/references/prep-session-questions.md`.
+2. **Present queued questions.** Per ADR-0015, present rule-based questions one batch at a time, not all seven categories serialised. Closely-related questions (e.g., multiple Secret-Push buckets across Adventures) batch into the same turn; unrelated categories surface in separate turns. Apply the per-category phrasing templates from `../../references/prep-session-questions.md`.
 3. **Wait for the GM's reply.** Three response shapes the loop accepts at any turn:
    - **Approve / "looks good" / "draft is good" / "continue" / "skip questions"** → exit the loop. Proceed to Step 4's continue branch (re-read staging, then Step 5 writes to final location).
    - **Cancel** → exit the loop. Proceed to Step 4's cancel branch (delete staging, exit without writing).
    - **Anything else** → treat as a turn-level response to the queued question. Go to step 4.
-4. **Re-read `.ttrpg-staging/brief-draft.md` from scratch.** The re-read is mandatory and unconditional — the GM may have edited the staged file directly in their IDE between turns and the agent must observe those edits as ground truth before revising. Per `~/.claude/skills/ttrpg-gm/references/staging-pattern.md`, the re-read happens at the top of every loop turn, not only at exit.
-5. **Compute revisions from the GM's reply.** Each question category's "Response handling" subsection in `~/.claude/skills/ttrpg-gm/references/prep-session-questions.md` defines what kinds of revisions the GM's reply implies. For Secret Push:
+4. **Re-read `.ttrpg-staging/brief-draft.md` from scratch.** The re-read is mandatory and unconditional — the GM may have edited the staged file directly in their IDE between turns and the agent must observe those edits as ground truth before revising. Per `../../references/staging-pattern.md`, the re-read happens at the top of every loop turn, not only at exit.
+5. **Compute revisions from the GM's reply.** Each question category's "Response handling" subsection in `../../references/prep-session-questions.md` defines what kinds of revisions the GM's reply implies. For Secret Push:
    - **Accept (push one or more Secrets)** → revise the Brief. For each accepted Secret, add either (a) a new bullet to the "Beats to weave in" section if the GM is hard-committing to landing a Clue this session, or (b) a one-line nudge to the "GM scratchpad" if the GM is soft-flagging "watch for an opening." See the Secret Push category's response-handling notes for the exact bullet shapes and the accept-phrasing-to-shape mapping.
    - **Decline / "not this session" / "skip"** → no revision. The agent does not pre-emptively edit the Brief to reflect the decline; staging stays byte-identical for this turn.
    - **Defer / non-engagement (the GM replies addressing something else, asks the agent to do an unrelated thing, replies with a partial sentence and moves on)** → treat as decline per ADR-0015's "no re-prompting" rule. The question is dropped from the queue. The loop continues.
@@ -370,7 +370,7 @@ The loop iterates until the GM explicitly approves or cancels. Each turn has thi
 
 ## Step 4 — Approval gate (loop exit)
 
-Step 4 is the approve / cancel exit of Step 3.5's loop, not a separate terminal review. It follows the shared staging-file review pattern at `~/.claude/skills/ttrpg-gm/references/staging-pattern.md` — the same continue/cancel contract the v0.1 terminal review used, just reached at the end of the loop's question pass rather than immediately after staging.
+Step 4 is the approve / cancel exit of Step 3.5's loop, not a separate terminal review. It follows the shared staging-file review pattern at `../../references/staging-pattern.md` — the same continue/cancel contract the v0.1 terminal review used, just reached at the end of the loop's question pass rather than immediately after staging.
 
 When the GM signals approve at any point in the loop (Step 3.5c step 3's first response shape), do this:
 
@@ -399,7 +399,7 @@ Fabricated details the agent itself produced do not qualify — only GM-authored
 
 **The write-back offer.** For each qualifying detail, ask the GM in chat before writing: *"Save '<short detail>' to `locations/<slug>.md` so future Briefs reuse it?"* Accept these responses:
 
-- **Yes / approve** → append the detail to the Location Reference note's body. If `locations/<slug>.md` does not exist, offer to create it as a minimal Reference note (per `~/.claude/skills/ttrpg-gm/references/reference-note-extraction.md`) with the detail as its one-liner; do not silently create.
+- **Yes / approve** → append the detail to the Location Reference note's body. If `locations/<slug>.md` does not exist, offer to create it as a minimal Reference note (per `../../references/reference-note-extraction.md`) with the detail as its one-liner; do not silently create.
 - **No / skip** → drop the offer for this detail; do not re-prompt this run.
 - **Edit** → accept a revised wording from the GM, then write that.
 

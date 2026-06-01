@@ -46,8 +46,7 @@
       "MultiEdit(/{{CAMPAIGN_PATH}}/campaign.md)",
       "MultiEdit(/{{CAMPAIGN_PATH}}/CLAUDE.md)",
       "MultiEdit(/{{CAMPAIGN_PATH}}/.claude/**)",
-      "Read(~/.claude/skills/ttrpg-gm/**)",
-      "Read({{HOME}}/.claude/skills/ttrpg-gm/**)",
+      "Read(${CLAUDE_PLUGIN_ROOT}/**)",
       "Bash(git status)",
       "Bash(git diff:*)",
       "Bash(git log:*)"
