@@ -24,9 +24,13 @@ This reference covers two operations, both invoked from `/wrap-session`, `/prep-
 1. **Resolve the container path to its file.** For Reference-note containers (`npcs/<slug>.md`, `locations/<slug>.md`, `factions/<slug>.md`, `items/<slug>.md`, `pcs/<slug>.md`), the path *is* the file. For Adventure containers (`adventures/<slug>/`, directory form, trailing slash), resolve to `adventures/<slug>/adventure.md` per the Adventure schema.
 2. **Verify the container file exists.** If the file does not exist, surface the missing file to the GM and stop — **do not silently scaffold a container from a Secret write**. The Secret's `belongs_to:` is a claim about containers the campaign already has; if a claim is wrong, the GM resolves it (rename the slug, create the container first, or remove the entry from `belongs_to:`).
 3. **Read the container file.** Split into frontmatter (preserve verbatim) and body.
-4. **Check for an existing back-reference.** Scan the body for any wiki-link of the form `[[secrets/<slug>]]` matching the Secret slug being applied. The match is on the wiki-link text only; the spec requires the link to live under a `## Secrets` heading, but the linker treats any body-position back-reference as satisfying the symmetry (the section grouping is editorial — the load-bearing property is link presence).
-5. **If a back-reference is already present, the file is correct.** Return `False` for this container; do not modify the file.
-6. **Otherwise, add the back-reference.** The bullet shape is `- [[secrets/<slug>]] — <summary>`. Insert it into the body:
+4. **Check for an existing back-reference.** Scan the body for any wiki-link that resolves to the Secret being applied. Two forms count as valid back-references:
+   - **Canonical slug-path form** — `[[secrets/<slug>]]`, matching the Secret slug being applied. This is the form the writer authors (step 6 below).
+   - **Display-name (canonical-title) form** — `[[<title>]]`, where `<title>` is the H1 heading of `secrets/<slug>.md` (case-insensitive, whitespace-normalized). This form is accepted for backward compatibility with v0.1/v0.2-era campaigns whose `/ingest` runs preserved source-doc display-name wiki links rather than rewriting to slug-path. The linker does not rewrite display-name back-references it finds — they continue to satisfy symmetry as-is.
+
+   The match is body-wide; the spec requires the link to live under a `## Secrets` heading, but the linker treats any body-position back-reference (in either form) as satisfying the symmetry (the section grouping is editorial — the load-bearing property is link presence).
+5. **If a back-reference is already present (in either form), the file is correct.** Return `False` for this container; do not modify the file.
+6. **Otherwise, add the back-reference.** The bullet shape is `- [[secrets/<slug>]] — <summary>` — **canonical slug-path form is the only write form**. The writer never authors display-name form, even when other wiki links in the container body use display-name style; new back-references unambiguously identify their target (load-bearing for cross-kind name collisions — see the `lint` section's cross-kind collision finding below). Insert the bullet into the body:
    - **If a `## Secrets` section already exists**, append the bullet at the end of that section (just before the next `## ` heading, or at EOF if no further H2). Preserve every existing bullet in the section — never overwrite GM-authored entries.
    - **If no `## Secrets` section exists**, append a fresh section at the end of the file: a blank line, then `## Secrets`, then a blank line, then the bullet, then a trailing newline.
 7. **Rewrite the file.** Preserve the frontmatter block byte-for-byte. Write the new body in place of the old body.
@@ -46,7 +50,7 @@ This reference covers two operations, both invoked from `/wrap-session`, `/prep-
 
 The resolution rule applies symmetrically in the `lint` pass: when a container file at the path named in `belongs_to:` does not exist, the linter checks whether the path's slug appears in another file's `aliases:` in the same kind folder before emitting `"missing-back-reference"`. A path resolvable via aliases surfaces as a distinct finding (*"`belongs_to:` path `npcs/the-shadow.md` resolves to `npcs/maren.md` via aliases; canonicalize the Secret's `belongs_to:`"*) rather than as a missing-file finding.
 
-`## Secrets` section content always uses the canonical slug in its wiki-links (`- [[secrets/<slug>]] — <summary>`); the alias is never the back-reference target. Prose elsewhere in the container's body — or in other containers' bodies — may use piped wiki links (`[[npcs/maren|The Shadow]]`) for in-context rendering per ADR-0017, but the bidi-link bullet itself is canonical-only.
+`## Secrets` section content **as written by the agent** always uses the canonical slug in its wiki-links (`- [[secrets/<slug>]] — <summary>`); the writer never authors display-name form for new back-references, and the alias is never the back-reference target. The **linker** (step 4 above) accepts either canonical-slug-path form or canonical-title form for backward compatibility — display-name back-references already present in v0.1/v0.2-era campaigns continue to satisfy symmetry without rewriting. The "alias is never the back-reference target" rule still holds for both forms: a recognized display-name back-reference resolves against the canonical Secret's H1 title, not against an alias. Prose elsewhere in the container's body — or in other containers' bodies — may use piped wiki links (`[[npcs/maren|The Shadow]]`) for in-context rendering per ADR-0017; the bidi-link bullet itself is authored canonical-slug-only by the writer.
 
 ## When to invoke `apply_belongs_to`
 
@@ -73,12 +77,12 @@ Skills that need only the live-tree apply (e.g., `/prep-session` does not write 
 
 **Output:** a list of findings, each carrying:
 
-- `kind` — `"orphan"` or `"missing-back-reference"`.
+- `kind` — `"orphan"`, `"missing-back-reference"`, or `"cross-kind-collision"`.
 - `container` — the container file's path relative to the campaign root (or the raw `belongs_to:` entry for missing-back-reference findings where the container file itself doesn't exist).
-- `secret_slug` — the Secret slug at issue.
-- `message` — a self-contained, actionable message naming the container path and the slug, so a GM reading the lint output can act on it without cross-referencing other state.
+- `secret_slug` — the Secret slug at issue (empty string for `cross-kind-collision` findings where the ambiguous link's target is the unresolved part).
+- `message` — a self-contained, actionable message naming the container path and the slug (or candidates for cross-kind collisions), so a GM reading the lint output can act on it without cross-referencing other state.
 
-**Two failure modes surfaced:**
+**Three failure modes surfaced:**
 
 ### 1. Orphan wiki-links
 
@@ -104,6 +108,22 @@ A Secret's `belongs_to:` claims a container, but the container's body has no wik
    - **If the container file exists** but its body has no `[[secrets/<slug>]]` wiki-link back to this Secret, emit a `"missing-back-reference"` finding noting the symmetry break.
 
 **Resolution path the GM has:** the agent can heal the case by re-running `apply_belongs_to` with the Secret's current `belongs_to:` — that's the corrective write the symmetry contract describes. Alternatively, the GM can edit the Secret's `belongs_to:` to remove the unlinked container, which makes the lint go quiet without a back-reference write. Both are valid; the lint surfaces; the GM picks.
+
+### 3. Cross-kind name collisions
+
+A container's `## Secrets` (or other bidi) section contains a **display-name wiki-link** (`[[<title>]]`, not slug-path form) whose title matches the H1 of more than one container across kind boundaries. The display-name link is ambiguous — the linker can't resolve it to a single target without GM intervention.
+
+This is the case that motivates the writer's "canonical slug-path only" rule (step 6 of `apply_belongs_to`). Cross-kind name collisions are real in dogfooded campaigns — *Lore of Lurue* exists both as an Adventure (`adventures/lore-of-lurue/`) and an Item (`items/lore-of-lurue.md`); a bare `[[Lore of Lurue]]` link can't pick one. The linker surfaces the collision so the GM can either rewrite the link to slug-path form or rename one of the collision-participating containers.
+
+**Detection:**
+
+1. Build the title index: walk every container file (Reference notes and `adventures/<slug>/adventure.md`) and extract its H1 heading. Group containers by normalized H1 (case-insensitive, whitespace-collapsed); any group with >1 container whose paths span more than one kind folder is a collision-prone title.
+2. For every container file under the non-ephemeral folder roots, scan the body for display-name wiki-links — wiki-links without a `<kind>/` slug-path prefix and without a piped-label form (`[[title]]`, not `[[kind/slug]]` and not `[[kind/slug|label]]`).
+3. For each display-name wiki-link whose normalized text matches a collision-prone title, emit a `"cross-kind-collision"` finding naming the link's source container and the set of candidate target containers.
+
+**Resolution path the GM has:** rewrite the ambiguous display-name link in the source container to canonical slug-path form (`[[<kind>/<slug>]]`), or rename one of the collision-participating containers' H1s so the title is unique again. The linker does not auto-rewrite — the choice of which target the GM intended is GM judgment. A future `--rewrite-collision-prone` flag may rewrite collision-affected display-name back-references to slug-path form selectively; out of scope for the current lint.
+
+**Note on non-collision display-name back-references.** Display-name wiki-links whose title is unique across containers are *not* flagged — they resolve unambiguously and are accepted by the `apply_belongs_to` reader. Only the ambiguous subset surfaces as `cross-kind-collision` findings.
 
 ## When to invoke `lint`
 

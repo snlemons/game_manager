@@ -18,13 +18,27 @@ Two operations covered here:
   - **`apply_belongs_to`** — given a Secret, ensure every container in
     its `belongs_to:` has a `## Secrets` section with the wiki-link.
     Idempotent: re-applying on an already-linked container is a no-op.
-  - **`lint`** — walk the campaign, find two failure modes:
+    The "back-reference present?" check accepts either canonical
+    slug-path form (`[[secrets/<slug>]]`) or canonical-title
+    display-name form (`[[<title>]]` where `<title>` is the Secret's
+    H1) — v0.1/v0.2-era campaigns may carry display-name back-
+    references and the linker must recognize them. The writer authors
+    new back-references in canonical slug-path form only.
+  - **`lint`** — walk the campaign, find three failure modes:
       * **orphan wiki-link** — a `[[secrets/<slug>]]` link in some
         container's `## Secrets` section pointing at a non-existent
         Secret file.
       * **missing back-reference** — a Secret lists `npcs/maren.md` in
         `belongs_to:` but `npcs/maren.md` has no `## Secrets` section
-        (or has one but doesn't link back to the Secret).
+        (or has one but doesn't link back to the Secret in either
+        slug-path or display-name form).
+      * **cross-kind name collision** — a container body contains a
+        display-name wiki-link whose normalized title matches the H1
+        of more than one container across kind boundaries
+        (e.g. `[[Lore of Lurue]]` could refer to either
+        `adventures/lore-of-lurue/adventure.md` or
+        `items/lore-of-lurue.md`); the link is ambiguous and surfaces
+        for GM resolution.
 
 The lint operation is the agent's reconciliation surface when GM hand-
 edits break the symmetry; `apply_belongs_to` is the maintenance path
@@ -49,6 +63,29 @@ import yaml
 
 SECRETS_HEADING = "## Secrets"
 WIKI_LINK_RE = re.compile(r"\[\[secrets/([^\[\]\|\s]+?)\]\]")
+# Any wiki-link, slug-path or display-name, possibly with a piped label.
+# Group 1 captures the link target text (the part before any `|`).
+ANY_WIKI_LINK_RE = re.compile(r"\[\[([^\[\]\|]+?)(?:\|[^\[\]]+)?\]\]")
+H1_RE = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
+
+
+def _normalize_title(title: str) -> str:
+    """Normalize a title for case-insensitive, whitespace-collapsed match."""
+    return " ".join(title.strip().lower().split())
+
+
+def _read_h1(path: Path) -> str:
+    """Return the first H1 heading from a file, or empty string if none.
+
+    Skips frontmatter via the same `---\\n...---\\n` delimiters used
+    elsewhere; the H1 is read from the body.
+    """
+    if not path.is_file():
+        return ""
+    text = path.read_text(encoding="utf-8")
+    _, body = _split_frontmatter(text)
+    m = H1_RE.search(body)
+    return m.group(1).strip() if m else ""
 
 
 @dataclass(frozen=True)
@@ -99,31 +136,55 @@ def _container_file_path(campaign_root: Path, container: str) -> Path:
     return campaign_root / container
 
 
-def _has_back_reference(body: str, secret_slug: str) -> bool:
-    """True if the body contains a wiki-link to the given Secret slug
-    inside its `## Secrets` section.
+def _has_back_reference(
+    body: str, secret_slug: str, secret_title: str = ""
+) -> bool:
+    """True if the body contains a wiki-link to the given Secret.
 
-    The match looks for any `[[secrets/<slug>]]` token in the body; the
-    spec requires it to live under a `## Secrets` heading, but the
-    minimal-reference linter accepts any body-position match (the
-    section grouping is editorial). The link presence is the
-    load-bearing property.
+    Accepts two forms (per `references/bidi-link-maintenance.md`):
+      * canonical slug-path — `[[secrets/<slug>]]`
+      * canonical-title display-name — `[[<title>]]` where <title>
+        normalizes (case-insensitive, whitespace-collapsed) to the
+        Secret's H1.
+
+    The spec requires the link to live under a `## Secrets` heading,
+    but the minimal-reference linter accepts any body-position match
+    (the section grouping is editorial). The link presence is the
+    load-bearing property. If `secret_title` is empty (caller didn't
+    look it up), only the slug-path form matches — the display-name
+    path silently degrades to no-match, which is safe (worst case the
+    writer adds a slug-path bullet next to an unrecognized display-
+    name one; the spec's accept-either-form rule then applies on the
+    next pass).
     """
     for match in WIKI_LINK_RE.finditer(body):
         if match.group(1) == secret_slug:
             return True
+    if secret_title:
+        norm_title = _normalize_title(secret_title)
+        for match in ANY_WIKI_LINK_RE.finditer(body):
+            target = match.group(1)
+            # Skip slug-path-form links — already covered above.
+            if "/" in target:
+                continue
+            if _normalize_title(target) == norm_title:
+                return True
     return False
 
 
-def _ensure_secrets_section(body: str, secret_slug: str, summary: str) -> str:
+def _ensure_secrets_section(
+    body: str, secret_slug: str, summary: str, secret_title: str = ""
+) -> str:
     """Return a body that includes a `## Secrets` section linking the slug.
 
-    Idempotent: if the body already wiki-links the slug, returns the
-    body unchanged. Otherwise appends a `## Secrets` section (or adds
-    an entry to an existing one) with a single bullet of the form
-    `- [[secrets/<slug>]] — <summary>`.
+    Idempotent: if the body already wiki-links the slug **in either
+    canonical slug-path form or canonical-title display-name form**,
+    returns the body unchanged. Otherwise appends a `## Secrets`
+    section (or adds an entry to an existing one) with a single bullet
+    of the form `- [[secrets/<slug>]] — <summary>` — canonical slug-
+    path is the only write form.
     """
-    if _has_back_reference(body, secret_slug):
+    if _has_back_reference(body, secret_slug, secret_title):
         return body
     bullet = f"- [[secrets/{secret_slug}]] — {summary}"
     if SECRETS_HEADING in body:
@@ -178,6 +239,14 @@ def apply_belongs_to(
     creating containers from a Secret write.
     """
     summary = summary or "see Secret file for details"
+    # Look up the Secret's H1 title — needed to recognize existing
+    # display-name back-references in v0.1/v0.2-era campaigns. If the
+    # Secret file doesn't exist yet (Phase 3 staging may apply against
+    # not-yet-written Secrets), degrade to slug-path-only recognition;
+    # the writer's slug-path bullet still lands and a subsequent pass
+    # will see it.
+    secret_path = campaign_root / "secrets" / f"{secret_slug}.md"
+    secret_title = _read_h1(secret_path)
     results: dict[str, bool] = {}
     for container in belongs_to:
         path = _container_file_path(campaign_root, container)
@@ -188,7 +257,9 @@ def apply_belongs_to(
             )
         original = path.read_text(encoding="utf-8")
         fm, body = _split_frontmatter(original)
-        new_body = _ensure_secrets_section(body, secret_slug, summary)
+        new_body = _ensure_secrets_section(
+            body, secret_slug, summary, secret_title
+        )
         if new_body == body:
             results[container] = False
             continue
@@ -254,19 +325,123 @@ def _enumerate_containers_with_secrets_links(
     return out
 
 
+def _enumerate_container_display_link_titles(
+    campaign_root: Path,
+) -> dict[Path, set[str]]:
+    """Walk every container file, collect normalized display-name wiki-link
+    titles in the body (non-slug-path-form, non-piped link targets).
+
+    Used by both the missing-back-reference recognizer (to accept
+    `[[<Secret title>]]` as a valid back-reference) and the cross-kind
+    collision detector (to surface ambiguous display-name links).
+
+    A "display-name" link is a wiki-link whose target contains no `/`
+    (excluding slug-path-form `[[kind/slug]]` links and piped
+    `[[kind/slug|label]]` links, where the link target is the part
+    before the `|`).
+    """
+    out: dict[Path, set[str]] = {}
+    container_paths: list[Path] = []
+    for folder in ("npcs", "pcs", "locations", "factions", "items"):
+        d = campaign_root / folder
+        if not d.is_dir():
+            continue
+        for p in d.iterdir():
+            if p.is_file() and p.name.endswith(".md"):
+                container_paths.append(p)
+    adv_dir = campaign_root / "adventures"
+    if adv_dir.is_dir():
+        for sub in adv_dir.iterdir():
+            adv_md = sub / "adventure.md"
+            if adv_md.is_file():
+                container_paths.append(adv_md)
+    for p in container_paths:
+        text = p.read_text(encoding="utf-8")
+        _, body = _split_frontmatter(text)
+        titles: set[str] = set()
+        for m in ANY_WIKI_LINK_RE.finditer(body):
+            target = m.group(1)
+            if "/" in target:
+                continue  # slug-path form, not a display-name link
+            titles.add(_normalize_title(target))
+        out[p] = titles
+    return out
+
+
+def _enumerate_container_titles(
+    campaign_root: Path,
+) -> dict[str, list[tuple[Path, str]]]:
+    """Build the title index: normalized H1 -> list of (path, kind) pairs.
+
+    Walks every container file (Reference notes + `adventures/<slug>/
+    adventure.md`), reads its H1, and groups by normalized title.
+    Used by the cross-kind collision detector to spot titles that
+    resolve ambiguously across kind directories.
+    """
+    out: dict[str, list[tuple[Path, str]]] = {}
+    kinds = [
+        ("npcs", "npc"),
+        ("pcs", "pc"),
+        ("locations", "location"),
+        ("factions", "faction"),
+        ("items", "item"),
+    ]
+    for folder, kind in kinds:
+        d = campaign_root / folder
+        if not d.is_dir():
+            continue
+        for p in d.iterdir():
+            if not p.is_file() or not p.name.endswith(".md"):
+                continue
+            title = _read_h1(p)
+            if not title:
+                continue
+            out.setdefault(_normalize_title(title), []).append((p, kind))
+    adv_dir = campaign_root / "adventures"
+    if adv_dir.is_dir():
+        for sub in adv_dir.iterdir():
+            adv_md = sub / "adventure.md"
+            if not adv_md.is_file():
+                continue
+            title = _read_h1(adv_md)
+            if not title:
+                continue
+            out.setdefault(_normalize_title(title), []).append(
+                (adv_md, "adventure")
+            )
+    return out
+
+
 def lint(campaign_root: Path) -> list[LintFinding]:
     """Return every bidi-link drift case in the campaign.
 
-    Two categories surfaced:
+    Three categories surfaced:
       * `"orphan"` — container links a Secret slug that has no
         corresponding `secrets/<slug>.md` file.
       * `"missing-back-reference"` — a Secret's `belongs_to:` claims a
         container, but the container's body has no wiki-link back to
-        the Secret.
+        the Secret in either canonical slug-path or canonical-title
+        display-name form.
+      * `"cross-kind-collision"` — a container body contains a
+        display-name wiki-link (`[[<title>]]`, non-slug-path form)
+        whose normalized title matches the H1 of more than one
+        container across kind boundaries; the link is ambiguous.
     """
     findings: list[LintFinding] = []
     secret_slugs = _enumerate_secret_slugs(campaign_root)
     container_links = _enumerate_containers_with_secrets_links(campaign_root)
+    display_links = _enumerate_container_display_link_titles(campaign_root)
+
+    # Look up every Secret's H1 title so the missing-back-reference
+    # check can recognize `[[<Secret title>]]` display-name back-refs.
+    secrets_dir = campaign_root / "secrets"
+    secret_titles: dict[str, str] = {}
+    if secrets_dir.is_dir():
+        for sp in secrets_dir.iterdir():
+            if sp.is_file() and sp.name.endswith(".md"):
+                title = _read_h1(sp)
+                if title:
+                    secret_titles[sp.stem] = _normalize_title(title)
 
     # 1. Orphan wiki-links: container links a slug with no file.
     for container_path, linked_slugs in container_links.items():
@@ -287,8 +462,8 @@ def lint(campaign_root: Path) -> list[LintFinding]:
                 )
 
     # 2. Missing back-references: Secret claims a container, container
-    #    doesn't link back.
-    secrets_dir = campaign_root / "secrets"
+    #    doesn't link back. Accept either canonical slug-path or
+    #    canonical-title display-name form.
     if secrets_dir.is_dir():
         for sp in sorted(
             (p for p in secrets_dir.iterdir() if p.name.endswith(".md")),
@@ -297,6 +472,7 @@ def lint(campaign_root: Path) -> list[LintFinding]:
             text = sp.read_text(encoding="utf-8")
             fm, _ = _split_frontmatter(text)
             slug = sp.stem
+            norm_title = secret_titles.get(slug, "")
             for container in fm.get("belongs_to", []) or []:
                 container_path = _container_file_path(
                     campaign_root, str(container)
@@ -315,7 +491,12 @@ def lint(campaign_root: Path) -> list[LintFinding]:
                     )
                     continue
                 linked = container_links.get(container_path, set())
-                if slug not in linked:
+                display_titles = display_links.get(container_path, set())
+                has_slug_back_ref = slug in linked
+                has_display_back_ref = (
+                    bool(norm_title) and norm_title in display_titles
+                )
+                if not has_slug_back_ref and not has_display_back_ref:
                     rel = container_path.relative_to(
                         campaign_root
                     ).as_posix()
@@ -331,6 +512,51 @@ def lint(campaign_root: Path) -> list[LintFinding]:
                             ),
                         )
                     )
+
+    # 3. Cross-kind name collisions: display-name wiki-links whose
+    #    title resolves to more than one container across kind
+    #    boundaries.
+    container_titles = _enumerate_container_titles(campaign_root)
+    collision_titles = {
+        title: candidates
+        for title, candidates in container_titles.items()
+        if len({kind for _, kind in candidates}) > 1
+    }
+    for container_path, used_titles in display_links.items():
+        rel = container_path.relative_to(campaign_root).as_posix()
+        for norm_title in sorted(used_titles):
+            if norm_title not in collision_titles:
+                continue
+            candidates = collision_titles[norm_title]
+            candidate_paths = sorted(
+                c.relative_to(campaign_root).as_posix()
+                for c, _ in candidates
+            )
+            # Re-read the link's original-case title from the source
+            # body for the message — the reader is more forgiving of
+            # case-preserved quoting than of the normalized form.
+            text = container_path.read_text(encoding="utf-8")
+            _, body = _split_frontmatter(text)
+            original_title = norm_title
+            for m in ANY_WIKI_LINK_RE.finditer(body):
+                target = m.group(1)
+                if "/" in target:
+                    continue
+                if _normalize_title(target) == norm_title:
+                    original_title = target.strip()
+                    break
+            findings.append(
+                LintFinding(
+                    kind="cross-kind-collision",
+                    container=rel,
+                    secret_slug="",
+                    message=(
+                        f"`[[{original_title}]]` in {rel} could refer to "
+                        + " or ".join(candidate_paths)
+                        + ". Pick one, or rewrite to slug-path form."
+                    ),
+                )
+            )
     return findings
 
 
@@ -601,14 +827,329 @@ class TestLint:
         self, secrets_fixture: Path
     ) -> None:
         # Every finding should carry a self-contained message naming
-        # the container path and the Secret slug. The GM reading the
-        # lint output needs the file path to act on it.
+        # the container path and (for orphan / missing-back-reference)
+        # the Secret slug. The GM reading the lint output needs the
+        # file path to act on it.
         for f in lint(secrets_fixture):
             assert f.container in f.message, (
                 f"finding message {f.message!r} does not name the "
                 f"container {f.container!r}"
             )
-            assert f.secret_slug in f.message, (
-                f"finding message {f.message!r} does not name the "
-                f"secret slug {f.secret_slug!r}"
-            )
+            if f.secret_slug:
+                assert f.secret_slug in f.message, (
+                    f"finding message {f.message!r} does not name the "
+                    f"secret slug {f.secret_slug!r}"
+                )
+
+
+# ---------------------------------------------------------------------------
+# Tests — display-name (canonical-title) back-reference recognition
+# (Issue #70: campaigns in v0.1/v0.2 wrote `[[<Secret title>]]` rather than
+# `[[secrets/<slug>]]`. The linker accepts either; the writer continues to
+# author canonical slug-path form only.)
+# ---------------------------------------------------------------------------
+
+
+class TestDisplayNameBackReferenceRecognition:
+    """`apply_belongs_to` and `lint` recognize display-name back-references."""
+
+    def test_apply_belongs_to_is_noop_on_display_name_back_reference(
+        self, secrets_fixture: Path, tmp_path: Path
+    ) -> None:
+        # Fixture: write a Secret with H1 "The Secret Title" and an
+        # NPC container whose body already back-references the Secret
+        # in display-name form `[[The Secret Title]]`. apply_belongs_to
+        # must recognize it and NOT add a duplicate slug-path bullet.
+        secret_path = secrets_fixture / "secrets" / "the-display-secret.md"
+        secret_path.write_text(
+            "---\n"
+            "status: hidden\n"
+            "belongs_to:\n"
+            "  - npcs/halric.md\n"
+            "revealed_by: []\n"
+            "---\n"
+            "\n"
+            "# The Secret Title\n"
+            "\n"
+            "Body of the Secret.\n",
+            encoding="utf-8",
+        )
+        # Overwrite halric.md with a display-name back-reference.
+        halric = secrets_fixture / "npcs" / "halric.md"
+        halric.write_text(
+            "# Halric\n"
+            "\n"
+            "An NPC with a display-name back-reference.\n"
+            "\n"
+            "## Secrets\n"
+            "\n"
+            "- [[The Secret Title]]\n",
+            encoding="utf-8",
+        )
+        before = halric.read_bytes()
+
+        result = apply_belongs_to(
+            secrets_fixture,
+            secret_slug="the-display-secret",
+            belongs_to=["npcs/halric.md"],
+            summary="display-form back-ref test",
+        )
+        assert result["npcs/halric.md"] is False, (
+            "apply_belongs_to should recognize the display-name "
+            "back-reference and report no-modification"
+        )
+        assert halric.read_bytes() == before, (
+            "apply_belongs_to wrote bytes when the display-name "
+            "back-reference already satisfied the symmetry"
+        )
+
+    def test_writer_authors_canonical_slug_path_form(
+        self, secrets_fixture: Path
+    ) -> None:
+        # When NO back-reference exists, the writer must add one in
+        # canonical slug-path form (never display-name form), per the
+        # `references/bidi-link-maintenance.md` step-6 rule.
+        secret_path = (
+            secrets_fixture / "secrets" / "writer-form-test.md"
+        )
+        secret_path.write_text(
+            "---\n"
+            "status: hidden\n"
+            "belongs_to:\n"
+            "  - npcs/halric.md\n"
+            "revealed_by: []\n"
+            "---\n"
+            "\n"
+            "# Writer Form Test Title\n"
+            "\n"
+            "Body.\n",
+            encoding="utf-8",
+        )
+        apply_belongs_to(
+            secrets_fixture,
+            secret_slug="writer-form-test",
+            belongs_to=["npcs/halric.md"],
+            summary="canonical slug-path bullet",
+        )
+        halric_after = (
+            secrets_fixture / "npcs" / "halric.md"
+        ).read_text(encoding="utf-8")
+        # The bullet must use slug-path form, not display-name form.
+        assert "[[secrets/writer-form-test]]" in halric_after, (
+            "writer did not author the canonical slug-path bullet"
+        )
+        assert "[[Writer Form Test Title]]" not in halric_after, (
+            "writer authored a display-name bullet — must use slug-path "
+            "form only per references/bidi-link-maintenance.md step 6"
+        )
+
+    def test_lint_accepts_display_name_back_reference_as_satisfying(
+        self, secrets_fixture: Path
+    ) -> None:
+        # A Secret whose claimed container back-references it via
+        # display-name form should NOT show up as a missing-back-
+        # reference lint finding.
+        secret_path = (
+            secrets_fixture / "secrets" / "display-form-ok.md"
+        )
+        secret_path.write_text(
+            "---\n"
+            "status: hidden\n"
+            "belongs_to:\n"
+            "  - npcs/halric.md\n"
+            "revealed_by: []\n"
+            "---\n"
+            "\n"
+            "# Display Form Is Fine\n"
+            "\n"
+            "Body.\n",
+            encoding="utf-8",
+        )
+        halric = secrets_fixture / "npcs" / "halric.md"
+        halric.write_text(
+            "# Halric\n"
+            "\n"
+            "## Secrets\n"
+            "\n"
+            "- [[Display Form Is Fine]]\n",
+            encoding="utf-8",
+        )
+        findings = lint(secrets_fixture)
+        missing = [
+            f
+            for f in findings
+            if f.kind == "missing-back-reference"
+            and f.secret_slug == "display-form-ok"
+        ]
+        assert missing == [], (
+            f"lint flagged display-name back-reference as missing: "
+            f"{missing}"
+        )
+
+    def test_mixed_form_campaign_idempotency(
+        self, secrets_fixture: Path
+    ) -> None:
+        # Two containers in the same Secret's belongs_to: one with
+        # display-name form, one with slug-path form. apply_belongs_to
+        # must be a no-op against both.
+        secret_path = (
+            secrets_fixture / "secrets" / "mixed-form-secret.md"
+        )
+        secret_path.write_text(
+            "---\n"
+            "status: hidden\n"
+            "belongs_to:\n"
+            "  - npcs/halric.md\n"
+            "  - locations/old-temple.md\n"
+            "revealed_by: []\n"
+            "---\n"
+            "\n"
+            "# Mixed Form Secret\n"
+            "\n"
+            "Body.\n",
+            encoding="utf-8",
+        )
+        halric = secrets_fixture / "npcs" / "halric.md"
+        halric.write_text(
+            "# Halric\n"
+            "\n"
+            "## Secrets\n"
+            "\n"
+            "- [[Mixed Form Secret]]\n",  # display-name form
+            encoding="utf-8",
+        )
+        temple = secrets_fixture / "locations" / "old-temple.md"
+        # Preserve the existing Secret bullet and append a slug-path
+        # back-reference to the new Secret.
+        original_temple = temple.read_text(encoding="utf-8")
+        temple.write_text(
+            original_temple.rstrip() + "\n- [[secrets/mixed-form-secret]] — slug form\n",
+            encoding="utf-8",
+        )
+        halric_before = halric.read_bytes()
+        temple_before = temple.read_bytes()
+
+        result = apply_belongs_to(
+            secrets_fixture,
+            secret_slug="mixed-form-secret",
+            belongs_to=["npcs/halric.md", "locations/old-temple.md"],
+            summary="mixed-form idempotency",
+        )
+        assert result["npcs/halric.md"] is False, (
+            "display-name container should be a no-op"
+        )
+        assert result["locations/old-temple.md"] is False, (
+            "slug-path container should be a no-op"
+        )
+        assert halric.read_bytes() == halric_before, (
+            "display-name container's bytes changed on no-op apply"
+        )
+        assert temple.read_bytes() == temple_before, (
+            "slug-path container's bytes changed on no-op apply"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests — cross-kind collision lint finding
+# (Issue #70 follow-on: when display-name links could resolve to multiple
+# containers across kind boundaries — e.g. `[[Lore of Lurue]]` matching
+# both `adventures/lore-of-lurue/` and `items/lore-of-lurue.md` — the
+# linter surfaces the ambiguity rather than silently picking.)
+# ---------------------------------------------------------------------------
+
+
+class TestCrossKindCollisionLintFinding:
+    """`lint` emits cross-kind-collision findings for ambiguous display links."""
+
+    def test_collision_finding_names_both_candidates(
+        self, secrets_fixture: Path
+    ) -> None:
+        # Set up the *Lore of Lurue* case: an Adventure and an Item
+        # both have H1 `# Lore of Lurue`. An NPC body wiki-links
+        # `[[Lore of Lurue]]` in display-name form — ambiguous.
+        adv_dir = secrets_fixture / "adventures" / "lore-of-lurue"
+        adv_dir.mkdir()
+        (adv_dir / "adventure.md").write_text(
+            "---\nstatus: introduced\norder: 5\n---\n\n"
+            "# Lore of Lurue\n\nAn Adventure about the lore.\n",
+            encoding="utf-8",
+        )
+        item = secrets_fixture / "items" / "lore-of-lurue.md"
+        item.write_text(
+            "# Lore of Lurue\n\nAn Item — a tome.\n",
+            encoding="utf-8",
+        )
+        # An NPC body uses the ambiguous display-name link.
+        halric = secrets_fixture / "npcs" / "halric.md"
+        halric.write_text(
+            "# Halric\n\nHalric studies the [[Lore of Lurue]] in his spare time.\n",
+            encoding="utf-8",
+        )
+        findings = lint(secrets_fixture)
+        collisions = [
+            f for f in findings if f.kind == "cross-kind-collision"
+        ]
+        assert len(collisions) == 1, (
+            f"expected exactly one cross-kind-collision finding; got "
+            f"{collisions}"
+        )
+        msg = collisions[0].message
+        assert "Lore of Lurue" in msg
+        assert "adventures/lore-of-lurue/adventure.md" in msg
+        assert "items/lore-of-lurue.md" in msg
+        assert collisions[0].container == "npcs/halric.md"
+
+    def test_unique_display_name_link_is_not_flagged(
+        self, secrets_fixture: Path
+    ) -> None:
+        # A display-name link whose title is unique across containers
+        # is not ambiguous and must not surface as a collision.
+        halric = secrets_fixture / "npcs" / "halric.md"
+        halric.write_text(
+            "# Halric\n\nHalric knows [[Maren]] from the docks.\n",
+            encoding="utf-8",
+        )
+        findings = lint(secrets_fixture)
+        collisions = [
+            f for f in findings if f.kind == "cross-kind-collision"
+        ]
+        assert collisions == [], (
+            f"unique-title display-name link was flagged as collision: "
+            f"{collisions}"
+        )
+
+    def test_same_kind_title_overlap_is_not_a_cross_kind_collision(
+        self, secrets_fixture: Path
+    ) -> None:
+        # Two containers in the SAME kind directory with the same H1
+        # would be a different problem (slug collision is already
+        # impossible at the filesystem level; H1 duplication within
+        # one kind is a GM-judgement case but not the cross-kind
+        # ambiguity this finding addresses).
+        # Confirm: if both colliders are NPCs, no cross-kind finding.
+        halric = secrets_fixture / "npcs" / "halric.md"
+        halric.write_text(
+            "# Same Title\n\nA character.\n",
+            encoding="utf-8",
+        )
+        orin = secrets_fixture / "npcs" / "orin.md"
+        orin.write_text(
+            "# Same Title\n\nA different character.\n",
+            encoding="utf-8",
+        )
+        # A faction body uses the display-name link.
+        factions_dir = secrets_fixture / "factions"
+        sc = factions_dir / "silent-court.md"
+        existing = sc.read_text(encoding="utf-8")
+        sc.write_text(
+            existing.rstrip() + "\n\nNotes on [[Same Title]] who matters.\n",
+            encoding="utf-8",
+        )
+        findings = lint(secrets_fixture)
+        collisions = [
+            f for f in findings if f.kind == "cross-kind-collision"
+        ]
+        assert collisions == [], (
+            "same-kind H1 duplication surfaced as a cross-kind collision; "
+            "the finding should fire only on cross-kind boundary"
+        )
