@@ -26,7 +26,7 @@ If `.claude/settings.json` exists but does not parse as JSON, surface the parse 
 
 ## What this compares
 
-The preflight compares **two** baked paths against their current resolved values: the campaign root and the home directory.
+The preflight compares the campaign-root baked path against its current resolved value.
 
 ### Campaign-root check
 
@@ -37,31 +37,19 @@ Compare that prefix against the resolved campaign root. To avoid false positives
 - **Canonicalize both paths** before comparing. Resolve symlinks (`readlink -f` semantics, or the language equivalent) and normalize away trailing slashes. Two paths that differ only because one goes through a symlink and the other through the realpath must compare equal.
 - **Compare as strings after canonicalization.** Case-sensitive on Linux; case-insensitive comparison is not required — macOS's HFS+/APFS default-case-insensitive behavior is consistent on both sides, since both paths come from the same OS.
 
-### Home-path check
-
-From `permissions.allow`, find the first entry of the form `Read(/<absolute_path>/.claude/skills/ttrpg-gm/**)`. Extract the absolute prefix up to (but not including) `/.claude/skills/ttrpg-gm/**` — for `Read(/Users/sofia/.claude/skills/ttrpg-gm/**)`, the extracted home prefix is `/Users/sofia`. This is the home path the scaffolder baked in for issue #63's `{{HOME}}` substitution; the rule's purpose is to pre-approve plugin-install reads (`~/.claude/skills/ttrpg-gm/**`) because Claude Code's permission matcher does not expand `~` at match time.
-
-Compare the extracted home prefix against the current `pathlib.Path.home()` (or equivalent `$HOME`) value, applying the same canonicalization rules as the campaign-root check.
-
-Ignore the literal-`~` variant of the rule (`Read(~/.claude/skills/ttrpg-gm/**)`) when scanning for the home prefix — it's shipped alongside the substituted form as belt-and-suspenders but is not load-bearing and carries no machine-specific path to validate. Match only entries whose argument starts with a literal `/`.
-
 ### Combined behavior
 
-If both baked paths match their current resolved values, proceed silently. The skill continues with no further preflight output.
+If the baked campaign-root prefix matches the current resolved value, proceed silently. The skill continues with no further preflight output.
 
-If either the campaign-root check or the home-path check is missing the rule it inspects (no `Edit(/...)` entry, or no absolute-path `Read(/.../.claude/skills/ttrpg-gm/**)` entry exists in `permissions.allow`), treat the missing check the same as the file-missing case: no-op for that check, proceed silently. The GM has hand-edited away the baked paths and the preflight has nothing to check against. The other check still runs.
+If the campaign-root check is missing the rule it inspects (no `Edit(/...)` entry exists in `permissions.allow`), treat the missing check the same as the file-missing case: no-op, proceed silently. The GM has hand-edited away the baked paths and the preflight has nothing to check against.
+
+The plugin-install Read rule no longer carries a baked-in absolute home path — issue #69 replaced the `Read({{HOME}}/.claude/skills/ttrpg-gm/**)` form with `Read(${CLAUDE_PLUGIN_ROOT}/**)`, which Claude Code resolves at match time without a substitution. There is no home-path check to run anymore.
 
 ## What this does on mismatch
 
-If only the campaign-root check fails, surface the discrepancy to the GM with this exact prompt format:
+If the campaign-root check fails, surface the discrepancy to the GM with this exact prompt format:
 
 > Your `.claude/settings.json` has baked-in paths pointing at `<old prefix>`, but this campaign lives at `<current campaign root>`. The campaign was likely moved. Regenerate the file from the current path? (Y/n)
-
-If only the home-path check fails, use this format instead:
-
-> Your `.claude/settings.json` has a baked-in home path of `<old home prefix>`, but `$HOME` resolves to `<current home>`. The user account was likely migrated. Regenerate the file from the current paths? (Y/n)
-
-If both checks fail (rare — e.g., the campaign repo was carried across a machine migration), combine the two into a single prompt that names both mismatches and asks one regenerate-yes-no question covering both.
 
 Use the canonicalized form of every path in the prompt — the GM should see what's actually compared, not the raw uncanonicalized strings.
 
@@ -71,10 +59,9 @@ Then wait for the GM's response. Do not start the skill's other Step 0 / Step 1 
 
 Regenerate `.claude/settings.json` at the campaign root by re-running the same path-substitution `/ingest` Phase 1 Step 2 runs:
 
-1. Read `~/.claude/skills/ttrpg-gm/templates/.claude/settings.json.template` from the plugin install (absolute path — the agent's cwd is the campaign root, not the plugin install).
+1. Read `../templates/.claude/settings.json.template` from the plugin install (relative to this reference's location at `references/preflight.md`).
 2. Substitute `{{CAMPAIGN_PATH}}` with the canonicalized campaign root (without trailing slash, as the template expects).
-3. Substitute `{{HOME}}` with the canonicalized `pathlib.Path.home()` value (without trailing slash). This bakes the absolute home path into the `Read(...)` rule covering plugin-install reads, because Claude Code's permission matcher does not expand `~` at match time (issue #63).
-4. Write the result to `.claude/settings.json` at the campaign root, **scoped to the regeneration boundary** below.
+3. Write the result to `.claude/settings.json` at the campaign root, **scoped to the regeneration boundary** below.
 
 **Safe regeneration scope.** The preflight rewrites only the keys the template controls:
 
@@ -104,7 +91,6 @@ The preflight is designed so the same campaign at the same path on different run
 - **Same path, trailing slash on one side:** normalization strips trailing slashes before comparison; preflight is silent.
 - **Different path (campaign moved):** preflight prompts once, GM accepts → `.claude/settings.json` rewritten with the new path; subsequent invocations from the same new path are silent.
 - **Different path (campaign moved), GM declined:** preflight prompts once per invocation; declining suppresses re-prompts for the rest of that run only.
-- **Different home path (user account migrated):** the home-path check fails the same way the campaign-root check does; the GM is prompted once, accepting rewrites the absolute home path in the `Read(...)` rule. Subsequent invocations from the same `$HOME` are silent.
 
 ## What this does NOT do
 
@@ -116,6 +102,6 @@ The preflight is designed so the same campaign at the same path on different run
 
 ## What the skills should do with this
 
-Each SKILL.md has a pointer at the top: *"Before any other work, follow the procedure in `~/.claude/skills/ttrpg-gm/references/preflight.md`. If the GM declines regeneration, continue with the current settings — do not warn again this run."* The pointer is the only thing the skill says about the preflight; the procedure stays here.
+Each SKILL.md has a pointer at the top: *"Before any other work, follow the procedure in `preflight.md`. If the GM declines regeneration, continue with the current settings — do not warn again this run."* The pointer is the only thing the skill says about the preflight; the procedure stays here.
 
 If a skill needs to know whether regeneration happened (it currently doesn't — the regenerated file is just used implicitly by Claude Code's permission matcher on subsequent Edit/Write calls), it can read `.claude/settings.json` itself; the preflight does not return structured state to the skill.

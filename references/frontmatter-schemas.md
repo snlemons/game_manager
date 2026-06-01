@@ -7,7 +7,7 @@ The corresponding ADRs are [ADR-0007](../docs/adr/0007-temporal-model-and-campai
 ## Conventions
 
 - **Dates** are real-world `YYYY-MM-DD` strings unless otherwise noted. Never invent dates — ADR-0007: "the agent never asks the GM to invent dates it doesn't have." Null is written as `~` (YAML null literal). Empty strings are never used in place of null.
-- **Slugs** (used in `linked_*` lists and as filenames) are produced by the normalization rule in `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`: lowercase, ASCII-fold accents, strip leading "the ", collapse whitespace and punctuation to single hyphens, trim leading/trailing hyphens.
+- **Slugs** (used in `linked_*` lists and as filenames) are produced by the normalization rule in `dedup-matching.md`: lowercase, ASCII-fold accents, strip leading "the ", collapse whitespace and punctuation to single hyphens, trim leading/trailing hyphens.
 - **Status enums** are lowercase string literals from the enumerated set listed per schema below. Values outside the enum are a bug.
 - **Optional list fields** default to `[]` (empty list with the YAML key present), not omission of the key. Downstream skills read these fields without conditional logic; an absent key forces a fallback that masks the "field considered, left empty" signal.
 - **Filename** is a slug of the canonical name + `.md`. One file per object. Files live in the folder named for their kind: `adventures/<slug>/adventure.md`, `threads/<slug>.md`, `consequences/<slug>.md`, `beats/<slug>.md`, `secrets/<slug>.md`.
@@ -16,7 +16,7 @@ The corresponding ADRs are [ADR-0007](../docs/adr/0007-temporal-model-and-campai
 
 File: `<kind>/<slug>.md` where `<kind>` is `npcs`, `locations`, `factions`, `items`, or `pcs`.
 
-Reference notes do not require frontmatter (per `~/.claude/skills/ttrpg-gm/references/reference-note-extraction.md` — minimal-by-default). When frontmatter is present, the following fields are recognized; all are optional. The schema applies to every Reference-note kind.
+Reference notes do not require frontmatter (per `reference-note-extraction.md` — minimal-by-default). When frontmatter is present, the following fields are recognized; all are optional. The schema applies to every Reference-note kind.
 
 ```yaml
 ---
@@ -28,7 +28,7 @@ aliases: []                          # optional: list of other names this entity
 ### Field semantics
 
 - **`kind`** — optional, lowercase string. Redundant with the file's folder (an NPC lives in `npcs/`); the field exists for callers that read the file without context, and as a hand-edit hook the GM may use to declare kind for a Reference note whose folder is ambiguous. Absent is the common case.
-- **`aliases`** — optional, list of strings. Other names this entity goes by — pseudonyms, titles, masks, given-vs-order names — per [ADR-0017](../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md). The canonical name is the file's slug + H1; `aliases:` lists the others. Each entry is a human-readable string (e.g. `"The Shadow"`, `"Captain Marra"`); the dedup-matching pass normalizes each entry through the same slug rule that normalizes filenames and titles (`~/.claude/skills/ttrpg-gm/references/dedup-matching.md`), so a source-doc mention of "the shadow" or "The Shadow" routes to the canonical file as a confident UPDATE.
+- **`aliases`** — optional, list of strings. Other names this entity goes by — pseudonyms, titles, masks, given-vs-order names — per [ADR-0017](../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md). The canonical name is the file's slug + H1; `aliases:` lists the others. Each entry is a human-readable string (e.g. `"The Shadow"`, `"Captain Marra"`); the dedup-matching pass normalizes each entry through the same slug rule that normalizes filenames and titles (`dedup-matching.md`), so a source-doc mention of "the shadow" or "The Shadow" routes to the canonical file as a confident UPDATE.
 
   Default: empty list (or the key may be omitted entirely; absent reads as `[]`).
 
@@ -36,7 +36,7 @@ aliases: []                          # optional: list of other names this entity
 
 ### Defaults at creation
 
-- `/ingest` Phase 3 CREATE: omit `aliases:` (or write `aliases: []`) unless the source doc names both the canonical and at least one alias and the GM confirms the relationship at the per-doc review per `~/.claude/skills/ttrpg-gm/references/reference-note-extraction.md`. The agent's first proposal follows the canonical-choice heuristic in ADR-0017; the GM picks canonical at review.
+- `/ingest` Phase 3 CREATE: omit `aliases:` (or write `aliases: []`) unless the source doc names both the canonical and at least one alias and the GM confirms the relationship at the per-doc review per `reference-note-extraction.md`. The agent's first proposal follows the canonical-choice heuristic in ADR-0017; the GM picks canonical at review.
 - `/wrap-session` Pass 2 CREATE: omit `aliases:` unless the session notes name both the canonical and an alias and the GM confirms the relationship at Step 3 ambiguity clarification.
 - UPDATE (alias added to an existing Reference note): append the new alias to the existing `aliases:` list (do not replace); preserve every other frontmatter field byte-for-byte.
 - `/ingest` Phase 2 PC stub CREATE (per [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md)): write `kind: pc` explicitly so the file is unambiguous on read, include `aliases:` only when the survey roster line captured nicknames (`— alias: <name>` suffixes), and write an optional one-line body if the GM enriched the staged annotation — otherwise leave the file as frontmatter + H1 only. The stub shape is intentionally minimal; longer-form PC content (backstory, disposition, party-role) lands later via hand-edit or via a future PC source-doc ingest per [#57](https://github.com/snlemons/game_manager/issues/57).
@@ -71,7 +71,7 @@ Both shapes are valid. Downstream skills read `kind: pc` to disambiguate from NP
 ### Validation
 
 - **No duplicate aliases.** An entry that normalizes to the canonical slug, the H1 of the same file, or another entry in the same `aliases:` list is a duplicate; surface to the GM at review and drop the duplicate.
-- **No cross-file alias collisions.** An alias whose normalized form collides with another canonical file's slug, H1, or `aliases:` entry in the same kind folder is an ambiguous match per `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`; surface as ASK rather than silently picking one.
+- **No cross-file alias collisions.** An alias whose normalized form collides with another canonical file's slug, H1, or `aliases:` entry in the same kind folder is an ambiguous match per `dedup-matching.md`; surface as ASK rather than silently picking one.
 
 ## Adventure
 
@@ -172,7 +172,7 @@ linked_secrets: []                   # optional list of Secret slugs
 - **`created`** — YYYY-MM-DD. For Beats `/wrap-session` proposes, the session date when the GM scratched it down. For ingest-era Beats, null unless the source supplies a date.
 - **`delivered`** — YYYY-MM-DD of the session that landed the Beat. Null until status transitions to `delivered`. On `dropped`, leave `delivered:` null — the lifecycle terminates without a delivery date.
 - **`kind`** — optional, open-enum string. Classifies the Beat for kind-specific surfacing in `/prep-session` (see ADR-0014 for the Clue/Escalation cases). Starter values: `news | handout | character-moment | set-piece | clue | escalation`. The enum is intentionally **open** — any string is accepted at schema-validation time, and new kinds may be added as dogfooding reveals distinct prep-surfacing needs without a schema change. Absent or `~` means "unclassified"; unclassified Beats surface normally.
-- **`linked_secrets`** — optional list of Secret slugs. Populated on Beats whose intent (or incidental content) reveals one or more Secrets — see ADR-0014. A Beat with `kind: clue` conventionally has `linked_secrets:` populated pointing to the Secret it reveals; the agent queries Clues per Secret to track revelation progress. A Beat with `linked_secrets:` populated but `kind:` other than `clue` (or unset) is a Beat that incidentally touches a Secret. Values are Secret slugs, slugified per the same rule as `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`.
+- **`linked_secrets`** — optional list of Secret slugs. Populated on Beats whose intent (or incidental content) reveals one or more Secrets — see ADR-0014. A Beat with `kind: clue` conventionally has `linked_secrets:` populated pointing to the Secret it reveals; the agent queries Clues per Secret to track revelation progress. A Beat with `linked_secrets:` populated but `kind:` other than `clue` (or unset) is a Beat that incidentally touches a Secret. Values are Secret slugs, slugified per the same rule as `dedup-matching.md`.
 - **`linked_*`** — optional lists of slugs. These feed `/prep-session`'s tiered surfacing (ADR-0009 surfacing-at-scale). Empty `[]` is honest; missing keys are a schema violation. **Populate at extraction time when the source clearly supports it** — the `/ingest` SKILL.md has detailed proximity heuristics (Step 3, **Beat shape** subsection) for which links the source justifies. Empty is better than wrong.
 
   - `linked_pcs` — PC canonical names the Beat is for or about. Explicit attribution required ("for Darius:", "Darius's hook:"); generic "the party" does not justify a link.
@@ -180,7 +180,7 @@ linked_secrets: []                   # optional list of Secret slugs
   - `linked_adventures` — Adventure slugs this Beat belongs to. For ingest, if the source doc is itself adventure-shaped, every Beat from it links to that Adventure automatically (structural link). For world-info-shaped sources, require explicit naming in the Beat's own paragraph or enclosing heading.
   - `linked_locations` — Location slugs the Beat is set at or near. The "near" radius is the Beat's own paragraph / bullet or the enclosing heading.
 
-  All `linked_*` values are slugs using the same normalization rule as `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`.
+  All `linked_*` values are slugs using the same normalization rule as `dedup-matching.md`.
 
 ### Defaults at creation
 

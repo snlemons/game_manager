@@ -110,28 +110,26 @@ def _substitute_placeholders(
     campaign_name: str,
     campaign_system: str,
     campaign_path: Path,
-    home_path: Path | None = None,
 ) -> str:
-    """Apply the four documented placeholder substitutions verbatim.
+    """Apply the three documented placeholder substitutions verbatim.
 
     Per SKILL.md Phase 1 Step 2:
 
+    - `{{CAMPAIGN_NAME}}` and `{{CAMPAIGN_SYSTEM}}` are the GM-supplied
+      strings.
     - `{{CAMPAIGN_PATH}}` is the resolved absolute campaign path
       *without* a trailing slash. The template inserts a leading `/`
       in the matcher pattern, so the substituted value should not
       start with one — `str(Path)` already produces the bare form.
-    - `{{HOME}}` is the resolved absolute home directory of the user
-      running `/ingest` (per issue #63). `Path.home()` is the default
-      since that's what the production scaffolder uses; tests may
-      override it to assert portability across machines.
+
+    Issue #69 dropped the `{{HOME}}` substitution: the plugin-install
+    Read rule now uses `${CLAUDE_PLUGIN_ROOT}`, which Claude Code
+    resolves at match time without an upfront text substitution.
     """
-    if home_path is None:
-        home_path = Path.home()
     return (
         text.replace("{{CAMPAIGN_NAME}}", campaign_name)
         .replace("{{CAMPAIGN_SYSTEM}}", campaign_system)
         .replace("{{CAMPAIGN_PATH}}", str(campaign_path))
-        .replace("{{HOME}}", str(home_path))
     )
 
 
@@ -454,28 +452,22 @@ class TestSettingsJson:
             "path the matcher was supposed to be parameterised by."
         )
 
-    def test_settings_plugin_read_rule_uses_absolute_home(
+    def test_settings_plugin_read_rule_uses_claude_plugin_root(
         self,
         scaffolded_campaign: Path,
     ) -> None:
-        """Issue #63: the plugin-install Read rule bakes in `$HOME`.
+        """Issue #69: the plugin-install Read rule uses `${CLAUDE_PLUGIN_ROOT}`.
 
-        Claude Code's permission matcher does not expand `~` at match
-        time — the matcher compares the agent's resolved-absolute Read
-        target against the rule string verbatim. Commit 8f64219 shipped
-        a `Read(~/.claude/skills/ttrpg-gm/**)` rule on the assumption
-        that the matcher would expand `~`; empirically (issue #63) it
-        does not, and the GM was still prompted for plugin reads.
+        Plugin-aware path references in JSON files (per Claude Code's
+        plugin docs) use `${CLAUDE_PLUGIN_ROOT}`, which resolves at
+        match time to the installed plugin root regardless of whether
+        the plugin was installed via marketplace, local-development
+        skills-directory clone, or any other install mode.
 
-        The fix: the template renders a `Read({{HOME}}/...)` rule that
-        the scaffolder substitutes to an absolute-home form. We keep
-        the literal-`~` rule as belt-and-suspenders in case some
-        future matcher version expands `~` in some scenarios, but the
-        substituted form is the load-bearing one.
-
-        This test asserts the substituted rule lands as an absolute
-        path in `permissions.allow`, on the test machine's actual home
-        path (so it stays portable across machines and CI).
+        Issue #69 replaced the prior `Read({{HOME}}/.claude/skills/...)`
+        substitution (#63) with this form. The substitution machinery
+        is no longer needed; the rule string lands verbatim in the
+        rendered settings file.
         """
         data = json.loads(
             (
@@ -483,24 +475,32 @@ class TestSettingsJson:
             ).read_text(encoding="utf-8")
         )
         allow = data["permissions"]["allow"]
-        home = str(Path.home())
-        expected_rule = f"Read({home}/.claude/skills/ttrpg-gm/**)"
+        expected_rule = "Read(${CLAUDE_PLUGIN_ROOT}/**)"
         assert expected_rule in allow, (
-            "settings.json does not contain the substituted "
-            f"plugin-install Read rule {expected_rule!r}; the "
-            "scaffolder's `{{HOME}}` substitution did not land in "
-            "permissions.allow. Without this rule, the agent is "
-            "prompted for permission on every plugin-install read "
-            "(issue #63)."
+            "settings.json does not contain the plugin-install Read "
+            f"rule {expected_rule!r}; the marketplace-install path is "
+            "broken because Claude Code's permission matcher has no "
+            "way to pre-approve plugin reads. Per #69 this rule is "
+            "the canonical shape."
         )
-        # The literal `{{HOME}}` token must not survive substitution.
+        # The literal `{{HOME}}` token must not appear — the substitution
+        # machinery from #63 was dropped in #69.
         text = (
             scaffolded_campaign / ".claude/settings.json"
         ).read_text(encoding="utf-8")
         assert "{{HOME}}" not in text, (
-            "settings.json still contains the unsubstituted "
-            "`{{HOME}}` placeholder; the scaffolder's substitution "
-            "map and the template have drifted apart."
+            "settings.json contains the `{{HOME}}` placeholder; "
+            "#69 dropped that substitution. Drop the placeholder from "
+            "templates/.claude/settings.json.template."
+        )
+        # The old absolute-home form must not appear either; the new
+        # rule is the only plugin-install Read rule in the template.
+        home = str(Path.home())
+        old_rule = f"Read({home}/.claude/skills/ttrpg-gm/**)"
+        assert old_rule not in allow, (
+            f"settings.json still contains the pre-#69 absolute-home "
+            f"Read rule {old_rule!r}; #69 replaced it with "
+            "`Read(${CLAUDE_PLUGIN_ROOT}/**)`."
         )
 
 

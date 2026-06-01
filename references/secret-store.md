@@ -4,7 +4,7 @@ The campaign's `secrets/` directory is the canonical home for every Secret (per 
 
 The reference Python at [`tests/test_secret_store.py`](../tests/test_secret_store.py) (shipped by issue #36) is a near-translation of the algorithms described here; the v0.1 convention is that the SKILL.md prose describes what the LLM walks at runtime and the reference Python pins the spec so prose and algorithm cannot silently drift. Changes here must keep that suite green and stay reflected in the prose.
 
-The Secret schema (the fields the algorithms read from each file's frontmatter) lives in [`~/.claude/skills/ttrpg-gm/references/frontmatter-schemas.md`](./frontmatter-schemas.md). The slug normalization rule the dedup query uses lives in [`~/.claude/skills/ttrpg-gm/references/dedup-matching.md`](./dedup-matching.md). The non-ephemeral container set the validator enforces lives in CONTEXT.md ("Non-ephemeral container" entry).
+The Secret schema (the fields the algorithms read from each file's frontmatter) lives in [`frontmatter-schemas.md`](./frontmatter-schemas.md). The slug normalization rule the dedup query uses lives in [`dedup-matching.md`](./dedup-matching.md). The non-ephemeral container set the validator enforces lives in CONTEXT.md ("Non-ephemeral container" entry).
 
 ## Four operations
 
@@ -53,7 +53,7 @@ A folder root not in either set (e.g., `random/foo`, or a typo like `npc/maren.m
 
 1. **Normalize the query path through the alias map.** Per [ADR-0017](../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md), Reference-note containers may carry a frontmatter `aliases:` list of other names the entity goes by. Before matching, the query path is canonicalized:
    - If the path resolves directly to an existing canonical file (the file at `container_path` exists and its frontmatter does not redirect), use `container_path` as-is.
-   - If the path does **not** resolve to an existing file (e.g., the caller queried `npcs/the-shadow.md` but no such file exists), scan the relevant kind folder for a Reference note whose normalized `aliases:` (per the slug rule in `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`) includes the query path's slug. If exactly one canonical claims the alias, substitute that canonical's path as the matching target. If zero or more than one canonical claims the alias, fall back to the literal `container_path` (matching nothing or the literal entry as it appears).
+   - If the path does **not** resolve to an existing file (e.g., the caller queried `npcs/the-shadow.md` but no such file exists), scan the relevant kind folder for a Reference note whose normalized `aliases:` (per the slug rule in `dedup-matching.md`) includes the query path's slug. If exactly one canonical claims the alias, substitute that canonical's path as the matching target. If zero or more than one canonical claims the alias, fall back to the literal `container_path` (matching nothing or the literal entry as it appears).
    - Adventure containers (directory-form paths like `adventures/the-prism/`) and PC files do not currently use `aliases:` for canonicalization; the field is available on every Reference-note kind but the v0.2 cut targets NPCs / Locations / Factions / Items.
 2. Call `list_all` to get the enumeration.
 3. For each Secret, check whether the canonicalized query path is **exact-string-equal** to any entry in the Secret's `belongs_to:` list.
@@ -66,7 +66,7 @@ A folder root not in either set (e.g., `random/foo`, or a typo like `npc/maren.m
 
 Predictability wins over convenience. The bidi-link linter handles symmetry repair; this query just answers "is anything claiming to belong to this canonical path?" The runtime caller (the LLM) is responsible for passing a reasonable form of the container path; the alias-canonicalization step is the one accommodation, so that *"what Secrets touch The Shadow?"* gives the same answer as *"what Secrets touch Maren?"* when both refer to the same NPC.
 
-**Why canonicalize at the query, not at write time.** Secrets' `belongs_to:` is authored by the GM (with agent proposals at extraction time); the field's source of truth is the Secret file. Silently rewriting `belongs_to:` during a read query would mask drift (a Secret authored against the wrong slug should surface at the bidi-link linter, not be quietly canonicalized away). Normalizing at the query keeps the Secret file's content stable and routes the corrective write through the lint pass per `~/.claude/skills/ttrpg-gm/references/bidi-link-maintenance.md` instead.
+**Why canonicalize at the query, not at write time.** Secrets' `belongs_to:` is authored by the GM (with agent proposals at extraction time); the field's source of truth is the Secret file. Silently rewriting `belongs_to:` during a read query would mask drift (a Secret authored against the wrong slug should surface at the bidi-link linter, not be quietly canonicalized away). Normalizing at the query keeps the Secret file's content stable and routes the corrective write through the lint pass per `bidi-link-maintenance.md` instead.
 
 **Non-existence is fine.** `find_by_container` does not check that the container file exists — that's the linter's job. A query against `npcs/does-not-exist.md` that doesn't resolve via aliases returns an empty list (nothing claims it), not an error.
 
@@ -76,7 +76,7 @@ Predictability wins over convenience. The bidi-link linter handles symmetry repa
 
 **Behavior:**
 
-1. Normalize the candidate name per the slug normalization rule in `~/.claude/skills/ttrpg-gm/references/dedup-matching.md` (lowercase, strip `.md`, ASCII-fold accents, strip leading "the ", collapse runs of non-alphanumerics to single hyphens, trim).
+1. Normalize the candidate name per the slug normalization rule in `dedup-matching.md` (lowercase, strip `.md`, ASCII-fold accents, strip leading "the ", collapse runs of non-alphanumerics to single hyphens, trim).
 2. Call `list_all` to enumerate every Secret.
 3. For each Secret, check **two** match conditions:
    - **Slug match.** Normalize the Secret's filename slug; if it equals the normalized candidate, it's a hit.
@@ -85,11 +85,11 @@ Predictability wins over convenience. The bidi-link linter handles symmetry repa
 
 **Returns a list, not an Optional.** Even when only one match is expected in a healthy campaign, the return type is a list so the LLM can surface multi-hit collisions to the GM. If two Secrets ever collide on normalized form (shouldn't happen but can), both surface — the GM decides which is canonical.
 
-**Why filename-slug + first-heading match.** Same reasoning as the wider dedup rule in `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`: the first heading is the file's canonical name as the GM sees it; a candidate that name-matches either the slug or the H1 is the same Secret. Matching only the slug would miss the case where a GM hand-renamed a Secret's H1 but the filename is stale.
+**Why filename-slug + first-heading match.** Same reasoning as the wider dedup rule in `dedup-matching.md`: the first heading is the file's canonical name as the GM sees it; a candidate that name-matches either the slug or the H1 is the same Secret. Matching only the slug would miss the case where a GM hand-renamed a Secret's H1 but the filename is stale.
 
-**Scoped to `secrets/` only.** Per ADR-0014's "Dedup is a `secrets/`-only scan," this query never walks Threads, Consequences, Beats, or Reference notes — Secrets dedup against Secrets. The other lifecycle objects have their own dedup paths (`~/.claude/skills/ttrpg-gm/references/dedup-matching.md` scoped to each kind's folder).
+**Scoped to `secrets/` only.** Per ADR-0014's "Dedup is a `secrets/`-only scan," this query never walks Threads, Consequences, Beats, or Reference notes — Secrets dedup against Secrets. The other lifecycle objects have their own dedup paths (`dedup-matching.md` scoped to each kind's folder).
 
-**Classification is the LLM's job.** This query just surfaces matches. The LLM (per `~/.claude/skills/ttrpg-gm/references/dedup-matching.md` "Match classification" and `~/.claude/skills/ttrpg-gm/references/secret-extraction.md`'s dedup section) decides whether a hit is a confident UPDATE (same Secret, append `belongs_to:` or merge body) or an ASK (similar name, possibly distinct Secret — surface the *"merge, separate, or rename?"* prompt to the GM).
+**Classification is the LLM's job.** This query just surfaces matches. The LLM (per `dedup-matching.md` "Match classification" and `secret-extraction.md`'s dedup section) decides whether a hit is a confident UPDATE (same Secret, append `belongs_to:` or merge body) or an ASK (similar name, possibly distinct Secret — surface the *"merge, separate, or rename?"* prompt to the GM).
 
 ## `validate_belongs_to` — invariant enforcement
 
@@ -108,7 +108,7 @@ Predictability wins over convenience. The bidi-link linter handles symmetry repa
    - All-ephemeral list (entries are all ephemeral, no invalid ones): *"belongs_to: contains only ephemeral container paths (...); Secrets must belong to a non-ephemeral container per ADR-0014."*
    - Otherwise (invalid entries, possibly mixed with ephemeral): *"belongs_to: contains no valid non-ephemeral container paths (invalid entries: ..., ephemeral: ...)."*
 
-**Path form.** Entries are expected in POSIX form with forward slashes. Trailing slashes are tolerated (Adventure containers are directory-form: `adventures/the-prism/`). The validator doesn't check that the container *file* exists — that's the linter's job (`~/.claude/skills/ttrpg-gm/references/bidi-link-maintenance.md`). The validator only checks that the *path shape* is acceptable.
+**Path form.** Entries are expected in POSIX form with forward slashes. Trailing slashes are tolerated (Adventure containers are directory-form: `adventures/the-prism/`). The validator doesn't check that the container *file* exists — that's the linter's job (`bidi-link-maintenance.md`). The validator only checks that the *path shape* is acceptable.
 
 **Why reject unknown folder roots.** A typo like `npc/maren.md` (missing the `s`) would silently slip through if the validator only checked for ephemeral entries; downstream the bidi-link maintenance would fail with a less-clear "file not found" error. Rejecting unknown roots at the validator gives a clearer diagnostic at the right moment.
 
@@ -116,7 +116,7 @@ Predictability wins over convenience. The bidi-link linter handles symmetry repa
 
 - **`list_all`** — any time a skill needs the full Secret set. `/prep-session` reads it for the Secret Push question's predicate (which Secrets are `partially-revealed`, which are `hidden` for an active Adventure). `/wrap-session` reads it during extraction to check candidate names. `/ingest` Phase 3 reads it during cross-doc dedup.
 - **`find_by_container`** — `/prep-session` per-container surfacing ("what Secrets touch the NPC the party is about to meet?"). `/wrap-session` cross-context surfacing during extraction ("the notes mention Maren — what Secrets does she own that might be relevant?"). `/ingest` when a source doc introduces a Secret claiming a container another doc already wrote — confirm the existing Secrets on that container so the GM sees the full set when approving the new one.
-- **`find_dedup_candidates`** — write-time, every time `/wrap-session` Pass (Secret extraction) or `/ingest` Phase 3 proposes a new Secret. Before staging the Secret file, run this query; route results to the dedup classification per `~/.claude/skills/ttrpg-gm/references/secret-extraction.md`.
+- **`find_dedup_candidates`** — write-time, every time `/wrap-session` Pass (Secret extraction) or `/ingest` Phase 3 proposes a new Secret. Before staging the Secret file, run this query; route results to the dedup classification per `secret-extraction.md`.
 - **`validate_belongs_to`** — write-time, every time a Secret's `belongs_to:` is set or modified. Run before staging the Secret file (catches empty / all-ephemeral / typo cases before they reach the bidi-link maintenance pass). The wrap-session approval step also runs this on the GM-edited final `belongs_to:` to catch hand-edit damage before promotion.
 
 ## What this query layer does not handle

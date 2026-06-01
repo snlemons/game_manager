@@ -26,8 +26,8 @@ existing scaffolder tests do not catch:
    a regression test on a deliberately-malformed fixture.
 
 3. **Pre-substitution structural sanity.** The template with
-   `{{CAMPAIGN_PATH}}` / `{{HOME}}` placeholders is not valid JSON
-   itself, but structural checks (balanced braces and brackets,
+   `{{CAMPAIGN_PATH}}` placeholders is not valid JSON itself, but
+   structural checks (balanced braces and brackets,
    trailing comma after each non-last array entry, no smart-quote
    unicode) catch mistakes before the substitution-then-parse step.
    `TestRawTemplateStructure` runs these against the real template and
@@ -86,29 +86,30 @@ WHOLE_FILE_TARGETS_WITH_FULL_TRIPLET: tuple[str, ...] = (
 DOT_CLAUDE_GLOB_TOOLS: tuple[str, ...] = ("Edit", "Write", "MultiEdit")
 GITIGNORE_TOOLS: tuple[str, ...] = ("Edit", "Write")
 
-# Read-only Bash entries. These do not pass through `{{CAMPAIGN_PATH}}` or
-# `{{HOME}}` substitution; they appear verbatim in both the raw template
-# and the rendered settings.json.
+# Read-only Bash entries. These do not pass through `{{CAMPAIGN_PATH}}`
+# substitution; they appear verbatim in both the raw template and the
+# rendered settings.json.
 REQUIRED_BASH_ENTRIES: tuple[str, ...] = (
     "Bash(git status)",
     "Bash(git diff:*)",
     "Bash(git log:*)",
 )
 
-# Belt-and-suspenders literal-`~` plugin-install read rule. The scaffolder
-# does not substitute `~`; it appears unchanged in the rendered file.
-LITERAL_HOME_PLUGIN_READ: str = "Read(~/.claude/skills/ttrpg-gm/**)"
+# Plugin-install Read rule. Per issue #69, this uses
+# `${CLAUDE_PLUGIN_ROOT}` (resolved at match time by Claude Code) rather
+# than the prior pair of literal-`~` + `{{HOME}}`-substituted rules. The
+# scaffolder writes this string verbatim — no substitution applies.
+PLUGIN_INSTALL_READ_RULE: str = "Read(${CLAUDE_PLUGIN_ROOT}/**)"
 
 
 def _build_expected_post_substitution_entries(
     *,
     campaign_path: Path,
-    home_path: Path,
 ) -> list[str]:
     """Build the canonical list of post-substitution allow entries.
 
     Mirrors the structure of the template body. Returned in template-order
-    (Edit block, Write block, MultiEdit block, Read entries, Bash entries)
+    (Edit block, Write block, MultiEdit block, Read entry, Bash entries)
     so parametrized failures point at intuitive locations.
     """
     cp = str(campaign_path)
@@ -139,11 +140,12 @@ def _build_expected_post_substitution_entries(
         entries.append(f"MultiEdit(/{cp}/{whole_file})")
     entries.append(f"MultiEdit(/{cp}/.claude/**)")
 
-    # Plugin-install Read rules. Both the literal-`~` and the substituted
-    # absolute-home forms must be present (per `TestSettingsJson::
-    # test_settings_plugin_read_rule_uses_absolute_home` and issue #63).
-    entries.append(LITERAL_HOME_PLUGIN_READ)
-    entries.append(f"Read({home_path}/.claude/skills/ttrpg-gm/**)")
+    # Plugin-install Read rule. Per issue #69, the template ships a
+    # single `Read(${CLAUDE_PLUGIN_ROOT}/**)` entry — Claude Code resolves
+    # `${CLAUDE_PLUGIN_ROOT}` at match time, so no scaffolder-side path
+    # substitution is needed (and the rule works for both local-development
+    # and marketplace plugin install modes).
+    entries.append(PLUGIN_INSTALL_READ_RULE)
 
     # Read-only Bash entries.
     entries.extend(REQUIRED_BASH_ENTRIES)
@@ -153,9 +155,10 @@ def _build_expected_post_substitution_entries(
 
 # Module-level reference list for parametrize id generation. The values
 # inside are template-shape only (with `{{CAMPAIGN_PATH}}` literal) so the
-# parametrize ids stay machine-stable across CI hosts whose `Path.home()`
-# differs. The runtime test resolves the actual values against the
-# scaffolded fixture's home + campaign path.
+# parametrize ids stay machine-stable across CI hosts. The runtime test
+# resolves the actual values against the scaffolded fixture's campaign
+# path; the plugin-install Read rule is verbatim per #69 and needs no
+# per-host substitution.
 TEMPLATE_SHAPE_REQUIRED_ENTRIES: list[str] = (
     [f"Edit(/{{{{CAMPAIGN_PATH}}}}/{d}/**)" for d in CONTENT_DIRS_WITH_FULL_TRIPLET]
     + ["Edit(/{{CAMPAIGN_PATH}}/.ttrpg-staging/**)"]
@@ -180,7 +183,7 @@ TEMPLATE_SHAPE_REQUIRED_ENTRIES: list[str] = (
         for f in WHOLE_FILE_TARGETS_WITH_FULL_TRIPLET
     ]
     + ["MultiEdit(/{{CAMPAIGN_PATH}}/.claude/**)"]
-    + [LITERAL_HOME_PLUGIN_READ, "Read({{HOME}}/.claude/skills/ttrpg-gm/**)"]
+    + [PLUGIN_INSTALL_READ_RULE]
     + list(REQUIRED_BASH_ENTRIES)
 )
 
@@ -213,11 +216,10 @@ SMART_QUOTE_CHARS: tuple[str, ...] = (
 def _strip_placeholders(text: str) -> str:
     """Remove `{{...}}` placeholder blocks so brace-counting works.
 
-    The template uses `{{CAMPAIGN_PATH}}` and `{{HOME}}` as substitution
-    markers. Each placeholder is a literal pair of `{`/`}` braces in the
-    raw text and disappears after substitution. Stripping them before
-    structural brace-counting keeps the check focused on the JSON
-    structure itself.
+    The template uses `{{CAMPAIGN_PATH}}` as a substitution marker. The
+    placeholder is a literal pair of `{`/`}` braces in the raw text and
+    disappears after substitution. Stripping it before structural
+    brace-counting keeps the check focused on the JSON structure itself.
     """
     return re.sub(r"\{\{[^{}]+\}\}", "", text)
 
@@ -345,27 +347,21 @@ def settings_template_raw(settings_template_path: Path) -> str:
 def scaffolded_settings(tmp_path: Path, templates_dir: Path) -> dict:
     """Render the settings template with realistic substitutions.
 
-    Mirrors the reference scaffolder's substitution map. The campaign
-    path is a `tmp_path` subdirectory (so the value is a real absolute
-    path the test can also compare against), and the home path is
-    `Path.home()` (matching the production scaffolder).
+    Mirrors the reference scaffolder's substitution map (post-#69, that's
+    just `{{CAMPAIGN_PATH}}`). The campaign path is a `tmp_path`
+    subdirectory so the value is a real absolute path the test can also
+    compare against.
     """
     campaign_path = (tmp_path / "campaign-under-test").resolve()
     campaign_path.mkdir(parents=True, exist_ok=True)
-    home_path = Path.home()
 
     template_text = (
         templates_dir / ".claude" / "settings.json.template"
     ).read_text(encoding="utf-8")
-    substituted = (
-        template_text.replace("{{CAMPAIGN_PATH}}", str(campaign_path)).replace(
-            "{{HOME}}", str(home_path)
-        )
-    )
+    substituted = template_text.replace("{{CAMPAIGN_PATH}}", str(campaign_path))
     return {
         "data": json.loads(substituted),
         "campaign_path": campaign_path,
-        "home_path": home_path,
     }
 
 
@@ -391,7 +387,7 @@ class TestRequiredEntriesPresent:
         """Assert the substituted form of each entry is in `permissions.allow`."""
         expected = template_shape_entry.replace(
             "{{CAMPAIGN_PATH}}", str(scaffolded_settings["campaign_path"])
-        ).replace("{{HOME}}", str(scaffolded_settings["home_path"]))
+        )
         allow = scaffolded_settings["data"]["permissions"]["allow"]
         assert expected in allow, (
             f"Expected `permissions.allow` entry not found after "
@@ -415,7 +411,6 @@ class TestRequiredEntriesPresent:
         """
         expected = _build_expected_post_substitution_entries(
             campaign_path=scaffolded_settings["campaign_path"],
-            home_path=scaffolded_settings["home_path"],
         )
         allow = set(scaffolded_settings["data"]["permissions"]["allow"])
         missing = [e for e in expected if e not in allow]
@@ -567,13 +562,15 @@ class TestRawTemplateStructure:
         assert complaints, "Bracket detector did not flag a missing `]`."
 
     def test_brackets_detector_ignores_placeholder_braces(self) -> None:
-        # `{{CAMPAIGN_PATH}}` and `{{HOME}}` are literal `{`/`}` pairs in
-        # the raw text. The detector must strip them before counting,
+        # `{{CAMPAIGN_PATH}}` is a literal pair of `{`/`}` in the raw
+        # text. The detector must strip the placeholder before counting,
         # otherwise it would false-positive on every well-formed template.
+        # An in-memory `{{EXAMPLE}}` placeholder exercises the same code
+        # path — the detector strips any `{{...}}` block.
         well_formed = (
             '{\n  "permissions": {\n    "allow": [\n      '
             '"Edit(/{{CAMPAIGN_PATH}}/npcs/**)",\n      '
-            '"Read({{HOME}}/.claude/skills/ttrpg-gm/**)"\n    ]\n  }\n}\n'
+            '"Read(/{{EXAMPLE}}/path/**)"\n    ]\n  }\n}\n'
         )
         complaints = check_balanced_brackets(well_formed)
         assert not complaints, (
