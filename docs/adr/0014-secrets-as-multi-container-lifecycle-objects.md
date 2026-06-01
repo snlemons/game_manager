@@ -38,6 +38,8 @@ Every container listed in `belongs_to` carries a `## Secrets` section in its fil
 
 The Secret file is the source of truth for content; the container's `## Secrets` section is a derived view the agent maintains on every Secret write. Manual GM edits that break the symmetry get flagged at the next `/prep-session` or `/wrap-session` run as a lint case.
 
+The writer authors back-reference bullets in canonical slug-path form (`[[secrets/<slug>]]`) — the disambiguating form, load-bearing when entity titles collide across kinds (e.g., an Adventure and an Item both titled "Lore of Lurue" — the slug-path prefix `adventures/` vs `items/` picks the target unambiguously). The linker accepts either canonical-slug-path or canonical-title (display-name) form on reads — see [`~/.claude/skills/ttrpg-gm/references/bidi-link-maintenance.md`](../../references/bidi-link-maintenance.md) — for backward compatibility with v0.1/v0.2-era campaigns whose `/ingest` runs preserved source-doc display-name wiki links. Mixed-form campaigns are valid indefinitely; spec convergence happens at writer-touched containers over time, not via bulk migration.
+
 This symmetry makes the "secrets relevant to this NPC the party is looking for" query a cheap backlink read, not a full-campaign scan.
 
 ## Status transitions
