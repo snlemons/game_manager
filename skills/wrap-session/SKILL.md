@@ -382,6 +382,7 @@ Order doesn't matter for correctness (files are independent) but a sensible orde
 10. **Commit the wrap.** `/wrap-session` auto-commits its discrete checkpoint, matching `/ingest` and `/prep-session` (ADR-0011 amended — see that ADR's "Amendment" section). Stage **only** the files this run wrote or modified:
 
    - `sessions/YYYY-MM-DD-session-N/log.md`
+   - **Every entry inside `sessions/YYYY-MM-DD-session-N/` with any uncommitted state.** Run `git status sessions/YYYY-MM-DD-session-N/` and stage every entry the command surfaces, regardless of git's status code (`M` modified, `??` untracked, `A` added). This captures `brief.md` (the GM may have hand-edited it mid-session — scratchpad ticks, beats marked landed, carry-forward intent), `notes.md` (the GM's in-play authoring, which may be tracked-and-modified after `/prep-session` committed an empty file, or untracked if the session was created retroactively without `/prep-session`), and `log.md` itself. ADR-0005 specifies the three documents are preserved indefinitely as a coherent unit; the wrap is the canonical moment to checkpoint that unit, so these are never "unrelated GM edits."
    - New and updated files under `npcs/`, `locations/`, `factions/`, `items/`, `pcs/`, `threads/`, `consequences/`, `beats/`, `secrets/` — exactly the ones approved at Step 4.
    - Container files under `npcs/`, `pcs/`, `locations/`, `factions/`, `items/`, `adventures/<slug>/adventure.md` modified by bidi-link maintenance (`## Secrets` back-references added or extended). These are the same container files surfaced in the staging table's "Container back-reference" rows.
    - Updated `adventures/<slug>/adventure.md` files where status transitioned.
@@ -397,7 +398,7 @@ Order doesn't matter for correctness (files are independent) but a sensible orde
 
    If the commit fails (git has no user configured, hooks reject, etc.), surface the error verbatim and stop. Files stay written; the GM can commit manually.
 
-   Edge case: if the campaign repo has uncommitted changes from other sources mixed in (the GM was hand-editing other files between sessions), stage **only** the paths this wrap touched. Don't sweep in unrelated GM edits. If you can't isolate (e.g., a file the GM hand-edited and this wrap also modified), surface the conflict to the GM and ask before staging.
+   Edge case: if the campaign repo has uncommitted changes from other sources mixed in (the GM was hand-editing other files between sessions), stage **only** the paths this wrap touched plus uncommitted entries inside the target session directory (`brief.md`, `notes.md`, `log.md` per ADR-0005). Don't sweep in unrelated GM edits to files outside that session dir. If you can't isolate (e.g., a file the GM hand-edited and this wrap also modified), surface the conflict to the GM and ask before staging.
 
 ## Step 6 — Closing message
 
@@ -440,7 +441,7 @@ Tell the GM, concisely:
 
 - Don't modify `notes.md` under any circumstance.
 - Don't run `git push`. The plugin auto-commits but never pushes — that's a publication decision the GM owns.
-- Don't sweep in unrelated GM edits when staging the wrap commit. Stage only files this run wrote.
+- Don't sweep in unrelated GM edits when staging the wrap commit. Stage only files this run wrote — **with one carve-out**: the three documents inside the target session directory (`brief.md`, `notes.md`, `log.md`) are not "unrelated GM edits"; they're the session itself (ADR-0005), and the wrap is the canonical moment to checkpoint the session as a coherent unit. Stage any uncommitted entries inside `sessions/YYYY-MM-DD-session-N/` regardless of whether this run wrote them.
 - Don't write the Log or any extracted file before the GM approves.
 - Don't put `[ambiguous]` markers in the proposed-wrap review — clarify before review (ADR-0011).
 - Don't invent NPC names, dates, or facts the notes don't support. If the notes don't say, the wrap doesn't say.

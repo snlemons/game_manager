@@ -34,8 +34,10 @@ That gap is documented in `tests/README.md` and the PR for issue #9.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -765,4 +767,367 @@ class TestCampaignMdRegenerationIsDeterministic:
         assert baseline == after_remove, (
             "campaign.md regeneration is not stable across add+remove of "
             "an unrelated closed Thread"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Helpers + reference implementation for the wrap-commit staging set (issue #71)
+# ---------------------------------------------------------------------------
+
+
+def _run_git(
+    *args: str, cwd: Path
+) -> subprocess.CompletedProcess[str]:
+    """Run a git command with a hermetic identity for committer + author.
+
+    Mirrors `tests/test_ingest_scaffolding.py::_run_git`. Identity is
+    injected via env vars only for this subprocess so the user's global
+    git config is untouched, and both the system and global config files
+    are pointed at `/dev/null` so a host-specific `init.defaultBranch`
+    or other setting can't surprise the assertions below.
+    """
+    env = os.environ.copy()
+    env.update(
+        {
+            "GIT_AUTHOR_NAME": "ttrpg-gm tests",
+            "GIT_AUTHOR_EMAIL": "tests@example.invalid",
+            "GIT_COMMITTER_NAME": "ttrpg-gm tests",
+            "GIT_COMMITTER_EMAIL": "tests@example.invalid",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+        }
+    )
+    return subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def staging_set_for_session_dir(
+    campaign: Path, session_rel: str
+) -> set[str]:
+    """Reference implementation of SKILL.md Step 5 #10's session-dir scope.
+
+    The spec (post-issue-#71): "Run `git status sessions/YYYY-MM-DD-session-N/`
+    and stage every entry the command surfaces, regardless of git's status
+    code (`M` modified, `??` untracked, `A` added)."
+
+    Returns the set of repo-relative file paths inside `session_rel` that
+    have any uncommitted state. The LLM, given the same spec, has to compute
+    the same set; this function is the executable specification of that scope.
+
+    Implementation notes:
+
+    * Uses `--untracked-files=all` so that when an entire directory is
+      untracked (the retroactively-created-session case), git lists each
+      file individually rather than collapsing to the parent directory.
+      Either form leads the agent to stage the contents (`git add <dir>`
+      is recursive), but the file-level set is the meaningful comparison
+      target for the tests.
+    * `--porcelain=v1 -z`: the `v1` format is stable, and `-z` uses NUL
+      separators so paths with whitespace or unusual characters round-trip
+      cleanly. Each record's first two bytes are the status code (e.g.
+      `?? `, ` M `, `M  `, `A  `), followed by a space, followed by the
+      path.
+    """
+    result = subprocess.run(
+        [
+            "git",
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--",
+            session_rel,
+        ],
+        cwd=campaign,
+        check=True,
+        capture_output=True,
+        text=False,
+    )
+    out: set[str] = set()
+    if not result.stdout:
+        return out
+    # Records are NUL-separated. Renames have an extra NUL-separated source
+    # path; the wrap spec doesn't expect renames inside the session dir but
+    # we tolerate them by reading only the destination path.
+    records = result.stdout.split(b"\x00")
+    i = 0
+    while i < len(records):
+        rec = records[i]
+        if not rec:
+            i += 1
+            continue
+        # First three bytes are 'XY ' (status + space); path follows.
+        if len(rec) < 4:
+            i += 1
+            continue
+        xy = rec[:2].decode("ascii", errors="replace")
+        path = rec[3:].decode("utf-8", errors="replace")
+        out.add(path)
+        # Skip the source path for renames/copies.
+        if xy[0] in ("R", "C"):
+            i += 2
+        else:
+            i += 1
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Session-directory commit scope (issue #71)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionDirectoryWrapCommitScope:
+    """Acceptance criterion for issue #71: the wrap commit checkpoints the
+    target session directory as a coherent unit.
+
+    Per ADR-0005, a session is a directory of three documents
+    (`brief.md`, `notes.md`, `log.md`) all preserved indefinitely. Per the
+    issue-#71 amendment to SKILL.md Step 5 #10 and ADR-0011, the wrap
+    commit's staging scope includes any entry inside the target session
+    directory with uncommitted state — *regardless* of git's status code
+    (`M` modified, `??` untracked, `A` added). This covers two real
+    failure modes the strict-spec agent on Sofia's second machine hit:
+
+      1. GM hand-edits `brief.md` mid-session (scratchpad ticks, beats
+         marked landed, carry-forward intent). After `/prep-session`
+         committed it, the working-tree modification was orphaned.
+      2. `/prep-session` committed an empty `notes.md`; the GM filled it
+         in during play. The modification was orphaned.
+      3. (Variant) the session was created retroactively without
+         `/prep-session`, so `notes.md` is untracked, not modified. The
+         strict "modified-files only" reading would miss it.
+
+    The tests below pin the staging-set reference (`staging_set_for_session_dir`)
+    against these three configurations and assert it captures every
+    uncommitted session-dir entry.
+    """
+
+    SESSION_REL = "sessions/2026-05-29-session-5"
+
+    @pytest.fixture
+    def campaign_with_prep_session_committed(
+        self, campaign: Path
+    ) -> Path:
+        """Materialize the fixture and run `git init` + commit `brief.md`
+        and an empty `notes.md` so the campaign is in the post-`/prep-session`
+        state for session 5: brief tracked + committed, notes tracked +
+        committed (empty), no log yet.
+
+        The fixture's session 5 already ships with a non-empty `notes.md`
+        (it's what TestDedupOnRerun exercises). For the mid-session-edit
+        scenario we restore the post-`/prep-session` state by truncating
+        `notes.md` to empty before the initial commit, then planting the
+        GM's in-play content as a working-tree modification.
+        """
+        _run_git("init", "-b", "main", cwd=campaign)
+        # Restore the post-/prep-session state: notes.md exists but empty.
+        notes = campaign / self.SESSION_REL / "notes.md"
+        notes_backup = notes.read_text()
+        notes.write_text("")
+        _run_git("add", "-A", cwd=campaign)
+        _run_git("commit", "-m", "prep session 5", cwd=campaign)
+        # Stash the GM's in-play content on the fixture object so the test
+        # can replay it as a "GM authored notes during the session" edit.
+        (campaign / ".test-notes-stash").write_text(notes_backup)
+        return campaign
+
+    def _replay_in_play_notes(self, campaign: Path) -> None:
+        """Replay the fixture's session-5 notes content into `notes.md` as
+        a working-tree modification — the in-play authoring case."""
+        stash = campaign / ".test-notes-stash"
+        (campaign / self.SESSION_REL / "notes.md").write_text(
+            stash.read_text()
+        )
+        stash.unlink()
+
+    def test_mid_session_brief_edit_and_in_play_notes_are_staged(
+        self, campaign_with_prep_session_committed: Path
+    ) -> None:
+        """The headline case from the issue: GM hand-edits `brief.md`
+        during the session AND fills in `notes.md`. Both are
+        tracked-and-modified before the wrap. The wrap also writes a new
+        `log.md`. The staging set must include all three."""
+        campaign = campaign_with_prep_session_committed
+
+        # GM mid-session edit to brief.md (scratchpad tick, carry-forward).
+        brief = campaign / self.SESSION_REL / "brief.md"
+        brief.write_text(
+            brief.read_text()
+            + "\n- [x] Goblin ambush landed.\n"
+            + "- Carry forward: remind me the captive miner is a rumor source.\n"
+        )
+        # GM in-play notes (the empty notes.md becomes the real content).
+        self._replay_in_play_notes(campaign)
+        # Wrap writes log.md.
+        log = campaign / self.SESSION_REL / "log.md"
+        log.write_text(
+            "# Session 5 Log — 2026-05-29\n\nThe party entered the mines.\n"
+        )
+
+        staged = staging_set_for_session_dir(campaign, self.SESSION_REL)
+
+        assert f"{self.SESSION_REL}/brief.md" in staged, (
+            "mid-session brief.md edit was NOT in the wrap staging set — "
+            "the GM's carry-forward intent will be orphaned"
+        )
+        assert f"{self.SESSION_REL}/notes.md" in staged, (
+            "in-play notes.md authoring was NOT in the wrap staging set — "
+            "the source-of-truth notes will be orphaned"
+        )
+        assert f"{self.SESSION_REL}/log.md" in staged, (
+            "newly-written log.md was NOT in the wrap staging set"
+        )
+
+    def test_staging_set_actually_commits_the_three_documents(
+        self, campaign_with_prep_session_committed: Path
+    ) -> None:
+        """Integration-style: simulate the full wrap-commit step by
+        running `git add` over the computed staging set, committing, and
+        asserting the resulting commit's tree includes all three files
+        with the modified/added content. This is what the LLM would do
+        after computing the staging set."""
+        campaign = campaign_with_prep_session_committed
+
+        brief = campaign / self.SESSION_REL / "brief.md"
+        brief.write_text(brief.read_text() + "\n- [x] Goblin ambush landed.\n")
+        self._replay_in_play_notes(campaign)
+        log = campaign / self.SESSION_REL / "log.md"
+        log.write_text("# Session 5 Log — 2026-05-29\n\nThe party descended.\n")
+
+        staged = staging_set_for_session_dir(campaign, self.SESSION_REL)
+        # The reference algorithm yields a non-empty set covering all three.
+        for path in staged:
+            _run_git("add", "--", path, cwd=campaign)
+        _run_git("commit", "-m", "Wrap session 5 (2026-05-29)", cwd=campaign)
+
+        # After commit, the working tree should be clean for the session dir.
+        post = staging_set_for_session_dir(campaign, self.SESSION_REL)
+        assert post == set(), (
+            f"after wrap commit, session dir still has uncommitted entries: "
+            f"{post}"
+        )
+
+        # And the commit's tree must contain the three files with current
+        # working-tree content (no orphans).
+        for fname in ("brief.md", "notes.md", "log.md"):
+            result = _run_git(
+                "show",
+                f"HEAD:{self.SESSION_REL}/{fname}",
+                cwd=campaign,
+            )
+            on_disk = (campaign / self.SESSION_REL / fname).read_text()
+            assert result.stdout == on_disk, (
+                f"committed {fname} content diverges from working tree — "
+                f"the wrap commit did not capture the session as a "
+                f"coherent unit"
+            )
+        # Specific content checks: the mid-session brief edit landed, and
+        # the in-play notes content landed (not the empty placeholder).
+        committed_brief = _run_git(
+            "show", f"HEAD:{self.SESSION_REL}/brief.md", cwd=campaign
+        ).stdout
+        assert "Goblin ambush landed" in committed_brief
+        committed_notes = _run_git(
+            "show", f"HEAD:{self.SESSION_REL}/notes.md", cwd=campaign
+        ).stdout
+        assert committed_notes.strip(), (
+            "committed notes.md is empty — the in-play authoring did not "
+            "land in the wrap commit"
+        )
+
+    def test_retroactive_session_with_untracked_notes_is_staged(
+        self, campaign: Path
+    ) -> None:
+        """Variant case: the session was created retroactively — without
+        `/prep-session` running — so `notes.md` is untracked rather than
+        tracked-and-modified. The staging set must still capture it (the
+        spec mandates "every entry the command surfaces, regardless of git
+        status code"; `??` counts).
+
+        We construct this by `git init`-ing the campaign WITHOUT staging
+        the session-5 directory at all. From git's POV, every file in the
+        session dir is `??` untracked."""
+        # Initialize a repo containing only campaign-root content; the
+        # session-5 directory exists on disk but is untracked.
+        _run_git("init", "-b", "main", cwd=campaign)
+        # Stage everything *except* the target session dir so a baseline
+        # commit exists and the session dir's files are the only `??`
+        # entries inside its path.
+        for entry in sorted(campaign.iterdir()):
+            if entry.name == ".git":
+                continue
+            if entry.name == "sessions":
+                # Stage prior sessions but not the target session.
+                for sess in sorted(entry.iterdir()):
+                    if sess.name == "2026-05-29-session-5":
+                        continue
+                    _run_git(
+                        "add", "--", f"sessions/{sess.name}", cwd=campaign
+                    )
+                continue
+            _run_git("add", "--", entry.name, cwd=campaign)
+        _run_git("commit", "-m", "baseline", cwd=campaign)
+
+        # The wrap writes log.md as well.
+        log = campaign / self.SESSION_REL / "log.md"
+        log.write_text(
+            "# Session 5 Log — 2026-05-29\n\nRetroactive wrap.\n"
+        )
+
+        staged = staging_set_for_session_dir(campaign, self.SESSION_REL)
+        # All three session-dir entries must be picked up, untracked
+        # or otherwise. The fixture's notes.md is non-empty, brief.md
+        # was authored by the (skipped) prep, log.md was just written.
+        for fname in ("brief.md", "notes.md", "log.md"):
+            assert f"{self.SESSION_REL}/{fname}" in staged, (
+                f"retroactive session: untracked {fname} was NOT in the "
+                f"wrap staging set — the 'every entry regardless of "
+                f"status code' rule is not being honored"
+            )
+
+    def test_spec_documents_session_dir_staging_rule(
+        self, wrap_skill_path: Path
+    ) -> None:
+        """Spec-conformance: SKILL.md Step 5 #10 must document the rule
+        that drives the staging set. Without that text in the prompt, the
+        LLM has nothing to apply."""
+        spec = wrap_skill_path.read_text()
+        # The amendment's load-bearing phrase: status codes covered,
+        # session-directory scope, ADR-0005 framing.
+        assert "git status sessions/" in spec, (
+            "SKILL.md does not instruct the agent to use `git status` "
+            "over the session directory"
+        )
+        assert "regardless of git's status code" in spec or (
+            "regardless of whether `git` reports it as modified" in spec
+        ), "SKILL.md does not cover both modified and untracked entries"
+        # The "unrelated GM edits" guardrail must explicitly carve out
+        # the session-dir files.
+        assert "carve-out" in spec or "carve out" in spec, (
+            "SKILL.md guardrail does not document the session-dir "
+            "carve-out from the 'unrelated GM edits' rule"
+        )
+
+    def test_adr_0011_amendment_covers_session_dir_scope(
+        self, repo_root: Path
+    ) -> None:
+        """ADR-0011's amendment paragraph must explicitly include the
+        session-dir files in the wrap commit's scope so SKILL.md and the
+        ADR don't drift."""
+        adr = (
+            repo_root / "docs" / "adr" / "0011-wrap-session-workflow.md"
+        ).read_text()
+        assert "brief.md" in adr and "notes.md" in adr, (
+            "ADR-0011 amendment does not mention brief.md / notes.md in "
+            "the wrap commit's scope"
+        )
+        assert "ADR-0005" in adr, (
+            "ADR-0011 amendment does not reference ADR-0005's "
+            "'all three preserved indefinitely' framing as the rationale"
         )
