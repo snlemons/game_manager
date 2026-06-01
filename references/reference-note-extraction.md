@@ -28,7 +28,9 @@ When borderline, prefer to **propose** the Reference note and let the GM reject 
 | Faction | `factions/` |
 | Item | `items/` |
 
-Don't synthesize new kinds. If something doesn't fit one of these four, surface it to the GM rather than inventing a folder.
+PCs live at `pcs/<slug>.md` but are **not** extracted by the Reference-note heuristic — they're established by GM confirmation (per [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md)), either at `/ingest` Phase 2 (Survey) via the PC roster review or at `/ingest` Phase 3 / `/wrap-session` Step 3 via the PC-vs-NPC safety-net ASK. See "PC vs NPC discriminator" below for how the heuristic treats `pcs/` as an exclusion set, not an extraction target.
+
+Don't synthesize new kinds. If something doesn't fit one of these four (or PC, established separately), surface it to the GM rather than inventing a folder.
 
 ## Filename — slug rule
 
@@ -86,6 +88,16 @@ But:
 - **Do not invent aliases.** A name in the source that the agent suspects might be an alias but the source doesn't connect to the canonical entity is **not** added to `aliases:` silently — it's surfaced at review (see below) and either confirmed by the GM or treated as a separate candidate Reference note.
 
 When a more specific schema is needed for an extracted object (a Thread, a Consequence, an Adventure, a Beat), that's not a Reference note — see `~/.claude/skills/ttrpg-gm/references/frontmatter-schemas.md`.
+
+## PC vs NPC discriminator
+
+Per [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md), the PC roster is established by GM confirmation — at `/ingest` Phase 2 (Survey), at the Phase 3 per-doc PC-vs-NPC safety-net ASK, or at `/wrap-session` Step 3 ambiguity clarification. The Reference-note extraction heuristic respects the established PC roster as an exclusion set:
+
+- **A named character matching a `pcs/<slug>.md` filename or `aliases:` entry resolves to PC, never proposed as an NPC.** Apply the same matching rule used for NPC dedup (`~/.claude/skills/ttrpg-gm/references/dedup-matching.md`'s normalization — lowercase, ASCII-fold accents, strip leading "the ", collapse non-alphanumerics to hyphens, trim) against both the file's slug and each entry in its `aliases:` list. A hit means the candidate is the PC and no NPC Reference note is proposed.
+- **A named character matching no `pcs/<slug>.md` AND no `npcs/<slug>.md`** is the safety-net case (per [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md)): in `/ingest` Phase 3, the candidate routes to the Step 4a PC-vs-NPC ASK (see `skills/ingest/SKILL.md`); in `/wrap-session`, the candidate routes to Step 3 ambiguity clarification with the same prompt shape. The GM's answer ("PC" or "NPC") determines the file's final location, and `/ingest` records the answer as a carried-forward lesson so subsequent docs in the same run apply silently.
+- **The agent does not infer PC status from prose alone.** Frequency-of-mention and party-pronoun proximity are signals the Phase 2 survey uses to *propose* candidates, not to *commit* identities. Outside the survey, the agent always defers to the established roster + safety-net ASK shape.
+
+Reference-note extraction never writes to `pcs/`. PC files are created by the survey roster promotion (`/ingest` Phase 2 Step 5a) or by the safety-net ASK promotion (`/ingest` Phase 3 Step 4a, `/wrap-session` Step 3). The PC stub shape — `kind: pc` frontmatter, optional `aliases:`, H1, optional one-line body — is documented in `~/.claude/skills/ttrpg-gm/references/frontmatter-schemas.md` under "Reference note → Worked example: PC stub."
 
 ## Alias detection at extraction time
 
