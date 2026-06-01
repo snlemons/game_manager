@@ -37,7 +37,21 @@ Rough cross-version horizon. Scope shifts based on dogfooding; per-version PRDs 
 
 ## Install
 
-The plugin installs as a Claude Code skills directory at `~/.claude/skills/ttrpg-gm/`.
+The repo ships a Claude Code plugin manifest at `.claude-plugin/plugin.json`. Two install paths are supported:
+
+### Option 1 — `/plugin install` (recommended)
+
+From any Claude Code session, run:
+
+```
+/plugin install https://github.com/snlemons/game_manager
+```
+
+Claude Code reads `.claude-plugin/plugin.json`, registers the three skills, and the slash commands (`/ingest`, `/prep-session`, `/wrap-session`) resolve globally. Update via `/plugin update ttrpg-gm`. Uninstall via `/plugin uninstall ttrpg-gm`.
+
+### Option 2 — manual clone (fallback)
+
+If `/plugin install` is unavailable in your Claude Code version, clone the repo into the user-level skills directory so `~/.claude/skills/ttrpg-gm/skills/<name>/SKILL.md` resolves. The skill prose and scaffolded campaign `settings.json` Read rules bake in this absolute path (per [#63](https://github.com/snlemons/game_manager/issues/63)), so the clone path is load-bearing for the manual flow:
 
 ```sh
 git clone https://github.com/snlemons/game_manager.git ~/.claude/skills/ttrpg-gm
@@ -45,7 +59,9 @@ git clone https://github.com/snlemons/game_manager.git ~/.claude/skills/ttrpg-gm
 
 Updates flow via `git pull` in `~/.claude/skills/ttrpg-gm/`. Versioning is git tags.
 
-After cloning, the three slash commands (`/ingest`, `/prep-session`, `/wrap-session`) resolve globally in Claude Code — you can invoke them from any working directory.
+If you previously installed via the manual clone and want to switch to `/plugin install`, remove the manual clone first (`rm -rf ~/.claude/skills/ttrpg-gm`) so the two installs don't shadow each other.
+
+After install, the three slash commands (`/ingest`, `/prep-session`, `/wrap-session`) resolve globally in Claude Code — you can invoke them from any working directory.
 
 ## First run
 
