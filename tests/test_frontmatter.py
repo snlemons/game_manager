@@ -714,3 +714,104 @@ class TestRuleSchema:
         )
         with pytest.raises(FrontmatterError):
             validate_file(tmp_path, rule)
+
+
+class TestPcStubShape:
+    """`/ingest` Phase 2 PC stub file shape (ADR-0018 + #73).
+
+    Per `~/.claude/skills/ttrpg-gm/references/frontmatter-schemas.md`'s
+    "Worked example: PC stub" subsection and ADR-0018:
+
+    - Files land at `pcs/<slug>.md`.
+    - Frontmatter carries `kind: pc` explicitly.
+    - `aliases:` is optional; when present, it's a list of strings.
+    - Body is optional — an H1-only file (no prose body) is the agent
+      default when the survey annotation wasn't enriched.
+
+    Reference-note paths still classify as `"unspecified"` for path-
+    based schema dispatch (Reference notes don't carry a lifecycle
+    schema, per `~/.claude/skills/ttrpg-gm/references/frontmatter-schemas.md`
+    "Reference note" section). These tests verify the stub's
+    structural shape — the frontmatter parses, the H1 is present,
+    `kind: pc` reads correctly, and `aliases:` round-trips as a list
+    of strings when present.
+    """
+
+    def test_minimal_stub_no_body_no_aliases(self, tmp_path: Path) -> None:
+        """The H1-only default: `kind: pc`, no `aliases:`, no body prose."""
+        pc = _write(
+            tmp_path / "pcs" / "silas.md",
+            """\
+            ---
+            kind: pc
+            ---
+
+            # Silas
+            """,
+        )
+        result = validate_file(tmp_path, pc)
+        # Reference notes have no lifecycle schema — unspecified.
+        assert result["schema"] == "unspecified"
+        assert result["frontmatter"]["kind"] == "pc"
+        # No aliases key when none were captured at survey time.
+        assert "aliases" not in result["frontmatter"]
+        # H1 is the canonical name; body has no prose past the H1.
+        assert result["body"].strip() == "# Silas"
+
+    def test_stub_with_aliases_and_one_line_body(self, tmp_path: Path) -> None:
+        """The GM-enriched shape: `aliases:` list + one-line body."""
+        pc = _write(
+            tmp_path / "pcs" / "helerel.md",
+            """\
+            ---
+            kind: pc
+            aliases: [Helly]
+            ---
+
+            # Helerel
+
+            Dwarf cleric.
+            """,
+        )
+        result = validate_file(tmp_path, pc)
+        assert result["schema"] == "unspecified"
+        assert result["frontmatter"]["kind"] == "pc"
+        assert result["frontmatter"]["aliases"] == ["Helly"]
+        assert "# Helerel" in result["body"]
+        assert "Dwarf cleric." in result["body"]
+
+    def test_stub_with_multiple_aliases(self, tmp_path: Path) -> None:
+        """`aliases:` accepts multiple entries (e.g., nickname + given-name)."""
+        pc = _write(
+            tmp_path / "pcs" / "annika-marra.md",
+            """\
+            ---
+            kind: pc
+            aliases: [Captain Marra, Annika]
+            ---
+
+            # Annika Marra
+            """,
+        )
+        result = validate_file(tmp_path, pc)
+        assert result["frontmatter"]["kind"] == "pc"
+        assert result["frontmatter"]["aliases"] == ["Captain Marra", "Annika"]
+
+    def test_stub_aliases_round_trip_as_strings(self, tmp_path: Path) -> None:
+        """`aliases:` entries are strings (the dedup-matching pass slugifies)."""
+        pc = _write(
+            tmp_path / "pcs" / "marisa.md",
+            """\
+            ---
+            kind: pc
+            aliases: [Mari]
+            ---
+
+            # Marisa
+            """,
+        )
+        result = validate_file(tmp_path, pc)
+        aliases = result["frontmatter"]["aliases"]
+        assert isinstance(aliases, list)
+        assert all(isinstance(a, str) for a in aliases)
+        assert aliases == ["Mari"]

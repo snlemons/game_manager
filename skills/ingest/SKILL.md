@@ -115,9 +115,9 @@ If the GM provided an input directory of source docs, continue directly into Pha
 
 ## Phase 2: Survey
 
-The survey phase runs **before** the per-doc extraction loop whenever the input directory contains **more than one** markdown doc. Its purpose, per ADR-0008, is to pre-label every doc with a GM-confirmed one-line description and to fix a processing order — both of which steer extraction in Phase 3.
+The survey phase runs **before** the per-doc extraction loop whenever the input directory contains **one or more** markdown docs. Its purpose, per ADR-0008 and [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md), is to pre-label every doc with a GM-confirmed one-line description, propose a **PC roster** the GM corrects inline, and (for multi-doc runs) fix a processing order — all of which steer extraction in Phase 3.
 
-The single-doc case is degenerate: with exactly one markdown doc the input has no ordering question and only one description to confirm, so the survey collapses into Phase 3 Step 1 directly. Do not run a separate survey screen for a single-doc input.
+The single-doc case is **stripped, not skipped** (per ADR-0018): with exactly one markdown doc the input has no ordering question, but the PC roster review is still load-bearing — a session-log doc has PCs; a single bestiary doc has none and the GM empties the roster. The single-doc path runs the bounded skim, drafts one description, drafts the PC roster, and hands those off in one review batch (no ordering screen), then drops into Phase 3 Step 1. Zero-doc scaffold-only invocations skip survey entirely (no docs to skim).
 
 ### Step 0: Pre-flight checks
 
@@ -125,13 +125,23 @@ Before doing anything visible:
 
 1. **Campaign repo state.** The same campaign-repo invariants from Phase 3 Step 0 apply (`CLAUDE.md`, `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, `campaign.md` present; no half-finished prior ingest). If the repo isn't scaffolded or has uncommitted ingest artefacts, stop with the same message Phase 3 uses. Don't survey on top of a broken repo.
 2. **Input directory state.** List the input directory (flat; ADR-0006 — no recursion).
-   - Count markdown files (`*.md`). If zero, tell the GM: *"No markdown docs in this input directory. Nothing to survey."* Stop.
-   - If exactly one, do **not** run the survey. Drop straight into Phase 3 Step 1 (the single-doc degenerate case). Do not present a one-item editable list or ask about processing order — there's nothing to order.
+   - Count markdown files (`*.md`). If zero, tell the GM: *"No markdown docs in this input directory. Nothing to survey."* Stop. This is the scaffold-only path; per [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md) the PC roster step also defers — the GM adds PCs by hand or runs `/ingest` against a PC-roster doc later.
+   - If exactly one, run a **stripped survey** (per [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md)): the bounded skim (Step 1), the one-description proposal (Step 2), and the PC roster proposal (Step 2.5) all run; the description+roster staging review (Step 3) runs as a single review batch with one description entry; the ordering step (Step 4) is skipped (one doc, no ordering question). Hand off to Phase 3 via Step 5.
    - If more than one, collect the absolute paths of every markdown doc and continue. Note non-markdown files separately for the closing summary; do not read or process them.
 
 ### Step 1: Bounded skim of every discovered doc
 
-For each markdown doc found, read **only** the first heading and the first ~200 words (ADR-0008's "bounded skim"). Do not full-read. Hold the skim text in memory for description-drafting; discard before Phase 3 starts its full reads, so each doc's full read in Phase 3 is unconstrained by earlier skim residue.
+For each markdown doc found, read **only** the first heading and the first ~200 words (ADR-0008's "bounded skim"). Do not full-read. Hold the skim text in memory for description-drafting **and PC-candidate collection** (per [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md) — the same skim text feeds both Step 2's description proposal and Step 2.5's PC roster proposal); discard before Phase 3 starts its full reads, so each doc's full read in Phase 3 is unconstrained by earlier skim residue.
+
+While skimming each doc, **also collect PC candidates from prose signals**. The same ~200 words drives this; do not full-read for PC discovery. Watch for these signals across the corpus:
+
+- **Frequency of mention.** A name that recurs across multiple docs (especially across session logs) is a stronger PC candidate than a name mentioned once. Track per-doc counts in memory; aggregate across all skimmed docs before proposing the roster.
+- **Explicit roster sections.** Session-zero packets and party-overview docs commonly have headings like `## Party`, `## The PCs`, `## Player Characters`, `## Cast`. Names listed under those headings are very strong PC candidates.
+- **Party / pronoun patterns.** Prose using "the party", "the PCs", "the players" in proximity to a named character is a PC signal (e.g., *"the party — Silas, Rae, and Betha — entered the citadel"*).
+- **Session-log narrator voice.** Session logs that narrate a named character as the *actor* ("Silas opened the door, Rae cast detect magic") rather than the *subject* of the GM's prep ("Mayor Brennan asks them to investigate") are PC signals. The "named character does things" pattern reads differently from the "named character is described" pattern.
+- **Nicknames in proximity to a canonical name.** "Helerel ('Helly' to her friends)" or "Helly (short for Helerel)" — both names refer to the same PC, captured as canonical + `aliases:` per [ADR-0017](../../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md).
+
+Be conservative: false positives are cheap (the GM removes them at review); false negatives are caught by the Phase 3 safety net per [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md), but adding the candidate at survey time is the lower-friction path. When borderline, propose with a "Possible NPC" label rather than dropping silently.
 
 If a doc has no heading or is shorter than ~200 words, work with what's there. Don't pad. Don't infer content beyond what's visible in the skim.
 
@@ -146,9 +156,30 @@ For each doc, draft a single-line description that classifies the doc and summar
 
 ADR-0008 explicitly prefers surfaced ambiguity over confident wrong commits. If the skim is genuinely unclear, say so in the description rather than guessing — Phase 3 will resolve it once the GM clarifies.
 
-### Step 3: Write the description list to a staging file for GM edit
+### Step 2.5: Propose a PC roster from skim signals
+
+Per [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md), the survey is the right place to establish who the PCs are — the bounded skim already collected the signals (Step 1), and the GM-confirmed roster is upstream of every Phase 3 extraction that needs PC identity (Beat `linked_pcs:`, Secret `belongs_to:` PC containers, Reference-note PC-vs-NPC discrimination, Log narrative voice).
+
+Aggregate the per-doc PC candidates collected during Step 1 across the whole input directory. For each candidate name:
+
+- Sum the doc count where the candidate appeared.
+- Note any explicit-roster-section hits (these promote the candidate to "Likely PC" regardless of frequency).
+- Note any nickname / canonical-name pairings captured during the skim (these become `aliases:` on the stub).
+- Classify the candidate:
+  - **"Likely PC"** — appears in multiple docs as an actor, named under an explicit roster heading, or named in proximity to "the party" / "the PCs" patterns.
+  - **"Possible NPC"** — appears once, in a one-off mention, or in a pattern that reads more like NPC framing than PC framing. The candidate is still surfaced; the label tells the GM where the agent leaned.
+
+Hold the candidate list in memory; Step 3 writes it to a staging file alongside the descriptions.
+
+If no PC candidates surfaced from the skim (a bestiary-only input, a pure world-info input), the roster proposal is empty — the staged file still appears in Step 3, with prose telling the GM the agent found no PC candidates and inviting them to add any the skim missed. Empty is the honest default.
+
+### Step 3: Write the description list and PC roster to staging files for GM edit
 
 Use the campaign repo's `.ttrpg-staging/` directory as the review surface — it's gitignored (Phase 1 Step 2) and is purpose-built for exactly this. Create it if it doesn't exist.
+
+Per [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md), Phase 2 stages **two files in a single review batch**: `survey-descriptions.md` (carries the description list from Step 2) and `survey-pcs.md` (carries the PC roster from Step 2.5). One continue/cancel ask covers both files; one verbal-refinement loop revises either file in place.
+
+#### Step 3a: Stage the description list
 
 Write the proposed descriptions to `.ttrpg-staging/survey-descriptions.md` using the Write tool, so Claude Code's standard file-write diff shows the GM the full proposed list in their IDE. Format each doc as a path header line followed by its description on the next line, with a blank line between entries, and a short header explaining the edit contract:
 
@@ -181,17 +212,65 @@ Below the description block, append a non-editable footer summary listing any no
 Non-markdown files (skipped): art/map.png, art/sera.jpg.
 ```
 
-Then ask explicitly: *"Edit the descriptions in `.ttrpg-staging/survey-descriptions.md` if you want changes, then tell me to continue. Or say cancel to exit cleanly."* Accept three response shapes:
+#### Step 3b: Stage the PC roster
 
-1. **Continue** → re-read `.ttrpg-staging/survey-descriptions.md` from disk to capture any GM edits, parse the description lines, record them verbatim, continue to Step 4. If the GM removed or added lines (a contract violation), surface that and re-ask before proceeding.
-2. **Cancel** → delete `.ttrpg-staging/`, write nothing else, exit cleanly (still report the non-markdown skip summary).
-3. **Verbal refinement** ("rephrase X to Y", "the Foo description should mention Bar", etc.) → apply each requested change to `.ttrpg-staging/survey-descriptions.md` using the **Edit** tool, one surgical edit per change so the IDE shows a native hunk diff per [ADR-0015](../../docs/adr/0015-conversational-refinement-loop-in-prep-session.md). Do **not** rewrite the whole file with Write (the bulk overwrite buries the diff) and do **not** use Bash redirects (no diff surfaces at all). After the edits, name in your reply which entries changed and re-ask the same continue / refine-more / cancel prompt. Loop until the GM says continue or cancel.
+Write the proposed PC roster to `.ttrpg-staging/survey-pcs.md` using the Write tool, so Claude Code's standard file-write diff shows the GM the full proposed roster in their IDE. Format the file as a short header explaining the edit contract, followed by one line per candidate — the candidate's proposed slug, a frequency annotation, and the agent's "Likely PC" / "Possible NPC" classification. Capture any nickname / canonical pairings the skim caught as an `— alias: <nickname>` suffix:
+
+```markdown
+# Survey: proposed PC roster
+
+Edit this list — confirm, rename, remove, or add. Names not in this list will
+be treated as NPC candidates in Phase 3 (with a safety-net ASK at per-doc
+review for any unknown named character). Empty the list if you have no PCs to
+add yet — you can add them later by re-running `/ingest` against a PC-roster
+doc or by hand-editing `pcs/`.
+
+To add a PC: add a new line with the slug. Optional one-line description
+after a tab or two spaces becomes the stub file's body. Nicknames go in
+`— alias: <name>` suffixes (multiple aliases comma-separated).
+
+silas         — appears in 5 docs (session logs 1, 3, 5, 7, 9). Likely PC.
+rae           — appears in 5 docs. Likely PC.
+betha         — appears in 4 docs. Likely PC.
+gaelan        — appears in 5 docs. Likely PC.
+helerel       — appears in 3 docs, often as "Helly". Likely PC. — alias: Helly
+maren         — appears in 1 doc. Possible NPC (one-off mention).
+the-shadow    — appears in 1 doc. Possible NPC alias.
+```
+
+If the skim found no PC candidates, write a roster file with the same header and a single line below it explaining the empty state:
+
+```markdown
+# Survey: proposed PC roster
+
+(No PC candidates surfaced from the skim. Add PC slugs here as needed — one
+per line, optional `— alias: <nickname>` suffix — or leave empty and add PCs
+later by hand-editing `pcs/` or running `/ingest` against a PC-roster doc.)
+```
+
+#### Step 3c: Ask for the continue/cancel decision (covers both staged files)
+
+Per [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md), both staged files are presented in the **same review batch** — one continue/cancel ask covers them both.
+
+Ask explicitly: *"Edit `.ttrpg-staging/survey-descriptions.md` and/or `.ttrpg-staging/survey-pcs.md` if you want changes, then tell me to continue. Or say cancel to exit cleanly."* Accept three response shapes:
+
+1. **Continue** → re-read **both** staged files from disk to capture any GM edits.
+   - Parse `survey-descriptions.md` lines, record them verbatim. If the GM removed or added lines (a contract violation — the list reflects the docs discovered in the input directory), surface that and re-ask before proceeding.
+   - Parse `survey-pcs.md` lines. Each non-comment, non-header line is a surviving PC entry. Extract the slug, optional one-line description (anything after the slug and before the dash-separated frequency/classification annotation, when the GM added or kept one), and `aliases:` from any `— alias:` suffix. An empty roster (no entries) is allowed and means "no PCs yet" — proceed.
+   - On any GM addition, slugify the GM-supplied name per the dedup-matching rule before recording.
+   - Continue to Step 4 (multi-doc) or Step 5 (single-doc).
+2. **Cancel** → delete `.ttrpg-staging/survey-descriptions.md`, `.ttrpg-staging/survey-pcs.md`, and any staged `.ttrpg-staging/pcs/` directory (Step 5 would have written stubs there in the approved path; on cancel they were never written, but defensively remove the directory if it somehow exists). Write nothing else. Exit cleanly (still report the non-markdown skip summary).
+3. **Verbal refinement** ("rephrase X to Y", "the Foo description should mention Bar", "add Marisa as a PC, alias Mari", "drop Maren — she's an NPC", etc.) → apply each requested change to the named staged file using the **Edit** tool, one surgical edit per change so the IDE shows a native hunk diff per [ADR-0015](../../docs/adr/0015-conversational-refinement-loop-in-prep-session.md). Do **not** rewrite the whole file with Write (the bulk overwrite buries the diff) and do **not** use Bash redirects (no diff surfaces at all). After the edits, name in your reply which entries changed and re-ask the same continue / refine-more / cancel prompt. Loop until the GM says continue or cancel.
 
 GM-corrected descriptions become the steering input each doc's full read uses in Phase 3 — don't silently re-classify a doc later in extraction. If Phase 3's full read reveals the GM-confirmed description was wrong, surface that to the GM and re-confirm before continuing.
 
+GM-corrected PC roster entries become the campaign's PC roster the moment Phase 2 hands off to Phase 3 — Step 5 stages `pcs/<slug>.md` stubs from the surviving roster lines and promotes them to the campaign repo. The roster steers every subsequent Phase 3 extraction: candidate names matching a PC slug or `aliases:` entry resolve to PC (see `~/.claude/skills/ttrpg-gm/references/reference-note-extraction.md` "PC vs NPC discriminator"), and the Phase 3 safety net catches PCs the survey missed.
+
 ### Step 4: Propose a processing order
 
-Once descriptions are accepted, propose a processing order over the same list. The default order, per ADR-0008, is **world info first, adventures next, session-shaped docs last**. Within each band, preserve the GM-confirmed list order from Step 3 (their order is closer to their mental model than the filesystem order or a re-sort by name).
+**Single-doc skip.** When the input directory has exactly one markdown doc, skip this step entirely (per [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md) — one doc has no ordering question). Proceed directly to Step 5 with the description+roster results from Step 3.
+
+Once descriptions and the PC roster are accepted (multi-doc), propose a processing order over the same doc list. The default order, per ADR-0008, is **world info first, adventures next, session-shaped docs last**. Within each band, preserve the GM-confirmed list order from Step 3 (their order is closer to their mental model than the filesystem order or a re-sort by name).
 
 For docs whose accepted description is *"Mixed / ambiguous: …"*, slot them after world info and before adventures by default — Phase 3 will resolve the ambiguity per-doc, and that's the safest place to do so (world context is in, adventure-shaped extraction hasn't started yet). Surface this placement explicitly in the proposal so the GM can move it if they know better.
 
@@ -221,17 +300,52 @@ Then ask explicitly: *"Edit the order in `.ttrpg-staging/survey-order.md` if you
 
 If the GM removed a doc entirely during ordering, drop it from the survey set — Phase 3 will not process it. Note removed docs in the closing summary so it's visible they were skipped on purpose.
 
-### Step 5: Hand off to Phase 3
+### Step 5: Hand off to Phase 3 (with PC stub promotion)
 
-Once the GM confirms the order, hand off these **survey results** to Phase 3:
+Once the GM confirms the order (multi-doc) or the description+roster review (single-doc), hand off these **survey results** to Phase 3:
 
 - **Doc list**, in confirmed processing order. Each entry is the doc's absolute path and the GM-confirmed one-line description.
+- **PC roster**, as the list of `(slug, optional one-line body, aliases)` tuples parsed from `survey-pcs.md` at Step 3c continue time.
 - **Skipped doc list** (any docs the GM removed during ordering, plus the non-markdown files), preserved only for the closing summary at the end of Phase 3.
 - An empty **carried-forward lessons** set (Phase 3's cross-doc learning will populate it as each doc's review completes; see Phase 3 Step 0b).
 
-Then **delete the survey staging files** — `.ttrpg-staging/survey-descriptions.md` and `.ttrpg-staging/survey-order.md`. They've served their purpose (the GM's edits are now captured in the in-memory hand-off above). If `.ttrpg-staging/` is now empty, remove the directory; if other workflows have staged content there, leave the directory alone. This way, Phase 3 cancel paths and Phase 4 hold paths don't have to worry about lingering survey artifacts.
+#### Step 5a: Stage `pcs/<slug>.md` stubs
 
-Tell the GM the survey is complete (a short one-line summary of the confirmed order is enough), then continue directly into Phase 3 with doc #1. No confirmation prompt — the GM just edited and accepted the order list, so asking again is redundant. Phase 3 has per-doc review for each doc's extraction, which is the real break point if the GM wants to bail.
+For each surviving PC roster entry, draft a stub file per the shape below and stage it at `.ttrpg-staging/pcs/<slug>.md` per `~/.claude/skills/ttrpg-gm/references/staging-pattern.md` Section 2 (CREATE entries: Write the full proposed content):
+
+```yaml
+---
+kind: pc
+aliases: [<nickname1>, <nickname2>]
+---
+
+# <Canonical Name>
+
+<Optional one-line body from the GM-enriched annotation, if any.>
+```
+
+Rules:
+
+- The slug is the GM-confirmed slug from `survey-pcs.md` (post-edit, post-refinement).
+- The H1 is the GM-confirmed canonical name. When the staged roster line was `silas — appears in 5 docs…`, the H1 is `Silas` (the prose-readable form of the slug); when the GM provided an explicit canonical name (`silas Silas Stoneforge — appears…`) use that.
+- `aliases:` carries the `— alias: <name>` entries from the staged line. If there are no aliases, omit the key entirely (per `~/.claude/skills/ttrpg-gm/references/frontmatter-schemas.md` Reference-note default — absent reads as `[]`).
+- Body is the optional one-line description from the GM-enriched annotation. If the GM didn't enrich the annotation, omit the body — leave the file as H1-only after the frontmatter. (Per [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md), the stub is intentionally minimal; #57's PC backstory ingestion will extend the body later.)
+
+Stage every PC stub before promoting any. If a stub's slug collides with an existing `pcs/<slug>.md` file in the campaign repo (which would only happen if the GM is running `/ingest` against an already-populated campaign — uncommon for fresh ingest), STOP and surface the collision: *"PC roster includes `silas`, but `pcs/silas.md` already exists. Update existing, rename, or skip?"* Don't silently overwrite a GM-authored PC file.
+
+#### Step 5b: Promote PC stubs to the campaign repo
+
+After all stubs are staged, promote them to `pcs/<slug>.md` by translating the staging path (strip `.ttrpg-staging/pcs/` prefix → `pcs/<slug>.md`). Create the `pcs/` directory if it doesn't exist. Delete each staged stub after promotion. After all stubs are promoted, remove `.ttrpg-staging/pcs/` if it's now empty.
+
+The promotion happens **inside Phase 2**, before Phase 3 begins, so the PCs are visible to Phase 3's `pcs/` enumeration (used by Reference-note extraction's PC-vs-NPC discriminator and by Beat `linked_pcs:` population).
+
+If the GM-confirmed roster was empty, skip stub staging and promotion entirely — no PCs to write. Note the empty roster in the hand-off summary.
+
+#### Step 5c: Clean up survey staging files and complete hand-off
+
+**Delete the surviving survey staging files** — `.ttrpg-staging/survey-descriptions.md`, `.ttrpg-staging/survey-pcs.md`, and `.ttrpg-staging/survey-order.md` (if it exists; multi-doc only). They've served their purpose (the GM's edits are now captured in the in-memory hand-off above plus the just-promoted `pcs/` stubs). If `.ttrpg-staging/` is now empty, remove the directory; if other workflows have staged content there, leave the directory alone. This way, Phase 3 cancel paths and Phase 4 hold paths don't have to worry about lingering survey artifacts.
+
+Tell the GM the survey is complete (a short one-line summary of the confirmed order plus the PC roster count is enough — e.g., *"Survey complete: 5 docs ordered for extraction; 4 PCs in roster (silas, rae, betha, helerel)."*), then continue directly into Phase 3 with doc #1. No confirmation prompt — the GM just edited and accepted the order list and the PC roster, so asking again is redundant. Phase 3 has per-doc review for each doc's extraction, which is the real break point if the GM wants to bail.
 
 ## Phase 3: Per-doc extraction loop
 
@@ -239,8 +353,8 @@ Tell the GM the survey is complete (a short one-line summary of the confirmed or
 
 This slice implements the per-doc loop for **single-doc and multi-doc** inputs, including cross-doc dedup and cross-doc learning:
 
-- **Single-doc** (exactly one markdown file in the input directory) is the degenerate case: skip the survey entirely (Phase 2 Step 0 routes here directly), then run Step 1 through Step 6 below for the one doc. Dedup against existing campaign files still applies; cross-doc learning is a no-op because there's no subsequent doc.
-- **Multi-doc** (more than one markdown file) runs after Phase 2 (survey) has confirmed a per-doc description and a processing order. Step 0b sets up the multi-doc loop; Steps 1 through 6 run **per doc, in confirmed order**; cross-doc dedup is applied at Step 3; carried-forward lessons accumulate from each doc's review and feed the next doc's extraction.
+- **Single-doc** (exactly one markdown file in the input directory) runs Phase 2's **stripped survey** (one description, the PC roster review; no ordering screen — per [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md)), then runs Step 1 through Step 6 below for the one doc. Dedup against existing campaign files still applies; cross-doc learning is a no-op because there's no subsequent doc. The PC roster is present from Phase 2 (whether populated or intentionally empty).
+- **Multi-doc** (more than one markdown file) runs after Phase 2 (survey) has confirmed a per-doc description, a PC roster, and a processing order. Step 0b sets up the multi-doc loop; Steps 1 through 6 run **per doc, in confirmed order**; cross-doc dedup is applied at Step 3; carried-forward lessons accumulate from each doc's review and feed the next doc's extraction.
 - Non-markdown files in the input directory (PDFs, images, etc.) are reported in the closing summary and **skipped without halting**.
 - **Beat extraction is allowed during ingest** (ADR-0009 creation path #4). The source docs *are* the GM's authoring; the agent is preserving GM-prepped scenes, not inferring intent. See Step 2 below for what Beat-shaped content looks like.
 
@@ -266,8 +380,8 @@ Before reading any source doc, verify the campaign repo is in a state where inge
 
 3. **Input directory state.** List the input directory (flat; ADR-0006 — no recursion).
    - Count markdown files (`*.md`). If zero, tell the GM: *"No markdown docs in this input directory. Nothing to extract."* Stop.
-   - If exactly one markdown file, this is the single-doc degenerate case — skip the survey and continue to Step 1 with that doc.
-   - If more than one markdown file, this is the multi-doc case — run Phase 2 (Survey) first to produce GM-confirmed descriptions and a processing order, then continue to Step 0b with those survey results in hand.
+   - If exactly one markdown file, this is the single-doc case — per [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md), Phase 2 still runs in stripped form (one description + PC roster, no ordering screen) so the PC roster is established before extraction begins. After Phase 2 hands off, continue to Step 1 with that doc.
+   - If more than one markdown file, this is the multi-doc case — run Phase 2 (Survey) first to produce GM-confirmed descriptions, a PC roster, and a processing order, then continue to Step 0b with those survey results in hand.
    - Collect non-markdown files separately. Note them for the closing summary; do not read or process them.
 
 ### Step 0b: Multi-doc loop setup
@@ -606,9 +720,23 @@ These annotations feed the per-doc review in Step 4.
 
 This step has two parts. First, resolve any ambiguous-dedup ASK items inline in chat (those need GM decisions before staging makes sense). Second, write the resolved set of proposed files to a per-doc staging directory the GM edits in their IDE.
 
-#### Step 4a: Resolve ambiguous-dedup questions inline
+#### Step 4a: Resolve ambiguous-dedup questions inline (including PC-vs-NPC safety net)
 
-If Step 3b produced any ASK items (ambiguous Reference-note matches, Reference-note alias relationships per [ADR-0017](../../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md), Secret multi-container reconciliations, Beat–Secret pairing ambiguities, Beat `linked_*` ambiguities, Beat `kind:` ambiguities, or `belongs_to:` expansion uncertainties), surface them in chat as a short numbered list of questions. Group by ASK kind so the GM can scan:
+Per [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md), Step 4a is also where the **Phase 3 PC-vs-NPC safety net** fires for late-addition PCs the survey missed. Before assembling the ASK list, scan the proposed Reference-note CREATE set for any candidate that:
+
+1. Would land at `npcs/<slug>.md`, **and**
+2. Doesn't match any existing `pcs/<slug>.md` filename or `aliases:` entry in the campaign repo (apply the same matching rule used for Reference-note dedup — `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`), **and**
+3. Doesn't match any existing `npcs/<slug>.md` filename or `aliases:` entry (i.e., the dedup pass routed it to CREATE, not UPDATE).
+
+Each such candidate is a PC-vs-NPC safety-net ASK: a named character the survey's PC roster doesn't cover, the campaign's `pcs/` doesn't cover, and the campaign's `npcs/` doesn't cover either. The most common signal source is a session-log doc that introduces a PC the GM didn't enumerate at survey time (a late-addition PC), or a name the survey dropped intending to add later.
+
+The ASK shape, surfaced alongside the existing dedup ASKs:
+
+> *"`Marisa` is proposed as a new NPC, but the name pattern reads like a PC (named as actor in the session log, party-pronoun proximity). Is `Marisa` a PC or an NPC?"*
+
+If carried-forward lessons (Step 5b) already contain a PC identity confirmation for this name from an earlier doc in the run, **apply silently** — don't re-ASK. The extended dedup-matching rule treats the just-staged `pcs/<slug>.md` as a confident PC match the same way it treats an NPC `aliases:` entry; the candidate routes to a no-op (the PC already exists) rather than an NPC CREATE.
+
+If Step 3b produced any ASK items (ambiguous Reference-note matches, Reference-note alias relationships per [ADR-0017](../../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md), Secret multi-container reconciliations, Beat–Secret pairing ambiguities, Beat `linked_*` ambiguities, Beat `kind:` ambiguities, `belongs_to:` expansion uncertainties, **or PC-vs-NPC safety-net ASKs per the rule above**), surface them in chat as a short numbered list of questions. Group by ASK kind so the GM can scan:
 
 ```
 Doc 2 of 3: The Prism.md — 7 questions to resolve before review:
@@ -630,10 +758,14 @@ Secret belongs_to expansion:
 Clue–Secret pairing:
   7. Hidden Information item "ledgers in mayor's office" — link to which Secret(s)? `mayor-funds-cult`, `mayor-was-blackmailed`, or both?
 
-Reply with answers (e.g., "1 yes, 2 no — call it 'the-citadel-of-glass', 3 merge, 4 brother-olwen, 5 merge, 6 only-court, 7 mayor-funds-cult").
+PC vs NPC (safety net):
+  8. `Marisa` is proposed as a new NPC, but the name pattern reads like a PC (named as actor in the session log, party-pronoun proximity). PC or NPC?
+
+Reply with answers (e.g., "1 yes, 2 no — call it 'the-citadel-of-glass', 3 merge, 4 brother-olwen, 5 merge, 6 only-court, 7 mayor-funds-cult, 8 PC").
 For Reference-note "no", supply a disambiguated slug.
 For Secret "separate" or "rename", supply the disambiguated slug.
 For alias "pick canonical", supply the slug to use; the other name goes in `aliases:` of the chosen canonical.
+For PC vs NPC, reply "PC" or "NPC"; on "PC", optionally supply `— alias: <nickname>` for any nickname that should land in `aliases:`.
 ```
 
 When the GM resolves, apply per ASK kind:
@@ -643,6 +775,7 @@ When the GM resolves, apply per ASK kind:
 - Secret `belongs_to:` expansion: trim or expand the proposed `belongs_to:` per the GM's answer; the validated set feeds the Secret CREATE / UPDATE.
 - Clue–Secret pairing: set the Beat's `linked_secrets:` to the GM-confirmed Secret slug(s).
 - Beat `linked_*` and `kind:` ASKs: set the field per the GM's answer.
+- **PC vs NPC safety net** per [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md): on "PC", **drop the proposed `npcs/<slug>.md` CREATE** and replace it with a **`pcs/<slug>.md` stub CREATE** of the same shape Phase 2 Step 5a uses (frontmatter `kind: pc`, optional `aliases:` from any `— alias:` suffix the GM supplied, optional one-line body if the agent extracted a clear role one-liner from the source doc — otherwise H1-only). Any Beat `linked_pcs:` or Secret `belongs_to:` references the agent had drafted using the rejected NPC slug are rewritten to point at the new PC slug before staging. Record the confirmation as a carried-forward lesson per Step 5b's "PC identity confirmation" shape so subsequent docs in the run apply the PC identity silently without re-asking. On "NPC", the proposed `npcs/<slug>.md` CREATE stands.
 
 Record every resolution in the carried-forward lessons set (Step 5b will keep these for subsequent docs in the run). Then proceed to Step 4b.
 
@@ -660,6 +793,7 @@ Ingest-specific staging shape: write every proposed file to `.ttrpg-staging/doc-
 | Reference note (CREATE) | `.ttrpg-staging/doc-<N>/<kind>/<slug>.md` (kind = `npcs`, `locations`, `factions`, `items`) |
 | Reference note (UPDATE) | `.ttrpg-staging/doc-<N>/<kind>/<slug>.md` — stage per `~/.claude/skills/ttrpg-gm/references/staging-pattern.md` Section 2 (cp the live file, Edit to apply the proposed change so the IDE diff shows the delta) |
 | Reference note (CREATE-disambiguated from ASK) | `.ttrpg-staging/doc-<N>/<kind>/<disambiguated-slug>.md` |
+| PC stub (CREATE — safety-net promotion from a Step 4a PC-vs-NPC ASK) | `.ttrpg-staging/doc-<N>/pcs/<slug>.md` — full new file with `kind: pc`, optional `aliases:`, H1, optional one-line body (per [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md); same shape as Phase 2 Step 5a's stubs) |
 | Thread (CREATE) | `.ttrpg-staging/doc-<N>/threads/<slug>.md` |
 | Consequence (CREATE) | `.ttrpg-staging/doc-<N>/consequences/<slug>.md` |
 | Beat (CREATE) | `.ttrpg-staging/doc-<N>/beats/<slug>.md` |
@@ -718,7 +852,7 @@ Rejected items (whether per-file via deletion or per-doc via reject-everything) 
 
 Once the GM says continue in Step 4b, move every file remaining in `.ttrpg-staging/doc-<N>/` to its corresponding final location in the campaign repo. Paths inside `doc-<N>/` mirror the campaign repo, so the move is a path translation — strip the `.ttrpg-staging/doc-<N>/` prefix to get the final path.
 
-1. Create any needed directories under the campaign repo: `adventures/<slug>/`, `npcs/`, `locations/`, `factions/`, `items/`, `threads/`, `consequences/`, `beats/`, `secrets/` — but **only** those needed for approved items. Don't pre-create empty folders for kinds with no content (matches Phase 1 Step 2 rule).
+1. Create any needed directories under the campaign repo: `adventures/<slug>/`, `npcs/`, `pcs/`, `locations/`, `factions/`, `items/`, `threads/`, `consequences/`, `beats/`, `secrets/` — but **only** those needed for approved items. Don't pre-create empty folders for kinds with no content (matches Phase 1 Step 2 rule). PC stubs from Step 4a safety-net ASKs land at `pcs/<slug>.md` and are moved before any Beat or Secret files (so `linked_pcs:` and `belongs_to:` references resolve), in the same group as Reference-note CREATEs.
 2. **Move order matters for Secrets.** Move container files (Reference notes, Adventures) **before** Secret files, so the bidi back-references in the Secrets' `belongs_to:` resolve against containers that exist at the final location. Specifically:
    - Move Reference-note CREATEs and UPDATEs first.
    - Move Adventure CREATEs (including sub-files) next.
@@ -757,6 +891,7 @@ Lessons worth carrying forward include:
 - **Secret partial-reveal recognition.** GM confirmations that a candidate Secret was already partially revealed in past play ("the party learned in session 3 that the mayor's involved") — record the prose-shape signal so subsequent docs with the same shape get the four-piece extraction-time partial-reveal pattern applied automatically. The pattern itself (Secret body intact + delivered Clue Beat + `revealed_by:` populated + `status: partially-revealed`) is specified in `~/.claude/skills/ttrpg-gm/references/secret-extraction.md` under "Extraction-time partial-reveal handling." **Never carry forward the anti-pattern** — splitting a partially-revealed Secret into a Consequence (revealed portion) + tightened Secret (still-hidden portion) — as a learned rule; that reference also documents why the split breaks the Secret lifecycle. If a prior review accidentally captured the split shape, drop the lesson at the next review and reconstruct the four-piece shape.
 - **Beat `kind:` classifications.** GM corrections to proposed `kind:` (e.g., "GM-supplied kind value 'foreshadow' applied to Beats with prophecy-shaped body content"; "items under `## Lore` should be `kind: news` not unclassified"). Apply on subsequent docs.
 - **Clue–Secret pairings.** GM confirmations of ambiguous Beat–Secret pairings ("Hidden Information item X links to Secret `mayor-funds-cult`, not `mayor-was-blackmailed`"). Apply on subsequent docs facing the same ambiguity shape.
+- **PC identity confirmations** per [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md). When the GM resolves a Step 4a PC-vs-NPC safety-net ASK as "PC," record the identity for the rest of the run: *"Doc 3: `marisa` confirmed as PC (stub written at `pcs/marisa.md` with `aliases: [Mari]`); subsequent mentions in this run route to the PC, not to NPC CREATE."* Subsequent docs that propose a `npcs/marisa.md` CREATE or that mention "Marisa" / "Mari" by name get the PC identity applied silently — the extended dedup-matching rule treats the just-written `pcs/marisa.md` (with the GM-confirmed `aliases:`) as a confident PC match, so the candidate routes to a no-op (the PC already exists). The lesson skips the re-ASK, not the per-doc review; if `linked_pcs:` or `belongs_to:` references would land on Marisa from later docs, they still surface in the per-doc review summary so the GM can audit the PC binding. *"NPC"* answers are not carried forward — the absence of a PC-identity lesson is the default, and the agent re-evaluates per doc.
 
 Do not invent lessons. Only capture what the GM's decisions explicitly support. If a rejection is ambiguous in motive ("rejected this Reference note — was it because of the kind, or just this specific instance?"), note it as a candidate rather than a confirmed lesson and ask the GM at the top of doc N+1's review: *"Carrying forward as a candidate rule: do not promote passing innkeepers. Apply this rule, or was the previous rejection just about that specific innkeeper?"*
 
@@ -1009,4 +1144,5 @@ End cleanly. Do not loop back into Phase 3.
 - **ADR-0009** — Beats are GM-authored. Ingest is the fourth creation path (source docs are the GM's prior authoring). Extract Beat-shaped content (encounter lists, planned scenes, per-PC hooks, adventure-tagged ideas). Threads vs Beats is the party-awareness test: party knows → Thread; GM prep → Beat. Populate `linked_adventures`, `linked_locations`, `linked_pcs`, `linked_npcs` at extraction time per the proximity rules in Step 3's Beat shape subsection — these fields feed `/prep-session`'s tiered surfacing and leaving them empty forces a manual backfill. Phase 4's `campaign.md` lists pending Beats explicitly. Beat `kind:` (open enum) is classified primarily by source-section heading per `~/.claude/skills/ttrpg-gm/references/beat-kind-classification.md` (Scenes → set-piece; Lore/Rumors → news; Handouts → handout; Hidden Information for the DM → clue with `linked_secrets:`; Triggers → escalation; PC-attributed hooks → character-moment).
 - **ADR-0011** — Plugin doesn't own ongoing git operations beyond `/ingest`'s two bookend commits (the scaffolder's initial commit and Phase 4's follow-up commit). `/wrap-session` and every workflow downstream of `/ingest` does not auto-commit. The follow-up commit is `/ingest`'s symmetric bookend, not a precedent for steady-state auto-commit.
 - **ADR-0013** — Skill packaging (`skills/<name>/SKILL.md`); templates live under `templates/`.
+- **ADR-0018** — PC roster is a Phase 2 (Survey) deliverable. The bounded skim collects PC candidates from prose signals; the agent stages a proposed roster (`.ttrpg-staging/survey-pcs.md`) alongside the description list in the same review batch. On approval, each surviving roster line becomes a stub `pcs/<slug>.md` with `kind: pc` and optional `aliases:`. Phase 2 Step 0's single-doc shortcut runs a stripped survey (description + roster) instead of skipping; zero-doc scaffold-only still skips. Phase 3 Step 4a includes a PC-vs-NPC safety-net ASK for late-addition PCs the survey missed; confirmed PC identities join Step 5b carried-forward lessons.
 - **ADR-0014** — Secrets are a fourth lifecycle object: GM-only facts the party may not know but could discover. Stored at `secrets/<slug>.md` with required `belongs_to:` (non-empty list of non-ephemeral container paths — Adventure, NPC, PC, Location, Faction, Item). `/ingest` extracts Secrets from module GM-only sections ("Secrets and Lies" / "Adventure Background" / "DM-Only" / "Hidden Information" / equivalents — per `~/.claude/skills/ttrpg-gm/references/secret-extraction.md`). The Adventure container is automatic (the ingested doc's slug); additional containers come from named NPCs / Locations / Factions / Items in the Secret's own prose (proximity rule). Every container in `belongs_to:` carries a symmetric `## Secrets` section wiki-linking back to the Secret per `~/.claude/skills/ttrpg-gm/references/bidi-link-maintenance.md`. Secret slug dedup is `secrets/`-scoped per `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`; the resolution shape for collisions is *merge containers / separate / rename*. Reference Python for the four query operations lives at `tests/test_secret_store.py`; for the bidi maintenance, `tests/test_bidi_link.py`.

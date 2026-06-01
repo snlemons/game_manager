@@ -39,6 +39,34 @@ aliases: []                          # optional: list of other names this entity
 - `/ingest` Phase 3 CREATE: omit `aliases:` (or write `aliases: []`) unless the source doc names both the canonical and at least one alias and the GM confirms the relationship at the per-doc review per `~/.claude/skills/ttrpg-gm/references/reference-note-extraction.md`. The agent's first proposal follows the canonical-choice heuristic in ADR-0017; the GM picks canonical at review.
 - `/wrap-session` Pass 2 CREATE: omit `aliases:` unless the session notes name both the canonical and an alias and the GM confirms the relationship at Step 3 ambiguity clarification.
 - UPDATE (alias added to an existing Reference note): append the new alias to the existing `aliases:` list (do not replace); preserve every other frontmatter field byte-for-byte.
+- `/ingest` Phase 2 PC stub CREATE (per [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md)): write `kind: pc` explicitly so the file is unambiguous on read, include `aliases:` only when the survey roster line captured nicknames (`— alias: <name>` suffixes), and write an optional one-line body if the GM enriched the staged annotation — otherwise leave the file as frontmatter + H1 only. The stub shape is intentionally minimal; longer-form PC content (backstory, disposition, party-role) lands later via hand-edit or via a future PC source-doc ingest per [#57](https://github.com/snlemons/game_manager/issues/57).
+
+### Worked example: PC stub
+
+The Phase 2 PC roster promotion writes a minimal stub. Example for *Helerel* (nickname *Helly*), enriched at staging with a one-line role description:
+
+```yaml
+---
+kind: pc
+aliases: [Helly]
+---
+
+# Helerel
+
+Dwarf cleric.
+```
+
+Example for *Silas*, no nickname captured at survey time, no one-line body (the GM didn't enrich the annotation — the agent leaves the body empty rather than inventing):
+
+```yaml
+---
+kind: pc
+---
+
+# Silas
+```
+
+Both shapes are valid. Downstream skills read `kind: pc` to disambiguate from NPCs; the `aliases:` field (when present) feeds the same dedup-matching pass that handles NPC aliases per [ADR-0017](../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md).
 
 ### Validation
 
