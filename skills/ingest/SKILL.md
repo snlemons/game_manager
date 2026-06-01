@@ -12,7 +12,7 @@ The full workflow has four phases:
 1. **Scaffold** — write the plugin's templates into the target directory, `git init`, and make an initial commit. **(Implemented in slice 1.)**
 2. **Survey** — discover input docs, bounded-skim each, propose a one-line description per doc as an editable diff-style list, propose a processing order (world info → adventures → session-shaped), confirm both with the GM. **(Implemented in slice 3.)**
 3. **Per-doc extraction loop** — for each doc, in the confirmed processing order, extract Reference notes, adventure metadata, Threads, and Consequences; cross-doc dedup against existing campaign files (confident matches propose updates; ambiguous matches surface to the GM); present a per-doc proposed diff; the GM approves; corrections carry forward as visible lessons applied to subsequent docs. **(Single-doc case implemented in slice 2; multi-doc cross-doc dedup and cross-doc learning implemented in slice 3.)**
-4. **Wrap-up** — bulk-prompt the GM for any missing `order:` values on ingest-era Adventures, regenerate the campaign-root `campaign.md` as the agent-maintained Campaign overview, and make a follow-up git commit capturing everything ingested since the scaffolder's initial commit. **(Implemented in slice 4.)**
+4. **Wrap-up** — bulk-prompt the GM for any missing `order:` values on ingest-era Adventures, regenerate the campaign-root `campaign.md` as the agent-maintained Campaign overview, and make a follow-up git commit capturing the wrap-up's own changes (`campaign.md` regen plus any Adventure `order:` backfill — Phase 3's per-doc commits handle the rest, per issue #61). **(Implemented in slice 4.)**
 
 In this slice, all four phases run end-to-end. Phase 4 runs after the per-doc loop completes (or, if the GM invokes `/ingest` on an already-populated repo just to finalize, runs against current campaign state).
 
@@ -400,7 +400,24 @@ This step applies only in the multi-doc case. Single-doc skips straight to Step 
 4. The survey-confirmed description for each doc becomes the steering input for that doc's Step 1 — there is no per-doc bounded-skim re-proposal in the multi-doc path (Phase 2 already did that). The GM may still revise the description at Step 1 if the full read in Step 2 changes their mind, exactly as in the single-doc case.
 5. After the last doc completes (or the GM cancels mid-run), discard the carried-forward lessons. They are scoped to one ingest run; they do not persist across `/ingest` invocations.
 
-If the GM cancels during any doc's review, write nothing for the cancelled doc, exit cleanly, and report which docs in the order were completed, which was cancelled, and which were not reached. Already-written approved files from prior docs in the same run stay written — the GM owns the next commit (ADR-0011).
+If the GM cancels during any doc's review, write nothing for the cancelled doc and run the **refined cancel-prompt** (Step 4b's cancel branch below): when one or more docs have already committed in this run, surface the three responses — *keep all* (leave committed docs in place; resume later), *reset to before doc K* (`git reset --hard` to roll back doc K and everything after, drop carried-forward lessons accumulated by docs ≥ K), or *abandon entirely* (`git reset --hard` to the Phase 1 scaffold commit, drop all lessons). Report which docs in the order were completed, which was cancelled, and which were not reached.
+
+### Step 0c: Recovery pre-flight (resume-after-crash)
+
+This step runs once at the top of Phase 3 (before doc 1's Step 1), on every invocation. It detects the **resume-after-crash / resume-after-keep-all-cancel** state that the per-doc commits enable (issue #61).
+
+1. Run `git log --grep '^/ingest doc ' --reverse --format='%H %s'` in the campaign repo. If the output is empty, this is a fresh Phase 3 run — proceed to Step 1 with doc 1. Otherwise the campaign already has per-doc commits from a prior `/ingest` invocation.
+2. Check whether the prior run completed Phase 4. The Phase 4 wrap-up commit's subject starts with `/ingest wrap-up` (per Phase 4 Step 3b's message format). Run `git log --grep '^/ingest wrap-up' --format='%H'` and look for any wrap-up commit landing **after** the most recent per-doc commit. If one exists, the prior run completed cleanly — there's nothing to resume. Proceed to Step 1 with doc 1 of *this* run's survey.
+3. If per-doc commits exist but no subsequent wrap-up commit does, the prior run crashed or was cancelled with **keep all** mid-Phase-3. Count the per-doc commits (N) and surface to the GM:
+
+   > *"This campaign has N committed Phase 3 docs from a prior `/ingest` run but no wrap-up. Resume at doc N+1, or abandon and re-scaffold?"*
+
+   Accept the GM's choice:
+
+   - **Resume** → skip Phase 2 entirely (the survey already ran in the prior invocation, and Phase 2's staging artifacts were deleted at the end of survey — there's nothing to re-edit). Skip the first N docs of *this* invocation's survey (or, if the GM re-ran the input directory with a different doc set, surface the mismatch and ask whether to abandon-and-rescan instead — the resume path assumes the input directory is unchanged). Continue Phase 3 from doc N+1; carried-forward lessons start empty (the in-memory lessons from the prior run died with that invocation — there is no way to reconstruct them from the commit log, and that is OK; the lessons are nice-to-have, not load-bearing for correctness).
+   - **Abandon and re-scaffold** → look up the Phase 1 scaffold commit (subject `Scaffold campaign repo via ttrpg-gm /ingest`). Run `git reset --hard <scaffold-sha>`. Proceed with a fresh Phase 2 → Phase 3 against the input directory.
+
+   The resume path is implementation-light because Phase 3's per-doc loop already iterates by index — starting at doc N+1 instead of doc 1 is a matter of skipping the first N iterations after re-running survey. If implementing the full resume path is out of scope for the change that adds this spec, file a follow-up issue and at minimum implement the **detection** + the prompt: surfacing the state to the GM (so they can manually `git reset --hard <sha>` if they want to abandon) is the cheap part of the resilience win.
 
 ### Step 1: Bounded skim and proposed description
 
@@ -843,8 +860,28 @@ Note: deleting a Secret's staged file also drops the paired container back-refer
 Accept these response shapes:
 
 1. **Continue** → re-read every file remaining in `.ttrpg-staging/doc-<N>/` to capture GM edits. Treat any staged file the GM deleted as rejection (don't write that one; record the rejection for Step 5b's lessons capture). Proceed to Step 5 to move surviving staged files to their final locations.
-2. **Reject everything** → delete `.ttrpg-staging/doc-<N>/`. Write nothing for this doc. In multi-doc, ask the GM whether to continue to the next doc or exit the run. Already-written approved files from prior docs in the same run stay written.
-3. **Cancel** → delete `.ttrpg-staging/doc-<N>/` (and `.ttrpg-staging/` if it's now empty), leave the rest of the filesystem unchanged, exit cleanly. Already-written approved files from prior docs in the same run stay written.
+2. **Redo this doc** → the GM previews the staged set and decides this doc's extraction is wrong and they want a clean retry against the same doc. No commit has happened yet for this doc, so no git rollback is needed — just discard the in-flight staging and re-run from Step 1 against the same doc. Specifically: delete `.ttrpg-staging/doc-<N>/`; drop every carried-forward lesson **accumulated by this doc** (lessons whose source-doc index equals <N> — earlier docs' lessons are preserved); re-enter Phase 3 Step 1 with the same doc, same description, and the same per-doc index <N>. Surface to the GM: *"Discarded staging for doc <N>/<total>: <doc-name>. Re-extracting now with a clean slate (lessons accumulated by this doc dropped; earlier docs' lessons preserved)."*
+3. **Reject everything** → delete `.ttrpg-staging/doc-<N>/`. Write nothing for this doc. In multi-doc, ask the GM whether to continue to the next doc or exit the run. Already-committed approved files from prior docs in the same run stay committed.
+4. **Cancel** → run the **refined cancel-prompt** below.
+
+#### Refined cancel-mid-Phase-3 prompt (issue #61)
+
+Whenever the GM cancels mid-Phase-3 (this Step 4b's "cancel" branch, the implicit cancel at any in-doc prompt, or a Ctrl-C-equivalent that surfaces as a cancel), branch on whether any per-doc commits have landed in *this* `/ingest` run.
+
+- **No prior per-doc commits this run** (cancelling at doc 1's review, or before any doc's Step 5.8 commit succeeded): existing cancel behavior — delete `.ttrpg-staging/doc-<N>/` (and `.ttrpg-staging/` if it's now empty), leave the rest of the filesystem unchanged, exit cleanly. The campaign tree is byte-identical to its pre-Phase-3 state.
+- **One or more docs already committed this run**: surface this prompt verbatim (substituting N and the doc count):
+  > *"You've committed N of <total> docs. What would you like to do?*
+  > *1. **Keep all** — exit; resume later at doc N+1.*
+  > *2. **Reset to before doc <K>** — roll back doc K and everything after; re-enter Phase 3 at doc K with a clean slate. (Tell me which doc to reset to.)*
+  > *3. **Abandon entirely** — roll back all per-doc commits; exit with a freshly-scaffolded campaign."*
+
+  Accept the GM's choice and act:
+
+  - **Keep all** → delete `.ttrpg-staging/doc-<N>/` (and `.ttrpg-staging/` if empty); exit cleanly. The N committed docs stay on disk and in history; on the next `/ingest` invocation Phase 3 Step 0c (recovery pre-flight) detects this and offers to resume at doc N+1.
+  - **Reset to before doc K** → look up the SHA of doc K's predecessor (i.e., the commit whose subject is `/ingest doc <K-1>/<total>: ...` for K > 1; for K = 1, this is the Phase 1 scaffold commit). Run `git log --grep '^/ingest doc '` (or `git log --grep '^Scaffold campaign repo'` for the K = 1 case) to recover the SHA. Run `git reset --hard <sha>`. Drop every carried-forward lesson whose source-doc index is ≥ K from the in-memory lessons set (lessons accumulated by docs 1..K-1 are preserved — they came from work that is still in the tree). Delete `.ttrpg-staging/doc-<N>/` (and any other in-flight staging). Re-enter Phase 3 at doc K (the per-doc loop machinery already supports starting at a given index — the doc list, descriptions, and PC roster from Phase 2 are still in memory). Surface to the GM: *"Reset HEAD to <sha> (before doc K). Dropped lessons accumulated by docs ≥ K. Re-extracting doc K (<doc-name>) now."*
+  - **Abandon entirely** → look up the Phase 1 scaffold commit SHA (the commit whose subject is `Scaffold campaign repo via ttrpg-gm /ingest`, per Phase 1 Step 3). Run `git reset --hard <sha>`. Drop **all** carried-forward lessons. Delete `.ttrpg-staging/` if it exists. Exit cleanly. Surface to the GM: *"Reset HEAD to the Phase 1 scaffold commit. Campaign is back to its freshly-scaffolded state; the PCs from Phase 2 and all Phase 3 extraction are gone. Re-invoke `/ingest` against the input directory to start over."*
+
+  On any `git reset --hard` failure (working-tree dirty for files outside the lifecycle/reference folders, signing failure on a hook, etc.), surface the git error verbatim and stop — do not retry; do not try a partial reset. Same discipline as the per-doc-commit failure path above.
 
 Rejected items (whether per-file via deletion or per-doc via reject-everything) must never be written to final locations. Approved items must be written exactly as the GM left them in the staging file — no late re-interpretation.
 
@@ -868,7 +905,38 @@ Once the GM says continue in Step 4b, move every file remaining in `.ttrpg-stagi
 5. **Run bidi maintenance after each Secret write.** Per `~/.claude/skills/ttrpg-gm/references/bidi-link-maintenance.md`'s `apply_belongs_to`: for each container in the Secret's `belongs_to:`, confirm the container's file body now contains the `## Secrets` section wiki-link. If a container is missing the back-reference (the GM deleted the staged container back-reference UPDATE but the contract-violation prompt was overridden, or the container is a pre-existing file whose back-reference wasn't staged because it was already present at stage time but has since been edited), surface it to the GM as a post-write reconciliation prompt. The algorithm is idempotent — re-running on an already-linked container is a no-op (`tests/test_bidi_link.py::TestApplyBelongsTo::test_is_idempotent_on_rerun`).
 6. After each file is moved, delete it from staging. When `.ttrpg-staging/doc-<N>/` is empty, remove the directory. If `.ttrpg-staging/` is now empty (no other workflows' staging present), remove that too.
 7. Do not modify `campaign.md`, `CLAUDE.md`, or anything under `.claude/` from inside Phase 3. Campaign-overview regeneration belongs to Phase 4. Don't drift `campaign.md` from its scaffolded state during the per-doc loop.
-8. Do **not** commit. Ongoing git ownership belongs to the GM (ADR-0011). The plugin only commits once, in the scaffold phase (and once again at Phase 4 wrap-up).
+8. **Per-doc commit (issue #61).** After every approved file from this doc has been moved into the campaign tree (Steps 5.1–5.7 above), make a single git commit checkpointing this doc's promotion. The commit's purpose is *forward-resilience* (crash-resume / cancel-and-resume), not a per-doc revert unit — cross-doc dedup state and bidi back-references mean a partial revert can orphan back-references in earlier-doc containers (see issue #61's analysis). The reset paths in the cancel branch below handle the "doc N went bad, redo from there" case by rolling back doc N **and everything after** in one go.
+
+   **Staging scope.** Stage only the paths this doc wrote or modified — never sweep in unrelated GM edits. Compute the set with `git status --porcelain` filtered to entries inside the lifecycle/reference folders (`npcs/`, `pcs/`, `locations/`, `factions/`, `items/`, `adventures/`, `threads/`, `consequences/`, `beats/`, `secrets/`); these are the only folders Phase 3 writes into (per Step 5.7's `campaign.md` / `CLAUDE.md` / `.claude/` carve-out). Modifications to existing Reference notes and `## Secrets` section back-references on container files count — they're paired with this doc's CREATEs in the same commit. Pass each path explicitly to `git add` (`git add npcs/foo.md npcs/bar.md secrets/baz.md ...`) — prefer explicit paths over `git add -A` so the scope is auditable, mirroring the per-path discipline `/wrap-session` uses (issue #71 / ADR-0011 amendment).
+
+   If the staging scope is empty (the GM rejected every proposed file for this doc at Step 4b), skip the commit entirely — there's nothing to checkpoint. Continue to Step 5b / the next doc.
+
+   **Commit message format.** Single-line subject in the form:
+
+   ```
+   /ingest doc <N>/<total>: <doc-name> (<one-line summary of what was extracted>)
+   ```
+
+   Examples:
+
+   - `/ingest doc 1/12: faerun-gods.md (5 Reference notes, 2 Secrets)`
+   - `/ingest doc 2/12: lost-mines.md (Adventure, 12 Reference notes, 4 Beats)`
+   - `/ingest doc 12/12: session-1-notes.md (3 Threads, 2 Consequences)`
+
+   `<N>` is the doc's 1-based position in the confirmed processing order; `<total>` is the count of docs that survived survey ordering (the same total Step 4b's review header shows). `<doc-name>` is the doc's basename. The parenthetical summary mirrors the same kind-count shorthand Phase 4 Step 3b uses for the wrap-up message; group by kind. Drop kinds with zero counts. UPDATE counts (existing Reference note updates, Secret container merges, container back-references added) may be folded into the same summary parenthetical when non-trivial (e.g., `(Adventure, 8 NPCs, 1 NPC UPDATE, 3 Secrets)`).
+
+   **On git failure** (no user configured, pre-commit hook rejection, signing failure, anything else): surface the underlying git error verbatim to the GM and stop. Do not retry. Do not amend a prior per-doc commit. Per ADR-0011's amendment ("surfaces git failures verbatim rather than retrying"), the GM resolves the underlying issue and re-invokes `/ingest`, which will detect the per-doc-committed state via Phase 3 Step 0c (recovery pre-flight) and resume at doc N+1 from the last successful commit.
+
+   This is the *per-doc bookend* — analogous to Phase 1's scaffold commit and Phase 4's wrap-up commit, but scoped to a single doc rather than the whole run. The two existing bookends still happen; the per-doc commits sit between them in the log. The full commit sequence for a typical 12-doc run is:
+
+   ```
+   Scaffold campaign repo via ttrpg-gm /ingest
+   /ingest doc 1/12: faerun-gods.md (5 Reference notes, 2 Secrets)
+   /ingest doc 2/12: lost-mines.md (Adventure, 12 Reference notes, 4 Beats)
+   ...
+   /ingest doc 12/12: session-1-notes.md (3 Threads, 2 Consequences)
+   /ingest wrap-up (campaign.md regen, 3 Adventures backfilled with order: 1/2/3)
+   ```
 
 ### Step 5b: Capture cross-doc learning
 
@@ -916,7 +984,7 @@ The wrap-up phase runs **after** the last doc's Step 5 / Step 5b completes (Phas
 
 1. **Order prompt** — bulk-ask the GM for any missing `order:` values on Adventures whose order wasn't reliably inferable from source.
 2. **`campaign.md` composer** — regenerate the campaign-root Campaign overview per ADR-0007, replacing the placeholder written by Phase 1.
-3. **Secondary commit** — capture everything that landed in the campaign repo since the scaffolder's initial commit as a single follow-up commit, with a count-summary message the GM can override.
+3. **Wrap-up commit** — capture the wrap-up's own changes (`campaign.md` regen and any Adventure `order:` backfill) in a single follow-up commit; Phase 3's per-doc commits between the Phase 1 scaffold and this commit already cover the lifecycle/reference content (issue #61).
 
 ### Slice 4 scope
 
@@ -930,9 +998,11 @@ Before doing any GM-visible prompting:
 2. **Confirm wrap-up is wanted.** If Phase 4 is being invoked at the end of a Phase 3 run, tell the GM the per-doc loop is complete and ask explicitly: *"Run wrap-up now (order prompt, regenerate `campaign.md`, commit), or hold and let you inspect the repo first?"* Accept "wrap up", "go ahead", "hold", "cancel" as response shapes. If the GM holds or cancels, exit cleanly — the already-written files from Phase 3 stay on disk; the GM can invoke wrap-up later or commit themselves.
 3. **Surface uncommitted state — but only when it actually warrants attention.** Run `git status --porcelain` in the campaign repo. Sort the entries into **expected** and **unexpected** before prompting the GM. Don't ask about expected files.
 
+   Note (post-issue-#61): in the fresh-ingest path Phase 3's per-doc commits already captured every lifecycle/reference write before Phase 4 begins, so `git status --porcelain` at this preflight will typically be **empty** at the lifecycle-folder level. Untracked entries listed below remain expected for legacy reasons (e.g., a Phase 3 doc whose Step 5.8 commit failed and the GM is re-invoking, or a hand-edit between Phase 3 and Phase 4) — the carve-out doesn't change.
+
    **Expected** (proceed silently; these go into the wrap-up commit):
-   - Untracked files under the lifecycle/reference folders: `npcs/`, `locations/`, `factions/`, `items/`, `adventures/`, `threads/`, `consequences/`, `beats/`, `secrets/`. These are Phase 3's output.
-   - Modified Reference notes and Adventure files in the same lifecycle folders. Phase 3 writes `## Secrets` section back-references into containers when Secrets are extracted, which appears as a modification (M-status) on existing container files. Treat those modifications as expected — they're paired with the new `secrets/` files in the same wrap-up commit.
+   - Untracked files under the lifecycle/reference folders: `npcs/`, `pcs/`, `locations/`, `factions/`, `items/`, `adventures/`, `threads/`, `consequences/`, `beats/`, `secrets/`. These are Phase 3's output that escaped the per-doc commits (rare in the post-issue-#61 path).
+   - Modified Reference notes and Adventure files in the same lifecycle folders. Phase 3 writes `## Secrets` section back-references into containers when Secrets are extracted, which appears as a modification (M-status) on existing container files. Treat those modifications as expected — they're paired with the new `secrets/` files in the same per-doc or wrap-up commit.
    - Untracked files under `sessions/` (rare during fresh ingest, but allowed — Phase 3 may have proposed Adventure-side history under `adventures/<slug>/` rather than synthetic sessions; still, accept).
    - Untracked scaffolder artifacts inside `.claude/` that the plugin's current Phase 1 templates list write but older plugin versions didn't include in the initial commit; the wrap-up commit absorbs them. Treat any `.claude/<file>` that matches the current Phase 1 template set as expected — **except** `.claude/settings.json`, which is intentionally gitignored (machine-local absolute paths) and must **not** be swept into the wrap-up commit even if it appears in `git status --porcelain` (which it shouldn't, since it's gitignored, but on legacy campaigns where it was committed before this convention changed, leave it alone and let the GM migrate per the issue tracker).
    - Untracked `.gitignore` at the campaign root — same staleness reason; matches the Phase 1 template set.
@@ -1013,61 +1083,49 @@ Write `campaign.md` from scratch. Do not preserve manual GM edits to the prior `
 
 Phase 4 source for the party-location line (per the composer's `/ingest` derivation rules): among `status: active` Adventures, pick the highest-`order:`; fall back to highest-`order:` overall if none are active, then alphabetically-last Adventure slug if `order:` is null across the board (explicitly calling that out in the prose). Read that Adventure's `adventure.md` body for an explicit location reference (wiki link to a `locations/<slug>.md` is the strongest signal; failing that, a clearly-named place in prose). Never invent a location.
 
-### Step 3: Secondary commit
+### Step 3: Wrap-up commit
 
-After Step 1 (any `order:` writes) and Step 2 (the `campaign.md` regeneration) have both landed on disk, make a single follow-up git commit in the campaign repo capturing everything that's changed since the scaffolder's initial commit.
+After Step 1 (any `order:` writes) and Step 2 (the `campaign.md` regeneration) have both landed on disk, make a single follow-up git commit in the campaign repo capturing **only** the wrap-up's own changes: the `campaign.md` regen and any Adventure frontmatter modifications from Step 1's `order:` backfill. Everything Phase 3 wrote is already committed in the per-doc commit chain that lives between the Phase 1 scaffold commit and this wrap-up commit (per Phase 3 Step 5.8, issue #61).
 
-This is the deliberate exception to the no-auto-commit rule. `/wrap-session` does not auto-commit (ADR-0011); the GM owns ongoing commits with their own messages. **But** `/ingest` Phase 1 already broke that pattern once by making the scaffolder's initial commit, and Phase 4 is the symmetric bookend: the scaffolder committed the templates, and wrap-up commits the populated campaign that the rest of `/ingest` just produced. The pattern is *the plugin owns commits at the bookends of `/ingest` only*; ADR-0011 governs every commit *after* `/ingest` has finished. The issue spec explicitly asks for this commit; ADR-0011 is about the steady state.
+This is the deliberate exception to the no-auto-commit rule. `/wrap-session` does not auto-commit (ADR-0011); the GM owns ongoing commits with their own messages. **But** `/ingest` Phase 1 already broke that pattern by making the scaffolder's initial commit, Phase 3 broke it again with per-doc commits (issue #61 — multi-doc runs need crash-resume checkpoints), and Phase 4 is the closing bookend: the scaffolder committed the templates, the per-doc commits checkpoint each doc's extraction, and wrap-up commits the campaign-level regen that ties them together. The pattern is *the plugin owns commits inside `/ingest` only*; ADR-0011 governs every commit *after* `/ingest` has finished.
 
 Surface this reasoning to the GM in the same exchange as the proposed commit message — see Step 3b below — so it's auditable, not hidden.
 
 #### Step 3a: Compute counts
 
-Walk the working tree from the campaign repo root. For each kind, count files that are **new since the scaffolder's initial commit** (use `git status --porcelain` plus `git diff --name-status <scaffold-commit>..HEAD` if anything was already committed, plus the new untracked files). For the wrap-up commit, this will typically be everything in:
+The wrap-up commit's scope is **narrow** — just `campaign.md` and any Adventure frontmatter touched by Step 1. Phase 3's per-doc commits already captured the lifecycle/reference content; this commit is the campaign-level cleanup, not a count-summary of everything ingested. Use `git status --porcelain` to enumerate the uncommitted set at this point; typically you'll see:
 
-- `npcs/` — count of new files, broken down isn't required but call out by kind if non-trivial: NPCs, locations, factions, items each as their own count.
-- `locations/`, `factions/`, `items/` — same.
-- `adventures/` — count of new `adventures/<slug>/adventure.md` files (one per Adventure; don't count sub-files separately for the headline count, but mention sub-files in the body if any exist).
-- `threads/` — count of new Thread files.
-- `consequences/` — count of new Consequence files.
-- `beats/` — count of new Beat files (ADR-0009 path #4: ingest extracts Beats from GM-authored prep). Optionally break down by `kind:` when the count is non-trivial (e.g., "2 set-piece, 1 clue, 1 character-moment, 0 news / handout / escalation / unclassified").
-- `secrets/` — count of new Secret files (ADR-0014: ingest extracts Secrets from module "Adventure Background" / "Secrets and Lies" / etc.).
 - `campaign.md` — modified (the Phase 4 Step 2 regen).
-- Anything else — count it but note it as "other" in the proposed message.
+- `adventures/<slug>/adventure.md` — modified (Step 1's `order:` backfill — one entry per Adventure that got an integer assigned).
+- Possibly stale scaffolder artifacts (the pre-flight Step 0 #3 carve-out — `.gitignore`, `.claude/<file>` rewrites, etc.) — these get absorbed by the wrap-up commit too.
 
-Modified files from Phase 3 (UPDATEs to existing Reference notes, and `## Secrets` section back-references added to container files when Secrets were extracted) are counted under "Reference notes updated" and "container back-references added" separately from new ones, mirroring Phase 3 Step 6's closing-summary distinction.
+Count Adventures backfilled and surface the slugs in the proposed message. Do **not** re-count the Phase 3 content — it's already in history; pointing at it in the wrap-up message would be misleading (the GM can run `git log` for that).
 
 #### Step 3b: Propose the commit message
 
 Present the proposed commit message to the GM, with the reasoning for the auto-commit framed once explicitly, and let the GM edit or override before the commit lands. Example:
 
 ```
-Phase 4 will make a single follow-up commit capturing the ingest. This is
-the symmetric bookend to the scaffolder's initial commit — Phase 1 committed
-the templates, Phase 4 commits the populated campaign. After this commit,
-the plugin doesn't make further commits on its own (ADR-0011); you own every
-subsequent commit.
+Phase 4 will make a single follow-up commit capturing the wrap-up's own
+changes (campaign.md regen + any Adventure order: backfill). The per-doc
+extraction commits are already in history (one commit per ingested doc,
+per issue #61). After this commit, the plugin doesn't make further commits
+on its own (ADR-0011); you own every subsequent commit.
 
 Proposed commit message:
 
-    Initial ingest: 12 Reference notes (8 NPCs, 3 locations, 1 faction),
-                    2 Adventures, 4 Threads, 3 Consequences,
-                    5 Beats (2 set-piece, 1 clue, 1 character-moment, 1 news),
-                    3 Secrets
+    /ingest wrap-up (campaign.md regen, 3 Adventures backfilled with order: 1/2/3)
 
 Files that will be staged and committed:
-  - npcs/ (8 new; 3 modified with ## Secrets back-references)
-  - locations/ (3 new; 1 modified with ## Secrets back-reference)
-  - factions/ (1 new; 1 modified with ## Secrets back-reference)
-  - adventures/lost-mines/, adventures/cragmaw-castle/ (2 new)
-  - threads/ (4 new)
-  - consequences/ (3 new)
-  - beats/ (5 new)
-  - secrets/ (3 new)
   - campaign.md (modified — Phase 4 regen)
+  - adventures/lost-mines/adventure.md (modified — order: 1)
+  - adventures/cragmaw-castle/adventure.md (modified — order: 2)
+  - adventures/wave-echo-cave/adventure.md (modified — order: 3)
 
 Approve, edit the message, edit the staged set, or skip the commit?
 ```
+
+The subject-line shape is `/ingest wrap-up (<short summary>)`. When no Adventures needed backfilling, the summary collapses to `/ingest wrap-up (campaign.md regen)`. When Step 0 #3 absorbed stale scaffolder artifacts, mention them in the summary (`/ingest wrap-up (campaign.md regen, 3 Adventures backfilled, scaffolder artifacts absorbed)`). Keep the subject under ~100 characters; spill detail into the body if needed.
 
 Accept these responses:
 
@@ -1080,7 +1138,7 @@ Accept these responses:
 
 Once the GM approves:
 
-1. Stage exactly the file set the GM approved. Prefer naming files and directories explicitly (e.g., `git add npcs/ locations/ factions/ items/ adventures/ threads/ consequences/ beats/ secrets/ campaign.md`) over `git add -A` so the GM can see what's staged. Include modified container files (Reference notes with new `## Secrets` section back-references) — those are tracked under their respective `<kind>/` directories, so the directory-form `git add` picks them up naturally.
+1. Stage exactly the file set the GM approved. Prefer naming files explicitly (e.g., `git add campaign.md adventures/lost-mines/adventure.md adventures/cragmaw-castle/adventure.md`) over `git add -A` so the GM can see what's staged. For this commit, the typical scope is just `campaign.md` plus any Adventure files Step 1 touched — there are no lifecycle/reference folder writes in Phase 4 itself (those were committed per-doc in Phase 3 Step 5.8).
 2. Run `git commit -m <message>` with the approved message. Multi-line messages should be passed via `-m` per paragraph or via a heredoc — whichever the tool affordance supports.
 3. Do **not** configure `git config user.name` or `git config user.email` from the plugin. Use whatever the GM's git config provides; if the commit fails because git has no identity configured, surface the underlying git error to the GM verbatim and stop without retrying.
 4. After commit, run `git status` and surface its output to the GM in the closing summary — they should see a clean working tree.
@@ -1112,7 +1170,7 @@ End cleanly. Do not loop back into Phase 3.
 ## What to avoid
 
 - Don't use the words "DM", "game", "story" (for campaign), "world" (for Atlas), "hero", "hook" (overloaded), or "module" (reserved for *published* adventures only). Use the glossary in this plugin's `CONTEXT.md`.
-- Don't auto-commit anything beyond `/ingest`'s two bookend commits — the scaffolder's initial commit (Phase 1 Step 3) and the wrap-up's follow-up commit (Phase 4 Step 3). Ongoing git ownership belongs to the GM thereafter (see ADR-0011). `/wrap-session` and every other workflow downstream of `/ingest` does not auto-commit.
+- Don't auto-commit anything beyond `/ingest`'s commit chain — the scaffolder's initial commit (Phase 1 Step 3), the per-doc commits during Phase 3 (Step 5.8, one per ingested doc, per issue #61), and the wrap-up commit (Phase 4 Step 3). Ongoing git ownership belongs to the GM thereafter (see ADR-0011). `/wrap-session` and every other workflow downstream of `/ingest` does not auto-commit.
 - Don't write to anywhere outside the target campaign directory.
 - Don't ask the GM to fill out forms or pick from long lists. Capture-now-structure-later (ADR-0004).
 - Don't invent dates, NPC names, or campaign details the source doc didn't provide.
@@ -1142,7 +1200,7 @@ End cleanly. Do not loop back into Phase 3.
 - **ADR-0007** — Adventure frontmatter schema (`status` required, `order` optional/ingest-era, dates optional/nullable, durations free-form prose) and the agent-maintained `campaign.md` Campaign overview shape that Phase 4 Step 2 composes. The agent never invents dates.
 - **ADR-0008** — Ingest's full workflow is survey + per-doc + wrap-up; slice 4 implements all four phases (survey, per-doc loop with cross-doc dedup and learning, and wrap-up with the bulk order prompt, `campaign.md` composer, and follow-up commit). Bounded skim plus GM-edited descriptions plus GM-confirmed processing order steer extraction.
 - **ADR-0009** — Beats are GM-authored. Ingest is the fourth creation path (source docs are the GM's prior authoring). Extract Beat-shaped content (encounter lists, planned scenes, per-PC hooks, adventure-tagged ideas). Threads vs Beats is the party-awareness test: party knows → Thread; GM prep → Beat. Populate `linked_adventures`, `linked_locations`, `linked_pcs`, `linked_npcs` at extraction time per the proximity rules in Step 3's Beat shape subsection — these fields feed `/prep-session`'s tiered surfacing and leaving them empty forces a manual backfill. Phase 4's `campaign.md` lists pending Beats explicitly. Beat `kind:` (open enum) is classified primarily by source-section heading per `~/.claude/skills/ttrpg-gm/references/beat-kind-classification.md` (Scenes → set-piece; Lore/Rumors → news; Handouts → handout; Hidden Information for the DM → clue with `linked_secrets:`; Triggers → escalation; PC-attributed hooks → character-moment).
-- **ADR-0011** — Plugin doesn't own ongoing git operations beyond `/ingest`'s two bookend commits (the scaffolder's initial commit and Phase 4's follow-up commit). `/wrap-session` and every workflow downstream of `/ingest` does not auto-commit. The follow-up commit is `/ingest`'s symmetric bookend, not a precedent for steady-state auto-commit.
+- **ADR-0011** — Plugin doesn't own ongoing git operations beyond `/ingest`'s commit chain: the scaffolder's initial commit (Phase 1 Step 3), the per-doc commits during Phase 3 extraction (Step 5.8 — one per doc, issue #61), and Phase 4's wrap-up commit. `/wrap-session` and every workflow downstream of `/ingest` does not auto-commit (it stays single-skill-invocation = single-commit; `/ingest` is the asymmetric case because it's a multi-doc unbounded workflow where checkpointing each doc is the right primitive).
 - **ADR-0013** — Skill packaging (`skills/<name>/SKILL.md`); templates live under `templates/`.
 - **ADR-0018** — PC roster is a Phase 2 (Survey) deliverable. The bounded skim collects PC candidates from prose signals; the agent stages a proposed roster (`.ttrpg-staging/survey-pcs.md`) alongside the description list in the same review batch. On approval, each surviving roster line becomes a stub `pcs/<slug>.md` with `kind: pc` and optional `aliases:`. Phase 2 Step 0's single-doc shortcut runs a stripped survey (description + roster) instead of skipping; zero-doc scaffold-only still skips. Phase 3 Step 4a includes a PC-vs-NPC safety-net ASK for late-addition PCs the survey missed; confirmed PC identities join Step 5b carried-forward lessons.
 - **ADR-0014** — Secrets are a fourth lifecycle object: GM-only facts the party may not know but could discover. Stored at `secrets/<slug>.md` with required `belongs_to:` (non-empty list of non-ephemeral container paths — Adventure, NPC, PC, Location, Faction, Item). `/ingest` extracts Secrets from module GM-only sections ("Secrets and Lies" / "Adventure Background" / "DM-Only" / "Hidden Information" / equivalents — per `~/.claude/skills/ttrpg-gm/references/secret-extraction.md`). The Adventure container is automatic (the ingested doc's slug); additional containers come from named NPCs / Locations / Factions / Items in the Secret's own prose (proximity rule). Every container in `belongs_to:` carries a symmetric `## Secrets` section wiki-linking back to the Secret per `~/.claude/skills/ttrpg-gm/references/bidi-link-maintenance.md`. Secret slug dedup is `secrets/`-scoped per `~/.claude/skills/ttrpg-gm/references/dedup-matching.md`; the resolution shape for collisions is *merge containers / separate / rename*. Reference Python for the four query operations lives at `tests/test_secret_store.py`; for the bidi maintenance, `tests/test_bidi_link.py`.
