@@ -159,18 +159,7 @@ ADR-0008 explicitly prefers surfaced ambiguity over confident wrong commits. If 
 
 Per [ADR-0018](../../docs/adr/0018-pc-roster-as-survey-deliverable.md), the survey is the right place to establish who the PCs are — the bounded skim already collected the signals (Step 1), and the GM-confirmed roster is upstream of every Phase 3 extraction that needs PC identity (Beat `linked_pcs:`, Secret `belongs_to:` PC containers, Reference-note PC-vs-NPC discrimination, Log narrative voice).
 
-Aggregate the per-doc PC candidates collected during Step 1 across the whole input directory. For each candidate name:
-
-- Sum the doc count where the candidate appeared.
-- Note any explicit-roster-section hits (these promote the candidate to "Likely PC" regardless of frequency).
-- Note any nickname / canonical-name pairings captured during the skim (these become `aliases:` on the stub).
-- Classify the candidate:
-  - **"Likely PC"** — appears in multiple docs as an actor, named under an explicit roster heading, or named in proximity to "the party" / "the PCs" patterns.
-  - **"Possible NPC"** — appears once, in a one-off mention, or in a pattern that reads more like NPC framing than PC framing. The candidate is still surfaced; the label tells the GM where the agent leaned.
-
-Hold the candidate list in memory; Step 3 writes it to a staging file alongside the descriptions.
-
-If no PC candidates surfaced from the skim (a bestiary-only input, a pure world-info input), the roster proposal is empty — the staged file still appears in Step 3, with prose telling the GM the agent found no PC candidates and inviting them to add any the skim missed. Empty is the honest default.
+**Apply `../../references/pc-roster-proposal.md`** for the candidate aggregation rule, the "Likely PC" / "Possible NPC" classification, and the empty-roster default. That reference is the canonical spec — the skim-signal list in Step 1 above and the candidate handling here are mirrors of its content. Hold the resulting candidate list in memory; Step 3 writes it to a staging file alongside the descriptions per the staged file format documented in the same reference.
 
 ### Step 3: Write the description list and PC roster to staging files for GM edit
 
