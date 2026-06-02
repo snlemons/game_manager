@@ -50,6 +50,11 @@
       "Bash(git status)",
       "Bash(git diff:*)",
       "Bash(git log:*)"
+    ],
+    "deny": [
+      "Edit(/{{CAMPAIGN_PATH}}/.claude/rules/style.md)",
+      "Write(/{{CAMPAIGN_PATH}}/.claude/rules/style.md)",
+      "MultiEdit(/{{CAMPAIGN_PATH}}/.claude/rules/style.md)"
     ]
   }
 }
