@@ -274,14 +274,17 @@ def check_allow_array_comma_discipline(raw: str) -> list[str]:
         strings or trip the JSON parser, depending on whitespace).
     """
     lines = raw.splitlines()
-    # Locate the `"allow": [` line and the matching `]` line.
+    # Locate the `"allow": [` line and the matching `]` line. The close
+    # may end with a trailing `,` when a sibling key (e.g.
+    # `"deny": [...]` per ADR-0021) follows the allow array in the same
+    # object — accept both `]` and `],` as end markers.
     start_idx: int | None = None
     end_idx: int | None = None
     for idx, line in enumerate(lines):
         if start_idx is None and '"allow"' in line and line.rstrip().endswith("["):
             start_idx = idx
             continue
-        if start_idx is not None and line.strip() == "]":
+        if start_idx is not None and line.strip() in ("]", "],"):
             end_idx = idx
             break
 

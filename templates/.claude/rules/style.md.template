@@ -1,0 +1,72 @@
+---
+paths:
+  - "sessions/**/*.md"
+  - "adventures/**/*.md"
+  - "npcs/**/*.md"
+  - "pcs/**/*.md"
+  - "locations/**/*.md"
+  - "factions/**/*.md"
+  - "items/**/*.md"
+  - "threads/**/*.md"
+  - "consequences/**/*.md"
+  - "beats/**/*.md"
+  - "secrets/**/*.md"
+---
+
+# Writing style and voice
+
+This file is **GM-authored**. The agent reads it and applies it as steering whenever it drafts prose into any of the path-globbed artifacts above (Briefs, Logs, Reference-note bodies, Thread / Consequence / Beat / Secret prose, Adventure descriptions). The agent **does not write to this file** -- it is a contract from you to the agent, not a workspace the agent maintains. Edit it freely whenever your voice for the campaign sharpens.
+
+The path globs auto-load this file when the agent edits any campaign artifact under the listed directories. You don't need to ask the agent to consult it; Claude Code loads it as part of the rule scope when a matching file is opened.
+
+Keep this file tight -- roughly 50 to 200 lines. It rides into every drafting context for matching artifacts; bloat costs working memory the agent could spend on the prose itself. Prefer **prose with examples** over rule lists. Show the agent what your voice sounds like; don't try to fully axiomatize it.
+
+The sections below are placeholders. Fill the ones that matter for this campaign; leave the rest empty (or delete them entirely). An empty section is a signal that you don't have a strong preference there yet -- better than a fabricated one.
+
+## Formality and register
+
+How formal is the prose? Are contractions fine, or do they feel out of place? Is the voice plainspoken or literary?
+
+*Example to replace with your own:*
+
+> This campaign reads like a fireside ghost story. Contractions are fine; ornate vocabulary is not. Short sentences when something lands. The narrator never winks at the reader.
+
+## Tense (especially for Logs)
+
+What tense does narration use? Logs in particular often want a specific tense -- past tense reads like a chronicle; present tense reads like a recap.
+
+*Example to replace with your own:*
+
+> Logs are written in past tense, third person, from a neutral chronicler's perspective. "The party entered the crypt" -- not "you enter the crypt" and not "the party enters the crypt." Briefs (which look forward) use present tense for the world state and conditional ("if they go north...") for branches.
+
+## Vocabulary preferences
+
+Are there terms you reach for, and terms you avoid? Setting-specific vocabulary (your world's word for "magic"), genre register (grim-dark vs. high-fantasy vs. cozy), or banned words (often a GM has a few words that pull them out of the campaign's tone).
+
+*Example to replace with your own:*
+
+> Magic is called "the Art" in this setting; never "magic" in narrated prose. Avoid: epic, awesome, badass, cool. Prefer concrete sensory verbs over abstractions -- "the lamp guttered" not "the atmosphere darkened."
+
+## PC referencing conventions
+
+How are PCs referred to in prose? By name, by class, by epithet? Does the party have a collective name? Are there nicknames the table uses that should appear in the Log?
+
+*Example to replace with your own:*
+
+> Refer to PCs by their first names: Sera, Bram, Helerel. "Helerel" in formal prose, "Helly" in dialogue and quick references -- both are her, and both should appear naturally. The party calls itself "the Lanterns" in-fiction; use the collective name when the action is group-scale.
+
+## Narrative voice
+
+Who is the narrator? Is it the GM's own voice, or a fictional chronicler inside the world? Is the narrator omniscient or limited to what the party witnessed? Should the prose name what the party didn't see, or stay scoped to their perspective?
+
+*Example to replace with your own:*
+
+> The Log narrator is a chronicler inside the world, writing decades after the events. Knows what the party knew at the time, and may foreshadow with light irony ("they did not yet know what waited at the bridge"), but never spoils GM-side secrets the party never learned. Briefs are GM-facing prose, not in-fiction -- drop the chronicler voice there.
+
+## Anything else
+
+Patterns that don't fit the categories above. Paragraph length and shape. When to use bullets vs. running prose. Recurring imagery. How to handle dice outcomes in Logs.
+
+*Example to replace with your own:*
+
+> Logs alternate short scene-summary paragraphs with a longer paragraph for the moment that mattered most. Bullets only for in-fiction lists the characters made (shopping lists, watch rosters). Dice are never named in Log prose -- translate outcomes into narrative ("the lock held" not "Bram rolled a 7").

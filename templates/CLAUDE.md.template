@@ -61,8 +61,15 @@ Resolution is by filename match (case-insensitive, with light normalization). Ba
 
 Do not invent alternative link syntaxes. `[[wiki link]]` is the convention.
 
+## Writing style and voice
+
+This campaign carries a GM-authored writing-style guide at [`.claude/rules/style.md`](./.claude/rules/style.md). It steers the prose voice of any artifact the agent drafts under `sessions/`, `adventures/`, `npcs/`, `pcs/`, `locations/`, `factions/`, `items/`, `threads/`, `consequences/`, `beats/`, `secrets/` — Briefs, Logs, Reference-note bodies, Adventure descriptions, lifecycle-object prose. The file's `paths:` frontmatter auto-loads it when the agent opens any matching artifact; you don't need to ask the agent to consult it.
+
+The file is **GM-authored, not agent-written**. The scaffolder ships a stub with placeholder sections (formality, tense, vocabulary, PC referencing, narrative voice); fill in the sections that matter, leave or delete the rest. Keep it tight — roughly 50 to 200 lines, prose with examples rather than rule lists.
+
 ## Pointers
 
 - **Current campaign state:** [`campaign.md`](./campaign.md)
 - **Session conventions:** [`.claude/rules/sessions.md`](./.claude/rules/sessions.md)
 - **Adventure conventions:** [`.claude/rules/adventures.md`](./.claude/rules/adventures.md)
+- **Writing style and voice:** [`.claude/rules/style.md`](./.claude/rules/style.md) (GM-authored)

@@ -34,6 +34,11 @@ A campaign-root `campaign.md` file, agent-maintained, snapshotting the campaign'
 _Avoid_: Index, README, dashboard.
 _See also_: `references/campaign-overview-composer.md` for the live composer spec.
 
+**Writing style guide**:
+A campaign's `.claude/rules/style.md` file, **GM-authored** and **agent-read-only**, carrying the campaign's prose voice (formality, narrative tense, vocabulary preferences, PC referencing conventions, narrative voice). Auto-loads via `paths:` frontmatter on every artifact the agent drafts under `sessions/`, `adventures/`, `npcs/`, `pcs/`, `locations/`, `factions/`, `items/`, `threads/`, `consequences/`, `beats/`, `secrets/`. Distinct from the [ADR-0007:41](./docs/adr/0007-temporal-model-and-campaign-overview.md) **GM-editorial unread file** (themes, pitch, house rules — agent doesn't read at all): the style guide is the GM-authored file the agent **does** read, every time it drafts prose into a matching artifact. Also distinct from `campaign.md` and other agent-maintained files (which the agent both reads and writes). Scaffolder ships a stub with placeholder sections; the GM owns the body thereafter.
+_Avoid_: voice profile, tone file, style sheet.
+_See also_: [ADR-0021](./docs/adr/0021-gm-writing-style-via-claude-rules-style.md) for the rationale and contract.
+
 **Atlas**:
 A shared setting repo that holds world content (regions, gods, calendars, recurring NPCs) used across multiple campaigns. Separate git repo from any campaign. Treated as a default; campaigns override it locally.
 _Avoid_: Setting, world (use Atlas), lore.
