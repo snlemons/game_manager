@@ -37,6 +37,11 @@ landed and the pattern is settled.
 - `tests/conftest.py` exposes session-scoped `repo_root`,
   `templates_dir`, and `fixtures_dir` path fixtures so test files
   don't recompute paths.
+- Skill-specific reference impls live inline in `tests/test_*.py`
+  alongside the assertions that consume them. Anything imported across
+  test files lives in `tests/_helpers.py` (issue #112) — the
+  underscore prefix tells pytest "not a test file". No `test_*.py`
+  file imports from another `test_*.py` file.
 - Tests use `tmp_path` for any filesystem mutation. They never write
   inside the repo.
 - Tests assert **external behavior**: file paths written, frontmatter

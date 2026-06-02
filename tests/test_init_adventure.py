@@ -43,12 +43,12 @@ invocations?" section).
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
-from typing import Optional
 
 import pytest
 import yaml
+
+from _helpers import write_initial_adventure_file
 
 
 # Conventional path the skill ships at, per ADR-0013 (skills directory
@@ -103,70 +103,11 @@ def _split_frontmatter(text: str) -> tuple[dict, str]:
     return parsed, body
 
 
-def _slugify(name: str) -> str:
-    """Slugify per `references/dedup-matching.md`'s normalization rule.
-
-    Lowercase, strip leading "the ", collapse non-alphanumerics to single
-    hyphens, trim leading/trailing hyphens. This is the minimal
-    implementation the SKILL.md's Step 2a documents; the production
-    skill follows the full reference.
-    """
-    s = name.strip().lower()
-    if s.startswith("the "):
-        s = s[4:]
-    s = re.sub(r"[^a-z0-9]+", "-", s)
-    s = s.strip("-")
-    return s
-
-
 # --------------------------------------------------------------------------
-# Reference Adventure-file writer — encodes the SKILL.md's Step 2b output.
+# Reference Adventure-file writer (`write_initial_adventure_file`) lives in
+# `tests/_helpers.py` so `/init-campaign`'s first-Adventure sub-flow test
+# can share it without importing across `test_*.py` files (see issue #112).
 # --------------------------------------------------------------------------
-
-
-def write_initial_adventure_file(
-    *,
-    campaign_root: Path,
-    adventure_name: str,
-    premise: Optional[str] = None,
-) -> Path:
-    """Write the initial Adventure file the SKILL.md Step 2 produces.
-
-    Mirrors the structural shape the walkthrough lands at after the
-    Premise step approves: `adventures/<slug>/adventure.md` with the
-    canonical Adventure frontmatter (`status: introduced`, `order: ~`,
-    all dates `~`) and an H1 + optional premise body.
-
-    The full walkthrough also produces Locations, NPCs, Threads,
-    Secrets, and Beats; those are exercised by their own per-kind
-    schema tests in `test_frontmatter.py`. This helper pins the
-    minimum viable Adventure file — what `/init-adventure` writes for
-    a GM who supplies a name and a premise and then approves.
-    """
-    slug = _slugify(adventure_name)
-    adventure_dir = campaign_root / "adventures" / slug
-    adventure_dir.mkdir(parents=True, exist_ok=True)
-    adventure_path = adventure_dir / "adventure.md"
-
-    frontmatter = (
-        "---\n"
-        "status: introduced\n"
-        "order: ~\n"
-        "introduced: ~\n"
-        "started: ~\n"
-        "completed: ~\n"
-        "in_world_duration: ~\n"
-        "real_world_duration: ~\n"
-        "---\n"
-    )
-    body_lines = [f"# {adventure_name}", ""]
-    if premise:
-        body_lines.extend([premise, ""])
-    adventure_path.write_text(
-        frontmatter + "\n" + "\n".join(body_lines),
-        encoding="utf-8",
-    )
-    return adventure_path
 
 
 # --------------------------------------------------------------------------
@@ -437,11 +378,10 @@ class TestStandaloneModeMatchesScaffolderShape:
         tmp_path: Path,
         templates_dir: Path,
     ) -> None:
-        # Import the reference scaffolder from the sibling test file;
-        # both tests share the contract that the scaffolder produces
+        # Both tests share the contract that the scaffolder produces
         # exactly six files (five committed + one gitignored
         # `.claude/settings.json`).
-        from test_ingest_scaffolding import (
+        from _helpers import (
             EXPECTED_SCAFFOLDED_FILES,
             scaffold_campaign,
         )
@@ -477,7 +417,7 @@ class TestStandaloneModeMatchesScaffolderShape:
         Adventure pre-populated, ready for `/prep-session` to draft
         session 1 against.
         """
-        from test_ingest_scaffolding import scaffold_campaign
+        from _helpers import scaffold_campaign
 
         target = tmp_path / "standalone-oneshot"
         scaffold_campaign(
