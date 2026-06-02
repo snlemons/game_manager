@@ -673,27 +673,23 @@ class TestSkillCitations:
             "lifts Phases 2/3/4 *minus Step 2.5* into the reference."
         )
 
-    def test_skill_phase_1_preserved(
+    def test_skill_phase_1_cites_scaffolder_reference(
         self, ingest_skill_text: str
     ) -> None:
-        """Phase 1 (Scaffold) prose remains in SKILL.md.
+        """Phase 1 (Scaffold) cites the scaffolder reference per slice A.
 
-        Phase 1 is slice A's scope. Slice B's edits must not touch Phase 1.
-        The whole point of the slice split is each lift is independent.
+        Phase 1 is slice A's scope. Slice B's edits must not touch the
+        Phase 1 section. After slice A merged, the Phase 1 step prose was
+        lifted to ``references/scaffolder.md`` and SKILL.md now cites that
+        reference. This test guards that B's edits left Phase 1's citation
+        shape intact.
         """
         assert "## Phase 1: Scaffold" in ingest_skill_text
-        # Phase 1 has four steps with substantive content; check the four
-        # step headings are intact.
-        for step in (
-            "### Step 1: Validate the target",
-            "### Step 2: Write the six template files",
-            "### Step 3: Initialize the git repo and make an initial commit",
-            "### Step 4: Report what was written",
-        ):
-            assert step in ingest_skill_text, (
-                f"Phase 1 step heading {step!r} should still be in SKILL.md. "
-                "Slice B does not modify Phase 1 (that's slice A's domain)."
-            )
+        assert "../../references/scaffolder.md" in ingest_skill_text, (
+            "Phase 1 in SKILL.md must cite ../../references/scaffolder.md "
+            "(the scaffolder reference established by slice A). "
+            "Slice B does not modify Phase 1."
+        )
 
 
 # ---------------------------------------------------------------------------
