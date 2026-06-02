@@ -49,10 +49,11 @@ paths:
   - "consequences/**/*.md"
   - "beats/**/*.md"
   - "secrets/**/*.md"
+  - ".ttrpg-staging/**/*.md"
 ---
 ```
 
-The eleven globs cover every content-bearing campaign directory — every directory the GM-facing prose lives in. Auto-load fires when the agent reads or edits any markdown file inside any of them. `campaign.md` (campaign root) is deliberately excluded because its composer (`references/campaign-overview-composer.md`) is structured by the spec, not by free prose — the style guide has little to apply there. The campaign's own `CLAUDE.md` and the other `.claude/rules/*.md` files are also excluded; they aren't artifacts whose voice the GM cares about.
+The eleven content-bearing directory globs cover every directory the GM-facing prose lives in; the twelfth (`.ttrpg-staging/**/*.md`) mirrors them under the staging prefix so the auto-load also fires during the drafting window for skills that route through the staging pattern (see [`references/staging-pattern.md`](../../references/staging-pattern.md) and [issue #119](https://github.com/snlemons/game_manager/issues/119) for the empirical verification that the auto-load fails on staging paths without it — the staging entry is a mechanism extension, not a scope expansion). Auto-load fires when the agent reads or edits any markdown file inside any of these directories. `campaign.md` (campaign root) is deliberately excluded because its composer (`references/campaign-overview-composer.md`) is structured by the spec, not by free prose — the style guide has little to apply there. The campaign's own `CLAUDE.md` and the other `.claude/rules/*.md` files are also excluded; they aren't artifacts whose voice the GM cares about.
 
 The GM may add or remove globs to suit. The starter set is generous; trimming it to (say) `sessions/**` only would scope the steering to Briefs and Logs alone, which is a reasonable simpler stance for GMs who only care about narrative-voice in those documents.
 
