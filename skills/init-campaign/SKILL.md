@@ -1,6 +1,6 @@
 ---
 name: init-campaign
-description: Bootstrap a brand-new TTRPG campaign repo from scratch. Two modes — from-scratch (collect campaign name + system, elicit a pitch/theme/tone via a conversational refinement loop, optionally collect a PC roster, optionally compose a first Adventure via `/init-adventure`'s in-campaign walkthrough, then scaffold the campaign repo with the pitch landing in `campaign.md` as a GM-authored opener) and docs (point at an existing directory of notes and route to `/ingest` — slice E, ships later). Use when the GM invokes `/init-campaign`, says they want to "start a new campaign" / "spin up a fresh campaign" / "bootstrap a campaign from nothing", or when the GM has *no* existing notes and is starting clean. For extending an already-scaffolded campaign with new content, route to `/ingest` (existing notes) or `/init-adventure` (net-new Adventure).
+description: Bootstrap a brand-new TTRPG campaign repo. Two modes — from-scratch (collect campaign name + system, elicit a pitch/theme/tone via a conversational refinement loop, optionally collect a PC roster, optionally compose a first Adventure via `/init-adventure`'s in-campaign walkthrough, then scaffold the campaign repo with the pitch landing in `campaign.md` as a GM-authored opener) and docs (point at an existing directory of markdown notes, scaffold the campaign repo, then invoke the shared extraction pipeline — survey + per-doc extraction loop + wrap-up — against the input directory so the docs supply the campaign content). Use when the GM invokes `/init-campaign`, says they want to "start a new campaign" / "spin up a fresh campaign" / "bootstrap a campaign from nothing" / "ingest these notes into a new campaign", or when the GM has *no* existing scaffolded campaign and is starting clean. For extending an already-scaffolded campaign with new content, route to `/ingest` (existing notes) or `/init-adventure` (net-new Adventure).
 ---
 
 # /init-campaign
@@ -10,7 +10,7 @@ description: Bootstrap a brand-new TTRPG campaign repo from scratch. Two modes �
 The skill runs in one of two modes, chosen at Step 3 from a GM-facing prompt:
 
 1. **From-scratch mode** — the GM has no existing notes and wants to bootstrap the campaign through a guided conversation. The skill collects campaign name + system, elicits a pitch via the shared conversational-refinement-loop reference, optionally collects a PC roster, optionally composes a first Adventure by handing off to `/init-adventure`'s in-campaign walkthrough, then scaffolds the campaign repo with the pitch landing in `campaign.md` as a GM-authored opener block the composer preserves verbatim across regens.
-2. **Docs mode** — the GM points at an existing directory of markdown notes they want extracted. *(TODO slice E: docs mode is not yet implemented. When asked for docs mode in this slice, tell the GM that docs mode is not ready and route them to `/ingest` against a scaffolded campaign instead. The from-scratch path below is the one this slice ships.)*
+2. **Docs mode** — the GM points at an existing directory of markdown notes they want extracted. The skill collects campaign name + system, scaffolds the campaign repo via the shared scaffolder reference, then hands the input directory to the shared extraction pipeline (survey + per-doc extraction loop + wrap-up). Pitch elicitation is **skipped** in docs mode — the docs themselves supply the campaign content and the Phase 4 `campaign.md` regen surfaces the picture. If the GM later wants a curated pitch on top, they can hand-edit `campaign.md`'s GM-authored opener block (the composer preserves whatever the GM authors between the markers verbatim across future regens; see Step 8 of the from-scratch flow for the marker shape).
 
 Follow the domain vocabulary defined in the plugin's `CONTEXT.md`: **GM**, **PC**, **NPC**, **Campaign**, **Adventure**, **Atlas**, **Reference note**, **Session**, **Brief**, **In-play notes**, **Log**, **Thread**, **Consequence**, **Beat**, **Secret**, **Non-ephemeral container**, **Campaign overview**. Don't drift to synonyms the glossary explicitly avoids (no "DM", "module" for non-published adventures, "hook" for Thread, "seed" for Beat, "story"/"game" for Campaign, "world" for Atlas, etc.).
 
@@ -20,7 +20,7 @@ The GM invokes `/init-campaign` to start a brand-new campaign. Typical phrasings
 
 Route elsewhere if the GM's intent is something different:
 
-- **GM has existing markdown notes they want extracted** → `/ingest` (it walks a pile of docs into structured campaign content; in slice E `/init-campaign`'s docs mode will become a front-door for this same path, but for now `/ingest` is the entry point).
+- **GM has existing markdown notes they want extracted into an already-scaffolded campaign** → `/ingest` (it walks a pile of docs into structured campaign content; `/ingest` requires a pre-scaffolded campaign and hard-stops otherwise per [ADR-0019](../../docs/adr/0019-init-campaign-as-bootstrapping-front-door.md)). If the campaign isn't yet scaffolded, route to `/init-campaign` docs mode (Step 3 below) — it scaffolds first and then composes the same extraction pipeline `/ingest` runs.
 - **GM wants to author a single net-new Adventure inside an already-scaffolded campaign** → `/init-adventure` in-campaign mode.
 - **GM wants to author a standalone one-shot** → `/init-adventure` standalone mode (it scaffolds a campaign-shaped repo with one pre-populated Adventure per [ADR-0019](../../docs/adr/0019-init-campaign-as-bootstrapping-front-door.md)).
 
@@ -62,10 +62,50 @@ Like the name, the system isn't slugified. Don't proceed without it — it's par
 
 Ask the GM: *"Do you have a directory of existing notes you want extracted, or are you bootstrapping the campaign from scratch?"* — accepting two response shapes:
 
-- **"From scratch" / "no notes" / "just bootstrap"** → from-scratch branch (Steps 4–7 below).
-- **"I have docs at <path>"** → docs branch. *(TODO slice E: docs branch is not implemented in this slice. Tell the GM: "Docs mode isn't ready yet — for now, run `/init-campaign` to scaffold an empty campaign, then `/ingest <docs path>` against the scaffolded campaign to walk the docs in. Or, if you want, I can run the from-scratch flow against this target and you can `/ingest` the docs on top afterwards." Wait for the GM's choice; if from-scratch is OK, drop into Step 4. If the GM wants to wait for slice E, exit cleanly with no filesystem writes.)*
+- **"From scratch" / "no notes" / "just bootstrap"** → from-scratch branch (Steps 4–9 below).
+- **"I have docs at <path>"** → docs branch (Steps D1–D3 below). Collect the input directory path before proceeding; resolve it to an absolute path and confirm it exists and contains at least one markdown file. If the path is missing or empty, ask again or offer to drop into the from-scratch branch; do not invent a docs directory and do not silently fall through to from-scratch.
 
 The mode prompt is **before** any filesystem write. Mode auto-detection from the target directory's contents is **not** the contract here — `/init-adventure`'s cwd-based auto-detection is a different shape (it auto-routes between in-campaign and standalone modes based on existing campaign markers). `/init-campaign` always asks because the docs-vs-scratch distinction is about the GM's authoring intent, not about disk state.
+
+## Docs mode — Steps D1–D3
+
+In docs mode the skill scaffolds the campaign first, then composes the shared extraction pipeline against the input directory. This is mechanically the same workflow `/ingest` runs in Phases 2–4, with `/init-campaign` owning the upfront scaffold (since `/ingest` requires a pre-scaffolded campaign and hard-stops otherwise per [ADR-0019](../../docs/adr/0019-init-campaign-as-bootstrapping-front-door.md)).
+
+Pitch elicitation, the PC-roster step from the from-scratch branch (Step 5), and the optional first-Adventure sub-flow (Step 6) are **all skipped** in docs mode. The docs supply the campaign content directly:
+
+- The **PC roster** is established by the extraction pipeline's Phase 2 Step 2.5 (the same shared `../../references/pc-roster-proposal.md` reference, applied against the input docs' skim signals — not against a hand-authored roster the way Step 5 of the from-scratch branch does).
+- The **Adventures** land via the per-doc extraction loop's Phase 3 Step 3 Adventure-shape extraction whenever a doc's GM-confirmed description reads as Adventure-shaped.
+- The **pitch** is implicit in the source docs; Phase 4's `campaign.md` regen surfaces the picture. The GM-authored opener block (from the from-scratch branch's Step 8) is **not** auto-created in docs mode — there's nothing to put in it. If the GM later wants a curated pitch on top of the docs-derived campaign, they hand-edit `campaign.md` and bracket the prose with the `<!-- gm-opener:start -->` / `<!-- gm-opener:end -->` markers; the composer (per `../../references/campaign-overview-composer.md` "GM-authored opener block preservation") preserves whatever the GM authors between the markers verbatim across every future regen. The pitch-persistence rule from the from-scratch branch (Step 8 #1) applies identically whenever the markers appear — the composer doesn't care which mode created them.
+
+### Step D1 — Scaffold the campaign repo
+
+Run the shared scaffolder reference at `../../references/scaffolder.md` against the target directory. Inputs are the campaign name (Step 1), the system (Step 2), and the target directory. The scaffolder handles target-directory validation, the seven template writes with placeholder substitution, `git init`, and the initial commit (*"Scaffold campaign repo via ttrpg-gm /ingest"* — the commit message is stable across consumers per the scaffolder reference's Step 3 note).
+
+The scaffolder's Step 1 (target validation) is the only place docs-mode-specific guidance applies: when the target directory already contains source docs the GM wants extracted, the scaffolder's "exists but non-empty without markers" branch fires (Step 1.4) and asks for GM confirmation before scaffolding alongside the existing files. Confirm with the GM, then proceed. The scaffolder will leave the input docs untouched (they aren't in its `git add` set) and land the campaign-shape files alongside them.
+
+If the input directory and the target directory are **distinct** paths (the common case — the GM points at `~/notes/old-campaign/` for docs and wants the campaign at `~/campaigns/new-campaign/`), the scaffolder's Step 1.4 branch doesn't fire and the scaffold runs cleanly. The input directory is read-only throughout the extraction pipeline; nothing in this skill ever writes to the input path.
+
+After the scaffolder's initial commit lands, the target directory is a fresh campaign repo and becomes the **campaign root** for the rest of this run.
+
+### Step D2 — Run the shared extraction pipeline
+
+Hand the scaffolded campaign root and the input directory to the shared extraction pipeline at `../../references/extraction-pipeline.md`. That reference is the canonical spec for Phases 2 (survey: bounded skim, description + PC-roster proposal, processing-order proposal), 3 (per-doc extraction loop with cross-doc dedup, carried-forward lessons, per-doc commits), and 4 (wrap-up: bulk-prompt for missing Adventure `order:` values, regenerate `campaign.md` per the composer, follow-up commit). All three phases run identically to the way `/ingest` consumes the same reference — `/init-campaign`'s only addition in docs mode is the upfront scaffold (Step D1 above).
+
+The pipeline owns its own staging files (`.ttrpg-staging/survey-descriptions.md`, `.ttrpg-staging/survey-pcs.md`, `.ttrpg-staging/survey-order.md`, per-doc `.ttrpg-staging/doc-<N>/` trees, `.ttrpg-staging/adventure-order.md`), per-doc commits (`/ingest doc <N>/<total>: …`), and wrap-up commit (`/ingest wrap-up (…)`). The agent does **not** re-implement any of that here — the reference is the spec.
+
+The pipeline's commit-subject prefixes still read `/ingest doc …` and `/ingest wrap-up …` even when run from `/init-campaign` — the prefix is the *workflow's* identifier (the extraction pipeline), not the invoking skill, so the commit log stays consistent whether the pipeline ran via `/ingest` or via `/init-campaign` docs mode. This is the same shape Phase 1's scaffold commit follows (*"Scaffold campaign repo via ttrpg-gm /ingest"* regardless of consumer per the scaffolder reference's Step 3 note).
+
+#### Cancel paths within Step D2
+
+The extraction pipeline owns its own cancel surfaces (Phase 2's continue/cancel ask covering both staged files; Phase 3's refined cancel-mid-Phase-3 prompt with Keep all / Reset to before doc K / Abandon entirely; Phase 4's hold-or-proceed pre-flight). `/init-campaign` does not interpose additional cancel prompts during Step D2 — the pipeline's cancel branches handle the lifecycle.
+
+The Step D1 scaffold commit is the lower bound of *Abandon entirely*: if the GM picks Abandon at Phase 3, the pipeline's `git reset --hard` resets to the scaffold commit (the same lower bound `/ingest` uses), leaving the GM with a freshly-scaffolded but otherwise empty campaign. `/init-campaign`'s docs-mode run is then complete — the scaffold survives, the GM can re-run `/init-campaign` against a different input directory or hand-edit from the scaffold.
+
+### Step D3 — Closing message
+
+After the extraction pipeline's Phase 4 closing summary, add `/init-campaign`'s own one-line closing note: tell the GM the docs-mode run is complete, the target directory is at *(absolute path)*, the input directory was *(absolute path)*, and that the commit chain in the campaign repo now reads `Scaffold campaign repo via ttrpg-gm /ingest` → per-doc commits → `/ingest wrap-up (…)`. A next-step hint: *"Run `/prep-session` whenever you're ready to play, or `/init-adventure` to add a net-new Adventure on top of what the docs supplied."* If the GM later wants to add a GM-authored pitch opener, point them at the marker shape documented under Step 8 #1 below.
+
+The from-scratch mode's Steps 4–9 (pitch elicitation, optional PC roster, optional first-Adventure sub-flow, scaffold, promote staging, closing message) do **not** run in docs mode — the docs-mode flow ends here at Step D3.
 
 ## Step 4 — Collect and refine the pitch (from-scratch mode)
 
@@ -201,6 +241,8 @@ Tell the GM:
 
 The skill follows the staging-pattern reference's cancel contract — no file outside `.ttrpg-staging/` (or the not-yet-created target directory) is touched until Step 7's scaffolder runs and Step 8's promotion+commit lands.
 
+### From-scratch mode
+
 - **Cancel at Step 1–3 (before any staging write):** exit cleanly. Nothing on disk changes.
 - **Cancel during Step 4's refinement loop (pitch staging exists):** delete `.ttrpg-staging/init-campaign/` and (if empty) `.ttrpg-staging/`; remove the target directory if this run created it and it's now empty. Exit.
 - **Cancel during Step 5 (PC roster collection):** delete the staged pitch and any PC stubs that were partially staged. Same cleanup as above.
@@ -208,11 +250,18 @@ The skill follows the staging-pattern reference's cancel contract — no file ou
 - **Cancel after Step 7's scaffolder commit:** the scaffolder's commit stays (per the conversational-refinement-loop reference, the scaffolder's commit is its own checkpoint). The GM has a clean scaffolded campaign with no pitch landed yet, and can re-run `/init-campaign` (which will refuse to re-scaffold per the scaffolder's idempotency check — tell the GM to use `/ingest` or hand-edit if they want to continue against the half-bootstrapped repo).
 - **Cancel during the Adventure sub-flow (post-scaffolder, post-pitch-promotion):** per `/init-adventure`'s cancel-path semantics, the staged Adventure content is deleted. The scaffolded campaign + pitch + PC roster stay. The GM has a fully-bootstrapped campaign with no Adventure yet.
 
+### Docs mode
+
+- **Cancel at Step 1–3 (before Step D1's scaffolder):** exit cleanly. Nothing on disk changes.
+- **Cancel at Step D1 (mid-scaffolder):** the scaffolder reference's own cancel semantics apply; no further `/init-campaign` cleanup is needed.
+- **Cancel during Step D2 (extraction pipeline):** the extraction pipeline owns its cancel surfaces (Phase 2's continue/cancel, Phase 3's refined cancel-mid-Phase-3 prompt with Keep all / Reset to before doc K / Abandon entirely, Phase 4's hold-or-proceed). On *Abandon entirely* the pipeline's `git reset --hard` rolls back to the Step D1 scaffold commit — leaving the GM with a freshly-scaffolded campaign and an unaltered input directory. `/init-campaign`'s docs-mode run is then complete.
+
 ## Quick reference: which ADR governs what
 
-- **ADR-0007** — `campaign.md` as the agent-maintained Campaign overview; the GM-authored opener block extension (this slice) lives there too via the composer reference.
-- **ADR-0011** — Skill-side git operations land their own checkpoint commits (the model `/prep-session`, `/wrap-session`, `/init-adventure` follow); `/init-campaign` follows the same shape at Step 8.
-- **ADR-0015** — Conversational-refinement-loop pattern; the pitch elicitation in Step 4 runs on top of the shared loop reference.
-- **ADR-0018** — PC roster collection; Step 5 consumes the shared `pc-roster-proposal.md` reference with the empty-roster skip path.
-- **ADR-0019** — `/init-campaign` as the bootstrapping front door; this skill is the implementation of that decision.
-- **ADR-0020** — Modularization via shared `references/` — the scaffolder, the conversational-refinement-loop, the PC roster proposal, the campaign-overview composer, and `/init-adventure` (composed as a sub-flow) are all shared surfaces this skill consumes via relative paths.
+- **ADR-0007** — `campaign.md` as the agent-maintained Campaign overview; the GM-authored opener block extension (from slice D, still applied in docs mode only if the GM hand-authors the markers later) lives there too via the composer reference.
+- **ADR-0008** — Survey + per-doc + wrap-up workflow; docs mode (Step D2) composes the shared extraction pipeline reference that pins this shape.
+- **ADR-0011** — Skill-side git operations land their own checkpoint commits (the model `/prep-session`, `/wrap-session`, `/init-adventure` follow); `/init-campaign` follows the same shape at Step 8 in from-scratch mode and inherits the scaffolder + per-doc + wrap-up commit chain in docs mode via the extraction pipeline.
+- **ADR-0015** — Conversational-refinement-loop pattern; the pitch elicitation in Step 4 runs on top of the shared loop reference. Docs mode skips Step 4 entirely.
+- **ADR-0018** — PC roster collection; Step 5 (from-scratch) consumes the shared `pc-roster-proposal.md` reference with the empty-roster skip path. Docs mode handles PC roster via the extraction pipeline's Phase 2 Step 2.5 instead.
+- **ADR-0019** — `/init-campaign` as the bootstrapping front door; this skill is the implementation of that decision. Docs mode is the front-door equivalent of *"scaffold then `/ingest`"*, composed as one workflow.
+- **ADR-0020** — Modularization via shared `references/` — the scaffolder, the conversational-refinement-loop, the PC roster proposal, the campaign-overview composer, the extraction pipeline, and `/init-adventure` (composed as a sub-flow) are all shared surfaces this skill consumes via relative paths.
