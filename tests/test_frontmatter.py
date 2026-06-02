@@ -816,3 +816,169 @@ class TestPcStubShape:
         assert isinstance(aliases, list)
         assert all(isinstance(a, str) for a in aliases)
         assert aliases == ["Mari"]
+
+
+class TestPcOptionalFrontmatterSlice:
+    """PC schema optional `player:` / `class:` / `level:` fields (ADR-0023, slice H2).
+
+    Per `references/frontmatter-schemas.md` PC schema and ADR-0023, the
+    PC schema gains three optional fields populated when a `PC source:`
+    doc supplies them explicitly. Each is independently optional;
+    omitting any of them is valid; the full PC stat schema (HP, AC,
+    abilities, etc.) is deferred out of v0.3 scope.
+    """
+
+    def test_pc_with_player_field_parses(self, tmp_path: Path) -> None:
+        pc = _write(
+            tmp_path / "pcs" / "aldric.md",
+            """\
+            ---
+            kind: pc
+            player: Sam
+            ---
+
+            # Aldric
+            """,
+        )
+        result = validate_file(tmp_path, pc)
+        assert result["frontmatter"]["player"] == "Sam"
+
+    def test_pc_with_class_field_parses(self, tmp_path: Path) -> None:
+        pc = _write(
+            tmp_path / "pcs" / "aldric.md",
+            """\
+            ---
+            kind: pc
+            class: Paladin
+            ---
+
+            # Aldric
+            """,
+        )
+        result = validate_file(tmp_path, pc)
+        assert result["frontmatter"]["class"] == "Paladin"
+
+    def test_pc_with_level_field_parses(self, tmp_path: Path) -> None:
+        pc = _write(
+            tmp_path / "pcs" / "aldric.md",
+            """\
+            ---
+            kind: pc
+            level: 5
+            ---
+
+            # Aldric
+            """,
+        )
+        result = validate_file(tmp_path, pc)
+        assert result["frontmatter"]["level"] == 5
+
+    def test_pc_with_all_three_optional_fields_parses(
+        self, tmp_path: Path
+    ) -> None:
+        pc = _write(
+            tmp_path / "pcs" / "aldric.md",
+            """\
+            ---
+            kind: pc
+            player: Sam
+            class: Paladin
+            level: 5
+            ---
+
+            # Aldric of Highmoor
+
+            A paladin of the Order of the Ember.
+            """,
+        )
+        result = validate_file(tmp_path, pc)
+        fm = result["frontmatter"]
+        assert fm["kind"] == "pc"
+        assert fm["player"] == "Sam"
+        assert fm["class"] == "Paladin"
+        assert fm["level"] == 5
+
+    def test_pc_without_optional_fields_still_valid(
+        self, tmp_path: Path
+    ) -> None:
+        # The H2-default shape: no `player:` / `class:` / `level:` —
+        # exactly the same as the H1 minimal stub. Omitting the optional
+        # fields must not break validation.
+        pc = _write(
+            tmp_path / "pcs" / "silas.md",
+            """\
+            ---
+            kind: pc
+            ---
+
+            # Silas
+            """,
+        )
+        result = validate_file(tmp_path, pc)
+        fm = result["frontmatter"]
+        assert "player" not in fm
+        assert "class" not in fm
+        assert "level" not in fm
+
+    def test_pc_with_multiclass_string_parses(self, tmp_path: Path) -> None:
+        # Multi-class composites are written as a single string verbatim.
+        pc = _write(
+            tmp_path / "pcs" / "aldric.md",
+            """\
+            ---
+            kind: pc
+            class: Fighter / Cleric
+            ---
+
+            # Aldric
+            """,
+        )
+        result = validate_file(tmp_path, pc)
+        assert result["frontmatter"]["class"] == "Fighter / Cleric"
+
+    def test_pc_with_aliases_and_optional_slice_parses(
+        self, tmp_path: Path
+    ) -> None:
+        # H2 fields compose with H1's `aliases:`.
+        pc = _write(
+            tmp_path / "pcs" / "aldric.md",
+            """\
+            ---
+            kind: pc
+            aliases: [Al]
+            player: Sam
+            class: Paladin
+            level: 5
+            ---
+
+            # Aldric
+            """,
+        )
+        result = validate_file(tmp_path, pc)
+        fm = result["frontmatter"]
+        assert fm["aliases"] == ["Al"]
+        assert fm["player"] == "Sam"
+        assert fm["class"] == "Paladin"
+        assert fm["level"] == 5
+
+    def test_pc_with_belongs_to_field_parses(self, tmp_path: Path) -> None:
+        # Reference notes carry `belongs_to: [pcs/<slug>.md]` when
+        # cross-extracted from PC source backstory (ADR-0023). The same
+        # field name parses successfully on either side; the PC stub
+        # would not typically carry it (PCs are containers, not
+        # contained), but the schema allows the key when present.
+        npc = _write(
+            tmp_path / "npcs" / "caelir-of-highmoor.md",
+            """\
+            ---
+            kind: npc
+            belongs_to: [pcs/aldric.md]
+            ---
+
+            # Caelir of Highmoor
+
+            Aldric's father, a knight of the Order of the Ember.
+            """,
+        )
+        result = validate_file(tmp_path, npc)
+        assert result["frontmatter"]["belongs_to"] == ["pcs/aldric.md"]

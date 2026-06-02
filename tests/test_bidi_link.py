@@ -1058,6 +1058,409 @@ class TestDisplayNameBackReferenceRecognition:
 # ---------------------------------------------------------------------------
 
 
+class TestPcAsContainer:
+    """PC-as-container bidi-link maintenance per ADR-0023.
+
+    Per `references/bidi-link-maintenance.md` § "PC as container," when
+    a Reference note carries the PC in its frontmatter `belongs_to:`
+    (slice H2 — `PC source:` cross-extraction), the PC file gains a
+    `## NPCs` / `## Locations` / `## Factions` / `## Items` section
+    (per the Reference note's kind) wiki-linking the Reference note,
+    and the Reference note gains a `## PCs` section wiki-linking back
+    at the PC. Same symmetric pattern as Secrets per ADR-0014.
+
+    The reference impl below is a near-translation of the PC-as-
+    container maintenance algorithm; the test cases pin the
+    symmetric writes, idempotent re-apply, and the GM-owned-body /
+    agent-maintained-bidi-sections boundary.
+    """
+
+    # ---- Reference impl: apply_pc_belongs_to ----
+
+    PC_SECTION_BY_KIND = {
+        "npcs": "## NPCs",
+        "locations": "## Locations",
+        "factions": "## Factions",
+        "items": "## Items",
+    }
+
+    @classmethod
+    def _kind_of(cls, ref_path: str) -> str:
+        return ref_path.split("/", 1)[0]
+
+    @classmethod
+    def _apply_pc_belongs_to(
+        cls,
+        campaign_root: Path,
+        ref_note_path: str,
+        belongs_to: list[str],
+        summary: str = "",
+    ) -> dict[str, bool]:
+        """Symmetric back-reference maintenance for PC-as-container.
+
+        For each PC path in `belongs_to`:
+          - Ensure the PC file has a kind-named section bullet linking
+            to the Reference note.
+          - Ensure the Reference note has a `## PCs` section bullet
+            linking back to the PC.
+
+        Returns a dict mapping each touched container/note path to True
+        (modified) or False (already correct — idempotent).
+        """
+        summary = summary or "see Reference note for details"
+        ref_kind = cls._kind_of(ref_note_path)
+        section_on_pc = cls.PC_SECTION_BY_KIND[ref_kind]
+        ref_full = campaign_root / ref_note_path
+        if not ref_full.is_file():
+            raise FileNotFoundError(
+                f"Reference note does not exist: {ref_full}"
+            )
+        ref_slug = Path(ref_note_path).stem
+
+        results: dict[str, bool] = {}
+        for pc_path in belongs_to:
+            pc_full = campaign_root / pc_path
+            if not pc_full.is_file():
+                raise FileNotFoundError(
+                    f"PC container does not exist: {pc_full}"
+                )
+            pc_slug = Path(pc_path).stem
+
+            # Forward link on the PC.
+            pc_text = pc_full.read_text(encoding="utf-8")
+            fm, body = _split_frontmatter(pc_text)
+            # Check for an existing forward reference.
+            forward_link_target = ref_note_path[:-3]  # strip .md
+            forward_present = (
+                f"[[{forward_link_target}]]" in body
+                or f"[[{forward_link_target}|" in body
+            )
+            if forward_present:
+                results[pc_path] = False
+            else:
+                bullet = (
+                    f"- [[{forward_link_target}]] — {summary}"
+                )
+                new_body = cls._ensure_section_bullet(
+                    body, section_on_pc, bullet
+                )
+                if pc_text.startswith("---\n"):
+                    closing = pc_text.find("\n---\n", 4)
+                    fm_block = pc_text[: closing + len("\n---\n")]
+                    pc_full.write_text(fm_block + new_body, encoding="utf-8")
+                else:
+                    pc_full.write_text(new_body, encoding="utf-8")
+                results[pc_path] = True
+
+            # Mirror back link on the Reference note.
+            ref_text = ref_full.read_text(encoding="utf-8")
+            ref_fm, ref_body = _split_frontmatter(ref_text)
+            back_link_target = pc_path[:-3]  # "pcs/<slug>"
+            back_present = (
+                f"[[{back_link_target}]]" in ref_body
+                or f"[[{back_link_target}|" in ref_body
+            )
+            if not back_present:
+                bullet = f"- [[{back_link_target}]] — PC"
+                new_ref_body = cls._ensure_section_bullet(
+                    ref_body, "## PCs", bullet
+                )
+                if ref_text.startswith("---\n"):
+                    closing = ref_text.find("\n---\n", 4)
+                    fm_block = ref_text[: closing + len("\n---\n")]
+                    ref_full.write_text(
+                        fm_block + new_ref_body, encoding="utf-8"
+                    )
+                else:
+                    ref_full.write_text(new_ref_body, encoding="utf-8")
+                results[ref_note_path] = True
+            else:
+                # If the ref already had the back link, only record
+                # once across loop iterations.
+                results.setdefault(ref_note_path, False)
+        return results
+
+    @staticmethod
+    def _ensure_section_bullet(
+        body: str, section_heading: str, bullet: str
+    ) -> str:
+        """Insert `bullet` under `section_heading`, creating the section if absent."""
+        if section_heading in body:
+            lines = body.splitlines(keepends=False)
+            out: list[str] = []
+            i = 0
+            while i < len(lines):
+                out.append(lines[i])
+                if lines[i].strip() == section_heading:
+                    j = i + 1
+                    section_end = len(lines)
+                    while j < len(lines):
+                        if lines[j].startswith("## ") and lines[j].strip() != section_heading:
+                            section_end = j
+                            break
+                        j += 1
+                    for k in range(i + 1, section_end):
+                        out.append(lines[k])
+                    out.append(bullet)
+                    i = section_end
+                    continue
+                i += 1
+            result = "\n".join(out)
+            if body.endswith("\n") and not result.endswith("\n"):
+                result += "\n"
+            return result
+        suffix = "" if body.endswith("\n") else "\n"
+        return (
+            body + suffix + f"\n{section_heading}\n\n{bullet}\n"
+        )
+
+    # ---- Fixture helper ----
+
+    def _setup_pc_and_ref_note(
+        self, tmp_path: Path, ref_kind: str, ref_slug: str
+    ) -> tuple[Path, Path, Path]:
+        """Create a minimal campaign with a PC and a cross-extracted note."""
+        (tmp_path / "pcs").mkdir()
+        pc_path = tmp_path / "pcs" / "aldric.md"
+        pc_path.write_text(
+            "---\nkind: pc\n---\n\n# Aldric\n",
+            encoding="utf-8",
+        )
+        (tmp_path / ref_kind).mkdir()
+        ref_full = tmp_path / ref_kind / f"{ref_slug}.md"
+        ref_full.write_text(
+            f"---\nbelongs_to: [pcs/aldric.md]\n---\n\n# {ref_slug.replace('-', ' ').title()}\n\nA cross-extracted entity.\n",
+            encoding="utf-8",
+        )
+        return tmp_path, pc_path, ref_full
+
+    # ---- Tests ----
+
+    def test_npc_belongs_to_writes_npcs_section_on_pc(
+        self, tmp_path: Path
+    ) -> None:
+        root, pc_path, ref_full = self._setup_pc_and_ref_note(
+            tmp_path, "npcs", "caelir-of-highmoor"
+        )
+        result = self._apply_pc_belongs_to(
+            root,
+            ref_note_path="npcs/caelir-of-highmoor.md",
+            belongs_to=["pcs/aldric.md"],
+            summary="Aldric's father",
+        )
+        pc_text = pc_path.read_text(encoding="utf-8")
+        assert "## NPCs" in pc_text
+        assert "[[npcs/caelir-of-highmoor]]" in pc_text
+        # Mirror: ref note has ## PCs back-reference.
+        ref_text = ref_full.read_text(encoding="utf-8")
+        assert "## PCs" in ref_text
+        assert "[[pcs/aldric]]" in ref_text
+        assert result["pcs/aldric.md"] is True
+
+    def test_location_belongs_to_writes_locations_section_on_pc(
+        self, tmp_path: Path
+    ) -> None:
+        root, pc_path, ref_full = self._setup_pc_and_ref_note(
+            tmp_path, "locations", "highmoor"
+        )
+        self._apply_pc_belongs_to(
+            root,
+            ref_note_path="locations/highmoor.md",
+            belongs_to=["pcs/aldric.md"],
+            summary="Aldric's hometown",
+        )
+        pc_text = pc_path.read_text(encoding="utf-8")
+        assert "## Locations" in pc_text
+        assert "[[locations/highmoor]]" in pc_text
+        ref_text = ref_full.read_text(encoding="utf-8")
+        assert "## PCs" in ref_text
+        assert "[[pcs/aldric]]" in ref_text
+
+    def test_faction_belongs_to_writes_factions_section_on_pc(
+        self, tmp_path: Path
+    ) -> None:
+        root, pc_path, ref_full = self._setup_pc_and_ref_note(
+            tmp_path, "factions", "order-of-the-ember"
+        )
+        self._apply_pc_belongs_to(
+            root,
+            ref_note_path="factions/order-of-the-ember.md",
+            belongs_to=["pcs/aldric.md"],
+            summary="Aldric's order",
+        )
+        pc_text = pc_path.read_text(encoding="utf-8")
+        assert "## Factions" in pc_text
+        assert "[[factions/order-of-the-ember]]" in pc_text
+
+    def test_item_belongs_to_writes_items_section_on_pc(
+        self, tmp_path: Path
+    ) -> None:
+        root, pc_path, ref_full = self._setup_pc_and_ref_note(
+            tmp_path, "items", "heartcleaver"
+        )
+        self._apply_pc_belongs_to(
+            root,
+            ref_note_path="items/heartcleaver.md",
+            belongs_to=["pcs/aldric.md"],
+            summary="ancestral sword",
+        )
+        pc_text = pc_path.read_text(encoding="utf-8")
+        assert "## Items" in pc_text
+        assert "[[items/heartcleaver]]" in pc_text
+
+    def test_apply_is_idempotent(self, tmp_path: Path) -> None:
+        # Per ADR-0023 (mirroring ADR-0014's pattern), re-running
+        # apply_pc_belongs_to must be a no-op.
+        root, pc_path, ref_full = self._setup_pc_and_ref_note(
+            tmp_path, "npcs", "caelir-of-highmoor"
+        )
+        self._apply_pc_belongs_to(
+            root,
+            ref_note_path="npcs/caelir-of-highmoor.md",
+            belongs_to=["pcs/aldric.md"],
+            summary="father",
+        )
+        pc_first = pc_path.read_bytes()
+        ref_first = ref_full.read_bytes()
+
+        result = self._apply_pc_belongs_to(
+            root,
+            ref_note_path="npcs/caelir-of-highmoor.md",
+            belongs_to=["pcs/aldric.md"],
+            summary="father",
+        )
+        assert result["pcs/aldric.md"] is False, (
+            "second apply_pc_belongs_to on the PC should be a no-op"
+        )
+        assert pc_path.read_bytes() == pc_first, (
+            "PC file bytes changed on idempotent re-apply"
+        )
+        assert ref_full.read_bytes() == ref_first, (
+            "Reference note bytes changed on idempotent re-apply"
+        )
+
+    def test_multi_pc_belongs_to_writes_to_all_pcs(self, tmp_path: Path) -> None:
+        # A shared NPC referenced from two PCs' backstories: both PCs
+        # get the forward link in their ## NPCs section.
+        (tmp_path / "pcs").mkdir()
+        aldric = tmp_path / "pcs" / "aldric.md"
+        aldric.write_text(
+            "---\nkind: pc\n---\n\n# Aldric\n", encoding="utf-8"
+        )
+        vera = tmp_path / "pcs" / "vera.md"
+        vera.write_text(
+            "---\nkind: pc\n---\n\n# Vera\n", encoding="utf-8"
+        )
+        (tmp_path / "npcs").mkdir()
+        ref = tmp_path / "npcs" / "captain-marra.md"
+        ref.write_text(
+            "---\nbelongs_to: [pcs/aldric.md, pcs/vera.md]\n---\n\n"
+            "# Captain Marra\n\nAn NPC.\n",
+            encoding="utf-8",
+        )
+        self._apply_pc_belongs_to(
+            tmp_path,
+            ref_note_path="npcs/captain-marra.md",
+            belongs_to=["pcs/aldric.md", "pcs/vera.md"],
+            summary="recurring NPC",
+        )
+        assert "[[npcs/captain-marra]]" in aldric.read_text(encoding="utf-8")
+        assert "[[npcs/captain-marra]]" in vera.read_text(encoding="utf-8")
+        # Ref note has ## PCs section with both PCs back-linked.
+        ref_text = ref.read_text(encoding="utf-8")
+        assert "[[pcs/aldric]]" in ref_text
+        assert "[[pcs/vera]]" in ref_text
+
+    def test_gm_owned_body_preserved_during_pc_bidi_write(
+        self, tmp_path: Path
+    ) -> None:
+        # The agent-maintained sections land at end-of-file; any GM
+        # body content between H1 and the first agent section stays.
+        (tmp_path / "pcs").mkdir()
+        pc_path = tmp_path / "pcs" / "aldric.md"
+        gm_body = (
+            "Aldric is the party leader. He chose the cause when his "
+            "order fell."
+        )
+        pc_path.write_text(
+            f"---\nkind: pc\n---\n\n# Aldric\n\n{gm_body}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "npcs").mkdir()
+        ref = tmp_path / "npcs" / "caelir.md"
+        ref.write_text(
+            "---\nbelongs_to: [pcs/aldric.md]\n---\n\n# Caelir\n\nFather.\n",
+            encoding="utf-8",
+        )
+        self._apply_pc_belongs_to(
+            tmp_path,
+            ref_note_path="npcs/caelir.md",
+            belongs_to=["pcs/aldric.md"],
+            summary="father",
+        )
+        pc_text = pc_path.read_text(encoding="utf-8")
+        # GM body intact above the ## NPCs section.
+        assert gm_body in pc_text
+        gm_idx = pc_text.index(gm_body)
+        npcs_idx = pc_text.index("## NPCs")
+        assert gm_idx < npcs_idx
+
+    def test_missing_pc_file_raises(self, tmp_path: Path) -> None:
+        # Per the algorithm, missing PC container is a hard error —
+        # don't silently scaffold from a Reference-note write.
+        (tmp_path / "npcs").mkdir()
+        ref = tmp_path / "npcs" / "caelir.md"
+        ref.write_text(
+            "---\nbelongs_to: [pcs/aldric.md]\n---\n\n# Caelir\n\nFather.\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(FileNotFoundError):
+            self._apply_pc_belongs_to(
+                tmp_path,
+                ref_note_path="npcs/caelir.md",
+                belongs_to=["pcs/aldric.md"],
+            )
+
+
+class TestPcAsContainerSpecConformance:
+    """The reference and ADR document the PC-as-container pattern."""
+
+    def test_bidi_reference_documents_pc_as_container(
+        self, repo_root: Path
+    ) -> None:
+        ref = repo_root / "references" / "bidi-link-maintenance.md"
+        content = ref.read_text(encoding="utf-8")
+        assert "PC as container" in content, (
+            "bidi-link-maintenance.md must document the PC-as-container "
+            "pattern per ADR-0023."
+        )
+
+    def test_bidi_reference_cites_adr_0023(self, repo_root: Path) -> None:
+        ref = repo_root / "references" / "bidi-link-maintenance.md"
+        content = ref.read_text(encoding="utf-8")
+        assert "0023-pc-source-doc-ingestion" in content or "ADR-0023" in content, (
+            "bidi-link-maintenance.md must cite ADR-0023 for the "
+            "PC-as-container pattern."
+        )
+
+    def test_bidi_reference_documents_four_section_names(
+        self, repo_root: Path
+    ) -> None:
+        ref = repo_root / "references" / "bidi-link-maintenance.md"
+        content = ref.read_text(encoding="utf-8")
+        # The four kind-named sections on the PC.
+        for section in ("## NPCs", "## Locations", "## Factions", "## Items"):
+            assert section in content, (
+                f"bidi-link-maintenance.md must document the {section} "
+                "section on the PC for the PC-as-container pattern."
+            )
+        # And the inverse on the Reference note.
+        assert "## PCs" in content, (
+            "bidi-link-maintenance.md must document the `## PCs` section "
+            "on cross-extracted Reference notes (the back-link to the PC)."
+        )
+
+
 class TestCrossKindCollisionLintFinding:
     """`lint` emits cross-kind-collision findings for ambiguous display links."""
 

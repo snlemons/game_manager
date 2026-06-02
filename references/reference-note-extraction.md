@@ -162,9 +162,77 @@ When the source content mentions an entity that already has a Reference note and
 
 Dedup matching (slug + first-heading title, normalized) is what routes a candidate to UPDATE vs CREATE — see `dedup-matching.md`.
 
+## PC source: cross-extraction (ingest Phase 3 PC-source branch)
+
+This section is the `/ingest`-specific extension that fires when a source doc has been classified `PC source: <slug>'s backstory` per `extraction-pipeline.md` § "Step 2 / PC source: classification rules." It composes with the universal heuristic above — backstory prose still produces Reference notes by the same rules — and *adds* PC-as-container linkage on top.
+
+The corresponding ADR is [ADR-0023](../docs/adr/0023-pc-source-doc-ingestion.md) (PC source-doc ingestion and `pcs/<slug>.md` shape).
+
+### Cross-extraction from backstory prose
+
+When Phase 3 reads a `PC source: <slug>` doc, run the universal Reference-note heuristic across the full body. Named NPCs, Locations, Factions, and Items in the backstory text become Reference notes by the same "named + substantively described" test the heuristic always uses. The PC source branch adds **one extra step** at extraction time:
+
+- **The PC slug enters `belongs_to:` on every cross-extracted Reference note.** A Reference note created from a `PC source: <slug>` doc carries `belongs_to: [pcs/<slug>.md]` in its frontmatter (when the entity is named in the PC's backstory prose). When a single Reference note is referenced from the backstory of more than one PC (one source doc per PC, but the same NPC named in both), the `belongs_to:` list grows to include both PC paths.
+
+Backstory-typical entities to watch for:
+
+- **NPCs** — parents, siblings, mentors, rivals, lovers, lost companions, named teachers, named enemies. *"My father Caelir of Highmoor"* → `npcs/caelir-of-highmoor.md` with `belongs_to: [pcs/aldric.md]`.
+- **Locations** — hometown, training grounds, ancestral seat, the site of a formative event, the order's mother-house. *"I trained at the Sapphire Spire under Master Veneth"* → `locations/sapphire-spire.md` with `belongs_to: [pcs/aldric.md]` (and `npcs/master-veneth.md` likewise belongs to the PC).
+- **Factions** — orders, guilds, family lines, knighthoods, mercenary companies. *"The Order of the Ember took me in"* → `factions/order-of-the-ember.md` with `belongs_to: [pcs/aldric.md]`.
+- **Items** — heirlooms, signature gear, named blades, family crests, ancestral relics. *"My grandmother's sword, Heartcleaver, hangs at my hip"* → `items/heartcleaver.md` with `belongs_to: [pcs/aldric.md]`.
+
+The `belongs_to:` field on Reference notes mirrors the field on Secrets per ADR-0014's multi-container ownership pattern. The same validation rules apply (`belongs_to:` paths must point to existing canonical files; empty `belongs_to:` is honest and means the note is not PC-tied).
+
+### Cross-extraction posture
+
+The heuristic stays conservative the same way the universal heuristic does. False positives are cheap (delete at review); false negatives are invisible. *Bias toward proposing the Reference note + PC linkage when the backstory names an entity substantively;* let the GM trim at Step 4b.
+
+The PC source classification is **not** an excuse to over-extract:
+
+- A backstory line that drops a name without role context ("I had a friend named Tomas once") is still **not** a Reference note — the universal "passing mention" rule applies.
+- The PC themselves is **never** extracted as an NPC, even though the backstory text is overwhelmingly about them. The PC stub at `pcs/<slug>.md` is their file.
+- Family members and lifelong-significant figures get extracted by default; one-off acquaintances mentioned in passing do not.
+
+### Carried-forward lessons for PC source extraction
+
+In `/ingest` multi-doc runs, GM corrections during the per-doc review of a `PC source:` doc join the carried-forward lessons set the same way other corrections do. Lessons specific to PC source extraction:
+
+- **Rejected backstory entities** — the GM dropped a proposed Reference note from `pcs/<slug>.md`'s cross-extraction set ("don't extract one-name-only old friends from backstories"). Apply on subsequent `PC source:` docs in the same run.
+- **`belongs_to:` posture for shared entities** — the GM resolved that an entity shared between two PCs' backstories should carry both PCs in `belongs_to:` (versus only one). Apply on subsequent multi-PC scenarios in the same run.
+
+## PC source body enrichment
+
+When the source doc is classified `PC source: <slug>'s backstory`, Phase 3's PC source extraction branch *appends* the backstory prose to `pcs/<slug>.md` as body content. The agent never overwrites GM-authored body content — per ADR-0023's GM-owned-body / agent-maintained-bidi-sections boundary.
+
+**Behavior:**
+
+1. **Read the live PC file.** If `pcs/<slug>.md` exists (Phase 2 promoted it from the roster auto-add, or it pre-existed), parse the file into frontmatter, H1, body prose, and any agent-maintained bidi sections (`## NPCs` / `## Locations` / `## Factions` / `## Items` / `## Secrets`).
+2. **Identify the body-prose region** — content between the H1 and the first agent-maintained bidi section heading (or the end of the file if no bidi sections exist).
+3. **Append the backstory prose to the body-prose region.** Use the backstory doc's content, lightly reflowed if needed, with `[[wiki links]]` to every cross-extracted Reference note. Leave any pre-existing body prose (GM-authored or from a prior `/ingest`) intact above the appended content. A horizontal-rule separator (`---`) or a `## ` subheading the GM can edit is acceptable; the append must be **additive** — bytes only added, not replaced.
+4. **Preserve agent-maintained bidi sections below the append point.** The `## NPCs` / `## Locations` / `## Factions` / `## Items` / `## Secrets` sections live at the *end* of the file. The append lands above them.
+5. **Stage the change for GM review.** The GM may edit, trim, or remove the appended content at Step 4b. The agent's job is to propose; the GM's job is to keep / trim / reject.
+
+When the GM-authored body is non-trivial (the GM hand-wrote substantial PC content before running `/ingest` against the source doc), the agent stages the append as a visible UPDATE so the GM can choose to merge by hand rather than concatenating. The agent does **not** silently overwrite — even non-trivial pre-existing body content is preserved verbatim above the append.
+
+When the PC file is the minimal H1-only stub Phase 2 produced (the common path), the backstory simply becomes the body.
+
+### Optional frontmatter slice
+
+When the backstory doc supplies them explicitly, populate the optional `player:`, `class:`, and `level:` fields in the PC's frontmatter per `frontmatter-schemas.md` PC schema and ADR-0023. Source patterns the agent recognizes:
+
+- **`player:`** — *"Player: Sam"*, *"PC of Sam"*, *"Sam's character"* in the doc's header / metadata block, or a YAML-frontmatter-style block in the backstory doc.
+- **`class:`** — *"Class: Paladin"*, *"5th-level Paladin"*, *"Aldric, Paladin of the Order…"* when the class is named explicitly in a metadata block or the opening narration.
+- **`level:`** — *"Level: 5"*, *"5th-level"* paired with a class declaration.
+
+Omit any field the source doesn't supply. Do not invent values. The fields are optional — a PC file without them is valid and remains the default for stubs whose source doesn't supply them.
+
+When the source doc's metadata changes a field on a pre-existing PC (the GM hand-set `level: 4` previously and the backstory doc says `5th-level`), surface the discrepancy at Step 4a as an ASK rather than silently overwriting the GM's value. The frontmatter is GM-editable; the agent's job is to propose, not to clobber.
+
 ## What not to do
 
 - **Don't fabricate detail.** If the source doesn't say what kind of blacksmith Sera is, the one-liner doesn't say either.
 - **Don't pre-create empty kind folders.** A folder appears when its first file lands.
 - **Don't extract Atlas content.** v0.1 is single-repo (ADR-0006); treat everything as campaign-local.
 - **Don't fill out a template.** ADR-0003's whole point: capture-now-structure-later. The Reference note's job is to exist and be linkable; the GM enriches it later if needed.
+- **Don't extract the PC as their own NPC** from a `PC source:` doc. The named subject of a backstory is a PC, not an NPC.
+- **Don't overwrite GM-authored PC body content.** Per ADR-0023, the PC body is GM-owned. Backstory appends are additive only.

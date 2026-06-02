@@ -10,14 +10,15 @@ algorithm must land in both the reference and this file, and the tests
 catch mismatches.
 
 Per [ADR-0022](../docs/adr/0022-pc-roster-via-explicit-classification.md)
-(superseding [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md)),
-the PC roster is a Phase 2 (Survey) deliverable. The refined v0.3
-mechanism pre-populates the staged file from two sources — existing
-`pcs/<slug>.md` enumeration and a GM-typed-adds zone — plus a
-slice-H2-reserved `## Auto-added from PC source: docs` section (empty
-in slice H1). The skim-based PC candidate inference from ADR-0018 is
-gone: no frequency-of-mention counting, no roster-section scanning, no
-"Likely PC" / "Possible NPC" classification.
+(superseding [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md))
+and [ADR-0023](../docs/adr/0023-pc-source-doc-ingestion.md) (slice H2,
+PC source-doc ingestion), the PC roster is a Phase 2 (Survey) deliverable.
+The refined v0.3 mechanism pre-populates the staged file from three
+sources — existing `pcs/<slug>.md` enumeration, auto-add from docs the
+GM classifies `PC source: <slug>`, and a GM-typed-adds zone. The
+skim-based PC candidate inference from ADR-0018 is gone: no frequency-
+of-mention counting, no roster-section scanning, no "Likely PC" /
+"Possible NPC" classification.
 
 The four operations covered here mirror the four contract pieces of the
 proposal:
@@ -44,8 +45,9 @@ one of them is wrong.
 
 Slice H1 of v0.3 implements the ADR-0018 supersession: skim inference
 is dropped; existing-`pcs/` enumeration + GM-typed-adds zone replace it.
-Slice H2 will populate the `## Auto-added from PC source: docs` section
-from GM-classified docs.
+Slice H2 (this slice, ADR-0023) populates the `## Auto-added from PC
+source: docs` section from `PC source: <slug>` doc classifications and
+adds PC body enrichment + cross-extraction + bidi-link extension.
 """
 
 from __future__ import annotations
@@ -211,31 +213,49 @@ AUTO_ADDED_HEADING = "## Auto-added from PC source: docs"
 GM_ADDS_HEADING = "## Add other PCs here"
 
 EXISTING_PCS_EMPTY_BODY = "(No existing PCs in `pcs/`.)"
-AUTO_ADDED_PLACEHOLDER_BODY = (
-    "(none yet — populated by H2 from docs the GM classifies as "
-    "`PC source: <slug>`.)"
-)
+AUTO_ADDED_EMPTY_BODY = "(No `PC source:` docs in this input directory.)"
 GM_ADDS_INSTRUCTIONAL_BODY = (
     "(Type new PC entries below this line, one per line. Optional one-line "
     "body after tab/double-space. Optional `— alias: <name>` suffix.)"
 )
 
 
-def render_survey_pcs_md(existing: list[ExistingPC]) -> str:
+@dataclass
+class PcSourceAutoAdd:
+    """One auto-add entry sourced from a `PC source: <slug>` doc classification.
+
+    Per `references/pc-roster-proposal.md` (slice H2), each doc the GM
+    classifies as `PC source: <slug>` during the description review
+    contributes its declared `<slug>` to the staged roster's
+    `## Auto-added from PC source: docs` section. The line shape carries
+    the doc-name marker so the GM can see which source doc produced
+    each auto-add.
+    """
+
+    slug: str
+    doc_name: str = ""  # The source doc filename (basename), informational.
+
+
+def render_survey_pcs_md(
+    existing: list[ExistingPC],
+    auto_added: list[PcSourceAutoAdd] | None = None,
+) -> str:
     """Render `.ttrpg-staging/survey-pcs.md` per pc-roster-proposal.md.
 
     Three labeled sections:
       - `## Existing PCs` — one line per pre-seeded PC (slug + existing
         marker + optional alias suffix), or the empty-state body when
         `pcs/` is empty or absent.
-      - `## Auto-added from PC source: docs` — slice-H1 placeholder
-        (always renders the parenthetical empty-state body).
+      - `## Auto-added from PC source: docs` — one line per `PC source:
+        <slug>` doc classification (slice H2), or the empty-state body
+        when no input doc classifies as `PC source:`.
       - `## Add other PCs here` — instructional empty-state body; the
         GM types entries below it before saying continue.
 
     The three section headings are load-bearing; the parser keys off
     them when walking the file.
     """
+    auto_added = auto_added or []
     parts = [SURVEY_PCS_HEADER, EXISTING_PCS_HEADING, ""]
     if existing:
         for pc in existing:
@@ -248,7 +268,15 @@ def render_survey_pcs_md(existing: list[ExistingPC]) -> str:
     parts.append("")
     parts.append(AUTO_ADDED_HEADING)
     parts.append("")
-    parts.append(AUTO_ADDED_PLACEHOLDER_BODY)
+    if auto_added:
+        for entry in auto_added:
+            doc_marker = (
+                f" — auto-added from `{entry.doc_name}` "
+                "(PC source classification)"
+            )
+            parts.append(f"{entry.slug}         {doc_marker.lstrip()}")
+    else:
+        parts.append(AUTO_ADDED_EMPTY_BODY)
     parts.append("")
     parts.append(GM_ADDS_HEADING)
     parts.append("")
@@ -263,20 +291,26 @@ class ParsedRosterEntry:
 
     `source` distinguishes pre-seeded entries (which do not re-stage)
     from GM-typed adds (which stage a new stub and promote to
-    `pcs/<slug>.md`). H2 will add a third source value when the
-    `PC source:` mechanism lands.
+    `pcs/<slug>.md`) and from H2's auto-added entries (which act like
+    gm_typed for staging — also stage and promote — but originate from
+    `PC source: <slug>` doc classifications rather than the GM-typed-adds
+    zone).
     """
 
     slug: str
     body: str = ""
     aliases: list[str] = field(default_factory=list)
-    source: str = "gm_typed"  # "existing" | "gm_typed" | (future: "pc_source")
+    source: str = "gm_typed"  # "existing" | "gm_typed" | "pc_source"
 
 
 _HEADER_PREFIX = "#"
 # Suffix patterns the parser uses.
 _EXISTING_MARKER_RE = re.compile(
     r"\s+—\s+existing\s+—\s+`pcs/[^`]+`", flags=re.IGNORECASE
+)
+_AUTO_ADDED_MARKER_RE = re.compile(
+    r"\s+—\s+auto-added\s+from\s+`[^`]+`\s+\(PC source classification\)",
+    flags=re.IGNORECASE,
 )
 _ALIAS_SUFFIX = re.compile(r"—\s*alias:\s*(.+?)\s*$", re.IGNORECASE)
 
@@ -288,13 +322,13 @@ def parse_survey_pcs_md(content: str) -> list[ParsedRosterEntry]:
     current section; lines within a section are interpreted per that
     section's rules.
 
-    Returns surviving entries in document order: pre-seeded existing
-    PCs first (source="existing"), then GM-typed adds from the
-    "Add other PCs here" zone (source="gm_typed"). The
-    "Auto-added from PC source: docs" section is parsed the same way
-    as "Add other PCs here" (per the reference: "the parser logic for
-    both sections is the same"), so when H2 populates it the entries
-    flow through. In slice H1 the section is always empty.
+    Returns surviving entries in document order:
+      1. Pre-seeded existing PCs from `## Existing PCs` (source="existing").
+      2. Auto-added PCs from `## Auto-added from PC source: docs`
+         (source="pc_source") — entries with the `auto-added from <doc>`
+         marker. Lines in this section without the marker are treated
+         as gm_typed (a tolerated GM-typo path).
+      3. GM-typed adds from `## Add other PCs here` (source="gm_typed").
     """
     entries: list[ParsedRosterEntry] = []
     current_section: str | None = None
@@ -325,7 +359,11 @@ def parse_survey_pcs_md(content: str) -> list[ParsedRosterEntry]:
             entry = _parse_existing_line(stripped)
             if entry is not None:
                 entries.append(entry)
-        elif current_section in (AUTO_ADDED_HEADING, GM_ADDS_HEADING):
+        elif current_section == AUTO_ADDED_HEADING:
+            entry = _parse_auto_added_line(stripped)
+            if entry is not None:
+                entries.append(entry)
+        elif current_section == GM_ADDS_HEADING:
             entry = _parse_gm_typed_line(stripped)
             if entry is not None:
                 entries.append(entry)
@@ -334,6 +372,41 @@ def parse_survey_pcs_md(content: str) -> list[ParsedRosterEntry]:
             continue
 
     return entries
+
+
+def _parse_auto_added_line(line: str) -> ParsedRosterEntry | None:
+    r"""Parse a `## Auto-added from PC source: docs` line.
+
+    Two shapes:
+      - Auto-added: `<slug>  — auto-added from `<doc>` (PC source classification)[  — alias: ...]`
+        → ParsedRosterEntry(slug=<slug>, source="pc_source", aliases=...).
+      - GM-typed (typo path — GM hand-typed into the wrong section):
+        falls through to `_parse_gm_typed_line` semantics with
+        source="gm_typed".
+    """
+    if not _AUTO_ADDED_MARKER_RE.search(line):
+        # GM typed something here that isn't an agent-authored auto-add;
+        # treat as a gm_typed entry (tolerated typo path per the spec).
+        return _parse_gm_typed_line(line)
+    # Pull off any trailing `— alias: ...` suffix first.
+    aliases: list[str] = []
+    alias_match = _ALIAS_SUFFIX.search(line)
+    if alias_match:
+        alias_str = alias_match.group(1)
+        aliases = [a.strip() for a in alias_str.split(",") if a.strip()]
+        line = line[: alias_match.start()].rstrip(" —")
+    # Strip the `— auto-added from <doc> (PC source classification)` marker.
+    line = _AUTO_ADDED_MARKER_RE.sub("", line).strip()
+    # First whitespace-delimited token is the slug.
+    parts = line.split(None, 1)
+    if not parts:
+        return None
+    slug = slugify(parts[0])
+    if not slug:
+        return None
+    return ParsedRosterEntry(
+        slug=slug, body="", aliases=aliases, source="pc_source"
+    )
 
 
 def _parse_existing_line(line: str) -> ParsedRosterEntry | None:
@@ -455,7 +528,7 @@ def stage_and_promote_stubs(
     `pcs/<slug>.md`":
       - Pre-seeded entries (source="existing") do **not** re-stage and
         do **not** overwrite. They flow into the in-memory roster only.
-      - New entries (source="gm_typed" or, in H2, "pc_source") stage at
+      - New entries (source="gm_typed" or "pc_source") stage at
         `.ttrpg-staging/pcs/<slug>.md`.
       - If any new entry's slug collides with an existing
         `pcs/<slug>.md`, STOP and record the collision. Don't silently
@@ -465,6 +538,15 @@ def stage_and_promote_stubs(
         it's empty.
 
     Empty roster (no entries at all) → no-op.
+
+    Note on `pc_source` entries: under ADR-0023, a `PC source: <slug>`
+    classification on a doc may name a PC that already exists in `pcs/`
+    (the slug matches an existing entry). When the entry collides with
+    an existing PC file, this function records the collision the same
+    way it does for gm_typed — but the SKILL prose treats `pc_source`
+    collisions as a no-op (the existing PC is the file to enrich during
+    Phase 3, not a collision to surface). Tests for that distinction
+    live below.
     """
     result = StubPromotionResult()
     if not entries:
@@ -631,10 +713,60 @@ class TestRenderSurveyPcsMd:
         rendered = render_survey_pcs_md(existing)
         assert "— alias: Helly" in rendered
 
-    def test_auto_added_section_is_placeholder(self) -> None:
-        # H1's contract: the section is reserved but empty until H2.
+    def test_auto_added_section_empty_state(self) -> None:
+        # H2's contract: when no `PC source:` docs are in the input,
+        # the section renders the empty-state body.
         rendered = render_survey_pcs_md([])
-        assert AUTO_ADDED_PLACEHOLDER_BODY in rendered
+        assert AUTO_ADDED_EMPTY_BODY in rendered
+
+    def test_auto_added_section_with_one_pc_source_doc(self) -> None:
+        # H2's primary path: one auto-added entry from a `PC source:` doc.
+        rendered = render_survey_pcs_md(
+            [],
+            auto_added=[
+                PcSourceAutoAdd(
+                    slug="aldric", doc_name="aldric-backstory.md"
+                )
+            ],
+        )
+        assert AUTO_ADDED_EMPTY_BODY not in rendered
+        assert "aldric" in rendered
+        assert "aldric-backstory.md" in rendered
+        assert "(PC source classification)" in rendered
+
+    def test_auto_added_section_with_multiple_pc_source_docs(self) -> None:
+        rendered = render_survey_pcs_md(
+            [],
+            auto_added=[
+                PcSourceAutoAdd(slug="aldric", doc_name="aldric.md"),
+                PcSourceAutoAdd(slug="vera", doc_name="vera.md"),
+            ],
+        )
+        assert "aldric" in rendered
+        assert "vera" in rendered
+
+    def test_pc_source_classification_appears_only_under_auto_added_section(
+        self,
+    ) -> None:
+        # The auto-add marker should land under the auto-added heading,
+        # not inside the existing or gm-typed sections.
+        rendered = render_survey_pcs_md(
+            [ExistingPC(slug="silas", canonical_name="Silas")],
+            auto_added=[
+                PcSourceAutoAdd(slug="aldric", doc_name="aldric.md")
+            ],
+        )
+        # Find the section boundaries.
+        auto_added_idx = rendered.find(AUTO_ADDED_HEADING)
+        gm_adds_idx = rendered.find(GM_ADDS_HEADING)
+        assert auto_added_idx >= 0 and gm_adds_idx > auto_added_idx
+        auto_added_section = rendered[auto_added_idx:gm_adds_idx]
+        assert "aldric" in auto_added_section
+        # The existing PC stays in its section.
+        existing_idx = rendered.find(EXISTING_PCS_HEADING)
+        existing_section = rendered[existing_idx:auto_added_idx]
+        assert "silas" in existing_section
+        assert "aldric" not in existing_section
 
     def test_gm_adds_zone_has_instructional_body(self) -> None:
         # The "Add other PCs here" zone is empty by default but
@@ -824,14 +956,83 @@ class TestParseSurveyPcsMd:
         assert sources["silas"] == "existing"
         assert sources["marisa"] == "gm_typed"
 
-    def test_auto_added_section_empty_in_h1(self) -> None:
-        # Slice H1 contract: the section is reserved but empty.
-        # Parsing must produce zero entries from this section.
+    def test_auto_added_empty_when_no_pc_source_docs(self) -> None:
+        # H2 contract: when no input doc classified as `PC source:`,
+        # the auto-added section renders its empty-state body and the
+        # parser produces zero pc_source entries.
         existing = [ExistingPC(slug="silas", canonical_name="Silas")]
         rendered = render_survey_pcs_md(existing)
         parsed = parse_survey_pcs_md(rendered)
-        # Only the existing pre-seeded entry; no auto-added.
         assert all(e.source != "pc_source" for e in parsed)
+
+    def test_auto_added_entry_parses_as_pc_source(self) -> None:
+        # H2 primary path: a `PC source: <slug>` doc classification
+        # auto-added to the staged roster parses back as a pc_source
+        # entry.
+        rendered = render_survey_pcs_md(
+            [ExistingPC(slug="silas", canonical_name="Silas")],
+            auto_added=[
+                PcSourceAutoAdd(
+                    slug="aldric", doc_name="aldric-backstory.md"
+                )
+            ],
+        )
+        parsed = parse_survey_pcs_md(rendered)
+        sources = {e.slug: e.source for e in parsed}
+        assert sources == {"silas": "existing", "aldric": "pc_source"}
+
+    def test_auto_added_entry_with_gm_alias_edit_preserves_pc_source(
+        self,
+    ) -> None:
+        # The GM may add a `— alias: <name>` suffix to an auto-added
+        # entry without changing its source classification.
+        rendered = render_survey_pcs_md(
+            [],
+            auto_added=[
+                PcSourceAutoAdd(
+                    slug="aldric", doc_name="aldric-backstory.md"
+                )
+            ],
+        )
+        # Simulate GM appending an alias suffix.
+        edited = rendered.replace(
+            "(PC source classification)",
+            "(PC source classification) — alias: Al",
+        )
+        [entry] = parse_survey_pcs_md(edited)
+        assert entry.slug == "aldric"
+        assert entry.source == "pc_source"
+        assert entry.aliases == ["Al"]
+
+    def test_auto_added_gm_typed_typo_falls_through_to_gm_typed(self) -> None:
+        # If the GM hand-types an entry into `## Auto-added from PC
+        # source: docs` instead of `## Add other PCs here`, the parser
+        # tolerates it as a gm_typed entry (no `auto-added from` marker
+        # means "this line wasn't agent-authored").
+        rendered = render_survey_pcs_md([])
+        edited = rendered.replace(
+            AUTO_ADDED_EMPTY_BODY, "marisa"
+        )
+        [entry] = parse_survey_pcs_md(edited)
+        assert entry.slug == "marisa"
+        assert entry.source == "gm_typed"
+
+    def test_gm_deleted_auto_added_entry_does_not_appear(self) -> None:
+        # GM deleted an auto-added line. The parser only surfaces the
+        # entries that survived in the staged file.
+        rendered = render_survey_pcs_md(
+            [],
+            auto_added=[
+                PcSourceAutoAdd(slug="aldric", doc_name="aldric.md"),
+                PcSourceAutoAdd(slug="vera", doc_name="vera.md"),
+            ],
+        )
+        edited = "\n".join(
+            line for line in rendered.splitlines()
+            if not line.startswith("aldric")
+        )
+        parsed = parse_survey_pcs_md(edited)
+        assert [e.slug for e in parsed] == ["vera"]
 
 
 class TestStageAndPromoteStubs:
@@ -977,6 +1178,33 @@ class TestStageAndPromoteStubs:
         ).is_file()
         assert (tmp_path / ".ttrpg-staging" / "pcs" / "rae.md").is_file()
 
+    def test_pc_source_entry_stages_and_promotes_like_gm_typed(
+        self, tmp_path: Path
+    ) -> None:
+        # H2: a `PC source: <slug>` doc auto-add yields a pc_source
+        # entry that stages and promotes the same way gm_typed does.
+        entries = [
+            ParsedRosterEntry(slug="aldric", source="pc_source"),
+        ]
+        result = stage_and_promote_stubs(entries, tmp_path)
+        assert result.promoted == ["pcs/aldric.md"]
+        assert result.collisions == []
+        assert (tmp_path / "pcs" / "aldric.md").is_file()
+
+    def test_pc_source_stub_has_kind_pc(self, tmp_path: Path) -> None:
+        # The stub Phase 2 promotes for a pc_source entry is the same
+        # minimal H1-only stub as a gm_typed entry — backstory enrichment
+        # happens during Phase 3 PC source extraction, not at stub
+        # creation (per ADR-0023).
+        stage_and_promote_stubs(
+            [ParsedRosterEntry(slug="aldric", source="pc_source")], tmp_path
+        )
+        content = (tmp_path / "pcs" / "aldric.md").read_text(
+            encoding="utf-8"
+        )
+        assert content.startswith("---\nkind: pc\n")
+        assert "# Aldric" in content
+
 
 class TestReferenceFileExistsAndCitesADR:
     """Spec-drift safety net: the reference itself must exist and cite the ADRs."""
@@ -1050,4 +1278,47 @@ class TestReferenceFileExistsAndCitesADR:
         assert "references/pc-roster-proposal.md" in content, (
             "skills/ingest/SKILL.md must cite references/pc-roster-proposal.md "
             "per slice B2 of the v0.3 modularization."
+        )
+
+    def test_adr_0023_exists(self, repo_root: Path) -> None:
+        adr = (
+            repo_root / "docs" / "adr" / "0023-pc-source-doc-ingestion.md"
+        )
+        assert adr.is_file(), (
+            "ADR-0023 (PC source-doc ingestion) is the slice-H2 design "
+            "ADR. It documents the `PC source:` classification, Phase 3 "
+            "routing, body enrichment, cross-extraction, bidi-link "
+            "extension, and the optional frontmatter slice."
+        )
+
+    def test_reference_cites_adr_0023_for_auto_add_mechanism(
+        self, repo_root: Path
+    ) -> None:
+        # H2 fills in the placeholder ADR-0022 left in the reference.
+        ref = repo_root / "references" / "pc-roster-proposal.md"
+        content = ref.read_text(encoding="utf-8")
+        assert "0023-pc-source-doc-ingestion" in content or "ADR-0023" in content, (
+            "references/pc-roster-proposal.md must cite ADR-0023 for the "
+            "PC source-doc auto-add mechanism."
+        )
+
+    def test_reference_documents_pc_source_auto_add(
+        self, repo_root: Path
+    ) -> None:
+        # The reference must document the H2 mechanism in prose, not
+        # leave the placeholder.
+        ref = repo_root / "references" / "pc-roster-proposal.md"
+        content = ref.read_text(encoding="utf-8")
+        # H1's placeholder text is gone; H2's mechanism prose is in.
+        assert (
+            "PC source: <slug>" in content or "PC source:" in content
+        ), (
+            "references/pc-roster-proposal.md must document the "
+            "`PC source: <slug>` classification mechanism."
+        )
+        # The H2 section "Auto-add from `PC source:` docs — mechanics"
+        # exists somewhere in the reference.
+        assert "Auto-add from" in content or "auto-add" in content.lower(), (
+            "references/pc-roster-proposal.md must document the auto-add "
+            "behavior into `## Auto-added from PC source: docs`."
         )
