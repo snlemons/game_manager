@@ -398,7 +398,7 @@ class TestFromScratchProducesScaffoldedCampaignShape:
         tmp_path: Path,
         templates_dir: Path,
     ) -> None:
-        from test_ingest_scaffolding import (
+        from _helpers import (
             EXPECTED_SCAFFOLDED_FILES,
             scaffold_campaign,
         )
@@ -428,7 +428,7 @@ class TestFromScratchEmptyPcRosterSkipPath:
         tmp_path: Path,
         templates_dir: Path,
     ) -> None:
-        from test_ingest_scaffolding import scaffold_campaign
+        from _helpers import scaffold_campaign
 
         target = tmp_path / "fresh-campaign"
         scaffold_campaign(
@@ -462,7 +462,7 @@ class TestOpenerBlockLandsBetweenHeaderAndAgentSections:
         tmp_path: Path,
         templates_dir: Path,
     ) -> None:
-        from test_ingest_scaffolding import scaffold_campaign
+        from _helpers import scaffold_campaign
 
         target = tmp_path / "fresh-campaign"
         scaffold_campaign(
@@ -513,7 +513,7 @@ class TestOpenerBlockLandsBetweenHeaderAndAgentSections:
         tmp_path: Path,
         templates_dir: Path,
     ) -> None:
-        from test_ingest_scaffolding import scaffold_campaign
+        from _helpers import scaffold_campaign
 
         target = tmp_path / "fresh-campaign"
         scaffold_campaign(
@@ -549,7 +549,7 @@ class TestComposerPreservesOpenerAcrossRegen:
         tmp_path: Path,
         templates_dir: Path,
     ) -> None:
-        from test_ingest_scaffolding import scaffold_campaign
+        from _helpers import scaffold_campaign
 
         target = tmp_path / "fresh-campaign"
         scaffold_campaign(
@@ -600,7 +600,7 @@ class TestComposerPreservesOpenerAcrossRegen:
         same `campaign.md` (no other campaign state changes) must
         produce a byte-identical file at the end.
         """
-        from test_ingest_scaffolding import scaffold_campaign
+        from _helpers import scaffold_campaign
 
         target = tmp_path / "fresh-campaign"
         scaffold_campaign(
@@ -647,7 +647,7 @@ class TestComposerPreservesOpenerAcrossRegen:
         opener block; their regens must continue to work and produce
         no opener.
         """
-        from test_ingest_scaffolding import scaffold_campaign
+        from _helpers import scaffold_campaign
 
         target = tmp_path / "fresh-campaign"
         scaffold_campaign(
@@ -699,8 +699,7 @@ class TestFirstAdventureSubFlowComposesOnTopOfScaffold:
         tmp_path: Path,
         templates_dir: Path,
     ) -> None:
-        from test_ingest_scaffolding import scaffold_campaign
-        from test_init_adventure import write_initial_adventure_file
+        from _helpers import scaffold_campaign, write_initial_adventure_file
 
         target = tmp_path / "bootstrap-with-first-adventure"
         scaffold_campaign(
@@ -753,7 +752,7 @@ class TestFirstAdventureSubFlowComposesOnTopOfScaffold:
         the from-scratch branch without a first-Adventure opt-in must
         not create it either.
         """
-        from test_ingest_scaffolding import scaffold_campaign
+        from _helpers import scaffold_campaign
 
         target = tmp_path / "bootstrap-no-first-adventure"
         scaffold_campaign(
@@ -1023,12 +1022,12 @@ class TestDocsModeProducesScaffoldedCampaignWithExtractedContent:
         identify the *workflow* (the extraction pipeline), not the
         invoking skill.
         """
-        from test_ingest_scaffolding import scaffold_campaign
-        from test_ingest_per_doc_commits import (
+        from _helpers import (
             _run_git,
             commit_doc,
             commit_wrap_up,
             per_doc_commit_count,
+            scaffold_campaign,
             wrap_up_commit_exists,
         )
 
@@ -1140,7 +1139,7 @@ class TestDocsModeProducesScaffoldedCampaignWithExtractedContent:
         `/init-campaign` docs mode) invoked the scaffolder. The
         docs-mode path doesn't customize the scaffolder output.
         """
-        from test_ingest_scaffolding import (
+        from _helpers import (
             EXPECTED_SCAFFOLDED_FILES,
             scaffold_campaign,
         )
@@ -1189,7 +1188,7 @@ class TestDocsModeDoesNotAutoCreateOpenerBlock:
         only path that adds them is Step 8 #1 of the from-scratch
         branch. Confirm the docs-mode shape leaves them absent.
         """
-        from test_ingest_scaffolding import scaffold_campaign
+        from _helpers import scaffold_campaign
 
         target = tmp_path / "docs-mode-campaign"
         scaffold_campaign(
@@ -1231,7 +1230,7 @@ class TestDocsModeDoesNotAutoCreateOpenerBlock:
         scaffolded-without-pitch campaign (the docs-mode end state)
         and verifies the hand-authored opener still survives.
         """
-        from test_ingest_scaffolding import scaffold_campaign
+        from _helpers import scaffold_campaign
 
         target = tmp_path / "docs-mode-campaign"
         scaffold_campaign(

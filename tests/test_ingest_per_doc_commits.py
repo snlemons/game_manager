@@ -41,50 +41,19 @@ That gap is documented in `tests/README.md`.
 
 from __future__ import annotations
 
-import os
 import re
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
 
-
-# ---------------------------------------------------------------------------
-# Hermetic git runner (mirrors `tests/test_ingest_scaffolding.py::_run_git`).
-# ---------------------------------------------------------------------------
-
-
-def _run_git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
-    """Run a git command with a hermetic identity for committer + author.
-
-    The plugin itself never configures `user.name` / `user.email`
-    (SKILL.md Phase 1 Step 3). This test is *not* the plugin — it has
-    to make commits reproducibly in any environment, including CI.
-    Identity is injected through env vars only for this subprocess,
-    leaving the user's global git config untouched, and both global +
-    system config files are pointed at `/dev/null` so a host-specific
-    `init.defaultBranch` or signing setting can't surprise the assertions.
-    """
-    env = os.environ.copy()
-    env.update(
-        {
-            "GIT_AUTHOR_NAME": "ttrpg-gm tests",
-            "GIT_AUTHOR_EMAIL": "tests@example.invalid",
-            "GIT_COMMITTER_NAME": "ttrpg-gm tests",
-            "GIT_COMMITTER_EMAIL": "tests@example.invalid",
-            "GIT_CONFIG_GLOBAL": "/dev/null",
-            "GIT_CONFIG_SYSTEM": "/dev/null",
-        }
-    )
-    return subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+from _helpers import (
+    _run_git,
+    commit_doc,
+    commit_wrap_up,
+    per_doc_commit_count,
+    wrap_up_commit_exists,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -172,61 +141,6 @@ class IngestRunState:
         self.lessons.clear()
 
 
-def commit_doc(
-    *,
-    campaign: Path,
-    doc_index: int,
-    doc_total: int,
-    doc_name: str,
-    summary: str,
-    paths_written: list[str],
-) -> str:
-    """Reference implementation of SKILL.md Phase 3 Step 5.8.
-
-    Stages exactly `paths_written` (the doc's tree writes — explicit
-    paths, never `git add -A`), then commits with the documented
-    subject shape. Returns the commit SHA.
-
-    `paths_written` must contain at least one entry; the spec's
-    empty-scope guard ("if the GM rejected every proposed file for
-    this doc, skip the commit entirely") is the caller's job and
-    represented by NOT calling this function — same as the LLM would
-    skip the commit step.
-    """
-    if not paths_written:
-        raise ValueError(
-            "Step 5.8 says: skip the commit when nothing was written. "
-            "Don't call commit_doc with an empty path set."
-        )
-    # Stage scoped paths only — the executable form of Step 5.8's
-    # "explicit paths, never -A" rule.
-    _run_git("add", "--", *paths_written, cwd=campaign)
-    subject = (
-        f"/ingest doc {doc_index}/{doc_total}: {doc_name} ({summary})"
-    )
-    _run_git("commit", "-m", subject, cwd=campaign)
-    out = _run_git("rev-parse", "HEAD", cwd=campaign).stdout.strip()
-    return out
-
-
-def commit_wrap_up(
-    *,
-    campaign: Path,
-    summary: str,
-    paths_written: list[str],
-) -> str:
-    """Reference implementation of SKILL.md Phase 4 Step 3c.
-
-    Post-issue-#61 the wrap-up commit's scope is narrow: just
-    `campaign.md` plus any Adventure files Step 1 touched. Returns
-    the commit SHA. Subject shape: `/ingest wrap-up (<summary>)`.
-    """
-    _run_git("add", "--", *paths_written, cwd=campaign)
-    subject = f"/ingest wrap-up ({summary})"
-    _run_git("commit", "-m", subject, cwd=campaign)
-    return _run_git("rev-parse", "HEAD", cwd=campaign).stdout.strip()
-
-
 def lookup_doc_commit_sha(campaign: Path, k: int) -> str | None:
     """Return the SHA of the K-th per-doc commit, or None if not present.
 
@@ -274,32 +188,6 @@ def lookup_scaffold_sha(campaign: Path) -> str:
     return sha[0]
 
 
-def per_doc_commit_count(campaign: Path) -> int:
-    """How many `/ingest doc ...` commits are in HEAD's history?
-
-    The "resume after cancel/crash" pre-flight (Phase 3 Step 0c) uses
-    this count to surface the resume-or-abandon prompt.
-    """
-    result = _run_git(
-        "log", "--grep=^/ingest doc ", "--format=%H", cwd=campaign
-    )
-    return len([l for l in result.stdout.splitlines() if l.strip()])
-
-
-def wrap_up_commit_exists(campaign: Path) -> bool:
-    """Has a Phase 4 wrap-up commit landed after the per-doc commits?
-
-    Phase 3 Step 0c's detection logic distinguishes the "crashed
-    mid-Phase-3" state (per-doc commits present, no subsequent
-    wrap-up) from the "completed cleanly" state (per-doc commits +
-    wrap-up).
-    """
-    result = _run_git(
-        "log", "--grep=^/ingest wrap-up", "--format=%H", cwd=campaign
-    )
-    return any(l.strip() for l in result.stdout.splitlines())
-
-
 def reset_hard(campaign: Path, sha: str) -> None:
     """Run `git reset --hard <sha>`. Mirrors the spec's reset paths.
 
@@ -311,8 +199,8 @@ def reset_hard(campaign: Path, sha: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Fixture: a freshly scaffolded campaign repo (reuses the helper from
-# test_ingest_scaffolding.py via a direct import-by-path).
+# Fixture: a freshly scaffolded campaign repo. Uses the shared scaffolder
+# reference from `tests/_helpers.py` (lifted there in issue #112).
 # ---------------------------------------------------------------------------
 
 
@@ -323,18 +211,13 @@ def scaffolded_campaign(
 ) -> Path:
     """A fresh campaign repo scaffolded into a temp directory.
 
-    Re-uses the reference Phase 1 scaffolder from
-    `tests/test_ingest_scaffolding.py` so this test file doesn't
-    duplicate the placeholder-substitution + git-init logic. Named
-    `Per-Doc Commit Test Campaign` / system `D&D 5e` so the
-    substituted content reads naturally if a maintainer drops into
-    the tmp directory to debug.
+    Re-uses the shared Phase 1 scaffolder reference from
+    `tests/_helpers.py` so this test file doesn't duplicate the
+    placeholder-substitution + git-init logic. Named `Per-Doc Commit
+    Test Campaign` / system `D&D 5e` so the substituted content reads
+    naturally if a maintainer drops into the tmp directory to debug.
     """
-    # Local import — avoids a circular fixture chain by deferring the
-    # import until the fixture actually runs. Pytest discovers test
-    # files as top-level modules (no `tests` package), so the import
-    # is by file basename, not via a `tests.` package prefix.
-    from test_ingest_scaffolding import scaffold_campaign
+    from _helpers import scaffold_campaign
 
     target = tmp_path / "campaign-under-test"
     scaffold_campaign(
