@@ -13,10 +13,18 @@ one initial commit. Phases 2–4 (survey, per-doc extraction, wrap-up)
 are LLM-driven and out of scope here. See the README at
 `tests/README.md` for the explicit coverage gap.
 
+Per [ADR-0020](../docs/adr/0020-modularization-via-shared-references.md)
+and v0.3 slice A (#81), the scaffolder procedure is now defined in
+`references/scaffolder.md` so `/init-campaign` and `/init-adventure`
+(standalone mode) consume the same single source of truth. This test
+remains the canonical reference-impl: it mirrors the shared reference's
+Steps 1–3 and pins the external behavior every consumer must produce.
+
 This test embeds a *reference scaffolder* — a small Python
-implementation of SKILL.md Phase 1 Steps 1–3 — and runs it against a
-temporary target directory using the real `templates/` directory that
-ships with the plugin. The test then asserts external behavior only:
+implementation of the shared reference's Steps 1–3 — and runs it
+against a temporary target directory using the real `templates/`
+directory that ships with the plugin. The test then asserts external
+behavior only:
 
 - The six expected files were written at the documented paths (no
   more, no fewer at the documented locations).
@@ -68,13 +76,20 @@ import yaml
 
 
 # The six templated paths the scaffolder is contracted to write into a
-# campaign repo. Source paths are under `templates/` (with `.template`
-# suffix); destination paths are relative to the campaign repo root.
+# campaign repo, in the **exact write order** specified by
+# `references/scaffolder.md` Step 2. Source paths are under
+# `templates/` (with `.template` suffix); destination paths are
+# relative to the campaign repo root.
+#
+# `.claude/settings.json` is FIRST so its `permissions.allow` rules
+# are in effect for the remaining five writes — the one-prompt
+# property the scaffolder reference guarantees. Slice A (#81) pinned
+# this ordering with `TestWriteOrder` below.
 EXPECTED_SCAFFOLDED_FILES: list[tuple[str, str]] = [
+    (".claude/settings.json.template", ".claude/settings.json"),
     ("CLAUDE.md.template", "CLAUDE.md"),
     (".claude/rules/sessions.md.template", ".claude/rules/sessions.md"),
     (".claude/rules/adventures.md.template", ".claude/rules/adventures.md"),
-    (".claude/settings.json.template", ".claude/settings.json"),
     ("campaign.md.template", "campaign.md"),
     (".gitignore.template", ".gitignore"),
 ]
@@ -166,33 +181,111 @@ def _run_git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+class ScaffolderAlreadyScaffoldedError(RuntimeError):
+    """Raised when the reference scaffolder detects existing campaign markers.
+
+    Mirrors `references/scaffolder.md` Step 1's "stop if any marker is
+    present" rule. The exception carries the list of markers found so
+    callers (and the idempotency tests) can assert on which markers
+    triggered the stop.
+    """
+
+    def __init__(self, markers: list[str]) -> None:
+        super().__init__(
+            "Target directory looks like an existing campaign repo "
+            f"(found markers: {markers}); refusing to re-scaffold."
+        )
+        self.markers: list[str] = markers
+
+
+# Marker paths the scaffolder's Step 1 inspects to decide whether the
+# target is already a campaign repo. Mirrors `references/scaffolder.md`
+# Step 1.3 verbatim. The `.git` marker is special-cased — its presence
+# alone is not enough (a git-init'd-but-otherwise-empty directory is
+# fine); we count commits to decide.
+EXISTING_CAMPAIGN_MARKERS: tuple[str, ...] = (
+    "campaign.md",
+    ".claude/rules/sessions.md",
+    ".claude/rules/adventures.md",
+)
+
+
+def _existing_campaign_markers(target: Path) -> list[str]:
+    """Return the subset of campaign markers present at `target`.
+
+    Used by the reference scaffolder's Step 1 guard and by the
+    idempotency tests below. Order of the returned list matches
+    `EXISTING_CAMPAIGN_MARKERS`, plus a synthetic `".git/"` entry when
+    a non-trivial git repo (one or more commits) is present.
+    """
+    found: list[str] = [
+        marker for marker in EXISTING_CAMPAIGN_MARKERS
+        if (target / marker).exists()
+    ]
+    git_dir = target / ".git"
+    if git_dir.is_dir():
+        # A `.git/` with any commits beyond the empty initial state is
+        # a marker. `git rev-list --count HEAD` is the canonical check;
+        # it returns non-zero on a fresh `git init` with no commits.
+        try:
+            result = subprocess.run(
+                ["git", "rev-list", "--count", "HEAD"],
+                cwd=target,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0 and int(result.stdout.strip() or "0") > 0:
+                found.append(".git/")
+        except (ValueError, FileNotFoundError):
+            # Either the rev-list output didn't parse or git isn't on
+            # the path. Conservative default: treat as no commits.
+            pass
+    return found
+
+
 def scaffold_campaign(
     *,
     templates_dir: Path,
     target: Path,
     campaign_name: str,
     campaign_system: str,
+    write_order_sink: list[str] | None = None,
 ) -> None:
-    """Run the deterministic Phase 1 scaffolder against `target`.
+    """Run the deterministic scaffolder against `target`.
 
-    Mirrors SKILL.md Phase 1 Steps 1–3:
+    Mirrors `references/scaffolder.md` Steps 1–3:
 
-    - Create the target if it doesn't exist (Step 1).
+    - Create the target if it doesn't exist (Step 1.2). If it exists
+      and any of the markers in `EXISTING_CAMPAIGN_MARKERS` (plus a
+      non-trivial `.git/`) is present, raise
+      `ScaffolderAlreadyScaffoldedError` (Step 1.3 — "stop and tell
+      the GM"). The test path turns the error surface into an
+      assertable signal.
     - For each templated path, read the `.template` file, apply
       placeholder substitutions, and write to the destination path,
       stripping the `.template` suffix (Step 2). Intermediate
-      directories are created on demand.
+      directories are created on demand. Templates are written in the
+      exact order documented in `references/scaffolder.md` Step 2,
+      with `.claude/settings.json` first so its permission rules are
+      in effect for the remaining five writes.
     - Run `git init`, stage the five committed written files
       explicitly (the gitignored `.claude/settings.json` is excluded),
       commit with the documented message (Step 3).
 
-    The reference scaffolder skips Step 1's "existing-campaign
-    markers" guard (the test creates a fresh empty `target`, so the
-    guard is vacuously satisfied) and skips Step 4's GM-facing report.
-    Both are LLM-/user-interaction surface, not the deterministic
-    behavior the test pins down.
+    The reference scaffolder skips Step 4's GM-facing report (it's
+    LLM-/user-interaction surface, not deterministic behavior the test
+    pins down).
+
+    `write_order_sink`, when provided, is appended to with each
+    destination path as it is written. Tests use this to assert the
+    `.claude/settings.json`-first ordering rule from Step 2.
     """
     target = target.resolve()
+    if target.exists():
+        markers = _existing_campaign_markers(target)
+        if markers:
+            raise ScaffolderAlreadyScaffoldedError(markers)
     target.mkdir(parents=True, exist_ok=True)
 
     for template_rel, dest_rel in EXPECTED_SCAFFOLDED_FILES:
@@ -207,6 +300,8 @@ def scaffold_campaign(
             campaign_path=target,
         )
         dst.write_text(substituted, encoding="utf-8")
+        if write_order_sink is not None:
+            write_order_sink.append(dest_rel)
 
     _run_git("init", "--initial-branch=main", cwd=target)
     # `.claude/settings.json` is intentionally absent from this argument
@@ -629,4 +724,297 @@ class TestCampaignOverviewPlaceholder:
         assert "The Sunless Citadel Revisited" in first_line, (
             "campaign.md H1 did not receive the substituted campaign "
             f"name; first line was {first_line!r}"
+        )
+
+
+# --------------------------------------------------------------------------
+# Slice A (#81) additions — write order, gitignore membership, idempotency.
+# --------------------------------------------------------------------------
+
+
+class TestWriteOrder:
+    """`.claude/settings.json` is written before the other five templates.
+
+    Per `references/scaffolder.md` Step 2, the settings file is written
+    first so its `permissions.allow` rules are in effect before the
+    remaining five template writes. The agent only takes one permission
+    prompt (the settings.json write itself); every subsequent write
+    falls under the freshly-installed allow list. Reorderings would
+    break that property and re-introduce per-file permission prompts.
+    """
+
+    def test_settings_json_is_written_first(
+        self,
+        tmp_path: Path,
+        templates_dir: Path,
+    ) -> None:
+        target = tmp_path / "campaign-write-order"
+        order: list[str] = []
+        scaffold_campaign(
+            templates_dir=templates_dir,
+            target=target,
+            campaign_name="Order Check",
+            campaign_system="System X",
+            write_order_sink=order,
+        )
+        assert order, "Reference scaffolder did not record any writes"
+        assert order[0] == ".claude/settings.json", (
+            "`.claude/settings.json` must be the first written file so "
+            "its `permissions.allow` rules cover the remaining writes; "
+            f"actual order: {order}"
+        )
+
+    def test_full_write_order_matches_reference_table(
+        self,
+        tmp_path: Path,
+        templates_dir: Path,
+    ) -> None:
+        """All six writes happen in the documented sequence.
+
+        `references/scaffolder.md` Step 2 documents the exact write
+        order in a numbered table; the scaffolder follows it without
+        rearrangement. This test pins the full ordering, not just the
+        settings-first property, so a future templates addition can't
+        silently slip into the middle without a corresponding update
+        here.
+        """
+        target = tmp_path / "campaign-full-order"
+        order: list[str] = []
+        scaffold_campaign(
+            templates_dir=templates_dir,
+            target=target,
+            campaign_name="Full Order Check",
+            campaign_system="System Y",
+            write_order_sink=order,
+        )
+        expected = [dest for (_, dest) in EXPECTED_SCAFFOLDED_FILES]
+        assert order == expected, (
+            "Scaffolder write order drifted from "
+            "`references/scaffolder.md` Step 2's table.\n"
+            f"  expected: {expected}\n"
+            f"  actual:   {order}"
+        )
+
+
+class TestSettingsJsonIsGitignored:
+    """`.claude/settings.json` is gitignored from the start.
+
+    Per `references/scaffolder.md` Step 2 (gitignore content) and Step
+    3 (commit staging), the settings file is excluded from version
+    control because it carries machine-local absolute paths. Three
+    redundant signals confirm this:
+
+    1. The committed `.gitignore` lists `.claude/settings.json`.
+    2. `git check-ignore` agrees with that listing.
+    3. `git status --porcelain` shows no entry for the file even though
+       it exists on disk (already covered by
+       `TestGitInit.test_working_tree_is_clean` and
+       `TestGitInit.test_initial_commit_tracks_exactly_the_documented_paths`,
+       but reasserted here as a slice-A summary).
+    """
+
+    def test_gitignore_lists_settings_json(
+        self,
+        scaffolded_campaign: Path,
+    ) -> None:
+        gitignore = (scaffolded_campaign / ".gitignore").read_text(
+            encoding="utf-8"
+        )
+        # The token must appear on a non-comment line — a comment-only
+        # mention would not actually ignore the file.
+        ignored_lines = [
+            line.strip()
+            for line in gitignore.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        assert ".claude/settings.json" in ignored_lines, (
+            "`.gitignore` does not include `.claude/settings.json` as "
+            "an active (non-comment) pattern; the file's machine-local "
+            "absolute paths would end up tracked.\n"
+            f"  active patterns: {ignored_lines}"
+        )
+
+    def test_git_check_ignore_agrees_with_gitignore(
+        self,
+        scaffolded_campaign: Path,
+    ) -> None:
+        """`git check-ignore` is the authoritative oracle.
+
+        `git check-ignore` exits 0 if the path is ignored, 1 if not.
+        We invoke it without `--no-index` because the file is untracked
+        — the default behavior covers the test case.
+        """
+        result = subprocess.run(
+            ["git", "check-ignore", ".claude/settings.json"],
+            cwd=scaffolded_campaign,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, (
+            "`git check-ignore .claude/settings.json` did not report the "
+            "file as ignored. Either the `.gitignore` pattern is wrong "
+            "or the file is being tracked.\n"
+            f"  stdout: {result.stdout!r}\n"
+            f"  stderr: {result.stderr!r}"
+        )
+
+
+class TestIdempotency:
+    """Re-running the scaffolder against an existing scaffold is a no-op.
+
+    Per `references/scaffolder.md` "Idempotency: re-running against an
+    existing scaffold", the scaffolder's Step 1 marker check stops
+    before any file is written when any of `campaign.md`,
+    `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, or a
+    non-trivial `.git/` is present. The existing campaign is untouched
+    — no template overwrites, no second commit, no `git init` re-run.
+
+    These tests cover the three observable consequences:
+
+    1. The reference scaffolder raises (the spec's "stop" surface).
+    2. The committed files are byte-identical before and after the
+       attempted re-run.
+    3. The git log still shows exactly one commit (no second commit
+       got appended).
+    """
+
+    def test_rerun_stops_with_existing_scaffold_error(
+        self,
+        scaffolded_campaign: Path,
+        templates_dir: Path,
+    ) -> None:
+        with pytest.raises(ScaffolderAlreadyScaffoldedError) as excinfo:
+            scaffold_campaign(
+                templates_dir=templates_dir,
+                target=scaffolded_campaign,
+                campaign_name="Different Name",
+                campaign_system="Different System",
+            )
+        # The error surfaces the markers that triggered the stop so the
+        # GM (and the test) can see which marker the scaffolder caught.
+        # All three content markers from a fresh scaffold should be
+        # detected; the `.git/` marker is also present (one commit).
+        for expected_marker in EXISTING_CAMPAIGN_MARKERS:
+            assert expected_marker in excinfo.value.markers, (
+                f"Idempotency stop did not detect marker "
+                f"{expected_marker!r}; markers seen: "
+                f"{excinfo.value.markers}"
+            )
+        assert ".git/" in excinfo.value.markers, (
+            "Idempotency stop did not detect the `.git/` marker even "
+            "though the scaffolded campaign has a commit; markers seen: "
+            f"{excinfo.value.markers}"
+        )
+
+    def test_rerun_does_not_modify_committed_files(
+        self,
+        scaffolded_campaign: Path,
+        templates_dir: Path,
+    ) -> None:
+        """The five committed files are byte-identical after a rejected re-run."""
+        before: dict[str, bytes] = {
+            dest: (scaffolded_campaign / dest).read_bytes()
+            for dest in EXPECTED_COMMITTED_FILES
+        }
+        with pytest.raises(ScaffolderAlreadyScaffoldedError):
+            scaffold_campaign(
+                templates_dir=templates_dir,
+                target=scaffolded_campaign,
+                campaign_name="Different Name",
+                campaign_system="Different System",
+            )
+        after: dict[str, bytes] = {
+            dest: (scaffolded_campaign / dest).read_bytes()
+            for dest in EXPECTED_COMMITTED_FILES
+        }
+        assert before == after, (
+            "Re-running the scaffolder against an existing scaffold "
+            "modified at least one committed file. The scaffolder must "
+            "be protective of populated targets per "
+            "`references/scaffolder.md` Step 1."
+        )
+
+    def test_rerun_does_not_add_a_second_commit(
+        self,
+        scaffolded_campaign: Path,
+        templates_dir: Path,
+    ) -> None:
+        with pytest.raises(ScaffolderAlreadyScaffoldedError):
+            scaffold_campaign(
+                templates_dir=templates_dir,
+                target=scaffolded_campaign,
+                campaign_name="Different Name",
+                campaign_system="Different System",
+            )
+        result = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD"],
+            cwd=scaffolded_campaign,
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+        count = int(result.stdout.strip())
+        assert count == 1, (
+            "Re-running the scaffolder against an existing scaffold "
+            f"produced a second commit; expected 1, found {count}."
+        )
+
+    def test_rerun_leaves_working_tree_clean(
+        self,
+        scaffolded_campaign: Path,
+        templates_dir: Path,
+    ) -> None:
+        """No stray uncommitted writes after a rejected re-run.
+
+        If the scaffolder stops as documented, no files are written.
+        `git status --porcelain` must therefore still be empty after
+        the rejected re-run.
+        """
+        with pytest.raises(ScaffolderAlreadyScaffoldedError):
+            scaffold_campaign(
+                templates_dir=templates_dir,
+                target=scaffolded_campaign,
+                campaign_name="Different Name",
+                campaign_system="Different System",
+            )
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=scaffolded_campaign,
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+        assert result.stdout == "", (
+            "Rejected re-run left the working tree dirty:\n"
+            f"{result.stdout}"
+        )
+
+
+class TestSharedReferenceExists:
+    """The shared `references/scaffolder.md` exists and is non-empty.
+
+    Slice A (#81) extracted the scaffolder procedure into
+    `references/scaffolder.md` per ADR-0020. The file's presence is
+    load-bearing: `skills/ingest/SKILL.md` Phase 1 now cites it, and
+    post-v0.3 `/init-campaign` and `/init-adventure` SKILL.md prose
+    will cite it too. A missing file means the citation in SKILL.md
+    dangles.
+    """
+
+    def test_scaffolder_reference_exists(self, repo_root: Path) -> None:
+        ref = repo_root / "references" / "scaffolder.md"
+        assert ref.is_file(), (
+            "`references/scaffolder.md` not found. Slice A (#81) "
+            "extracted the scaffolder procedure into this file; the "
+            "`/ingest` SKILL.md Phase 1 prose cites it. A missing file "
+            "means the citation dangles."
+        )
+        # Belt-and-suspenders: the file should be non-trivial. An
+        # empty placeholder would satisfy `is_file()` but not the
+        # citation contract.
+        assert ref.stat().st_size > 1_000, (
+            "`references/scaffolder.md` is suspiciously short "
+            f"({ref.stat().st_size} bytes); slice A's extraction "
+            "should produce a self-contained reference (several KB)."
         )
