@@ -59,9 +59,26 @@ For each doc, draft a single-line description that classifies the doc and summar
 - *"Adventure: <short description>."* — the doc reads as a story arc the party would run (published-module-shaped, homebrew-arc-shaped, or a coherent set of scenes tied to a goal).
 - *"World info: <short description>."* — Reference-note-dump-shaped (gods, calendar, regions, recurring NPCs) with no Adventure structure.
 - *"Session log: <short description>."* — past-facing narrative of one session's events.
+- *"PC source: <slug>'s backstory."* — the doc is a single PC's backstory or character-doc: a first-person or close-third narrative whose subject is one named character, naming family / mentors / hometowns / orders / heirlooms that feed cross-extraction. The `<slug>` is the PC's slug (per `dedup-matching.md` normalization). When this classification fires, the survey hand-off auto-adds `<slug>` to `survey-pcs.md` per `pc-roster-proposal.md`. See "PC source: classification rules" below.
 - *"Mixed / ambiguous: <surface the ambiguity>."* — the skim doesn't disambiguate (could be Adventure or world info; could be a Session log or a Reference-note dump).
 
 ADR-0008 explicitly prefers surfaced ambiguity over confident wrong commits. If the skim is genuinely unclear, say so in the description rather than guessing — the per-doc loop will resolve it once the GM clarifies.
+
+#### PC source: classification rules
+
+**When to propose `PC source: <slug>'s backstory`.** The bounded skim *strongly* suggests this classification when the skimmed prose shows backstory-shape signals:
+
+- **Single-named-subject narrative.** The skimmed text centers on one named character — first-person (*"I was born…"*, *"My father…"*) or close-third (*"Aldric grew up in…"*) — and the named subject is not yet known to the campaign roster as an NPC.
+- **Backstory-typical heading vocabulary.** Headings like *"Background"*, *"Backstory"*, *"Origin"*, *"History"*, *"Before the Campaign"*, *"Family"*, *"Childhood"* — with the named subject the heading's focus.
+- **PC-doc structural signals.** Filename or first heading naming a single character (e.g., `aldric-backstory.md`, `# Aldric of Highmoor`); reference-note-style metadata that fits a single character (class, level, family lineage, hometown), absent the world-info structure of a Reference-note dump.
+- **Distinguishes from Session log.** A Session log narrates a *play session* and surfaces multiple PCs as actors; a PC source surfaces *one* PC as the subject of their pre-campaign story. When the skim is genuinely ambiguous between Session log and PC source — e.g., a session narrated in close-third on one PC — surface as `Mixed / ambiguous:` and let the GM disambiguate at Step 3 review.
+- **Distinguishes from NPC reference dump.** A bounded skim that shows one named character treated as a Reference-note-dump entry (a paragraph or two of "who this NPC is" inside a roster of NPCs) is *World info:*, not *PC source:*. The PC source classification's signal is that the doc is *about* the character (their story), not a roster entry the doc lists them in.
+
+**When the skim is uncertain.** Propose the closest fit; if the doc's single-named-subject narrative could plausibly be the GM's own PC backstory or a deep NPC writeup, the agent does **not** silently commit — surface the uncertainty in the description (`Mixed / ambiguous: appears to be a backstory for <name>, but may be an NPC writeup. Confirm at review.`). The GM edits to `PC source: <slug>'s backstory` at Step 3 if the named character is a PC; otherwise stays in their preferred bucket.
+
+**Slug derivation.** The `<slug>` is derived from the named-subject's canonical name per the `dedup-matching.md` normalization rule (lowercase, strip "the ", collapse non-alphanumerics to hyphens, trim). The agent picks the slug from the first-heading H1 or the leading proper-name reference in the skim; the GM may edit at Step 3 review (the agent owns the *classification* prefix and the slug shape; the GM owns the trailing description and may correct the slug if the agent guessed wrong).
+
+**Composition with the PC roster.** Per `pc-roster-proposal.md` and ADR-0022, `PC source: <slug>` classifications auto-populate the `## Auto-added from PC source: docs` section of `.ttrpg-staging/survey-pcs.md` at hand-off. Step 5 stages a `pcs/<slug>.md` stub for the slug (unless one already exists, in which case the existing file is pre-seeded and the auto-add is a no-op). The slug from the classification *is* the slug of the stub. If the GM edits the classification's slug at Step 3, the edited slug flows through to both the roster and the stub.
 
 ### Step 2.5: Propose a PC roster
 
@@ -187,6 +204,13 @@ The agreed description is the steering input for the full read. Don't silently r
 
 Read the full markdown file (the current doc in the multi-doc loop, or the only doc in the single-doc case). Hold the GM-confirmed description as the primary framing. In multi-doc, also hold the **carried-forward lessons** set as a secondary framing.
 
+**Doc-classification routing.** The GM-confirmed description's classification prefix routes Step 2 into one of two extraction branches:
+
+- **`Adventure: …` / `World info: …` / `Session log: …` / `Mixed / ambiguous: …`** — the general extraction branch (identify lifecycle objects + Reference notes per the list below).
+- **`PC source: <slug>'s backstory`** — the PC-source extraction branch. The doc is one PC's backstory; the named PC (`<slug>`) is the doc's primary subject. Drive PC body enrichment + cross-extraction from backstory prose per the "PC source: extraction branch" subsection below. Reference notes, Threads, Consequences, Beats, and Secrets still extract through their normal heuristics — the PC-source branch *adds* PC body enrichment + the PC-as-container bidi-link extension on top of the general branch's outputs.
+
+#### General extraction branch
+
 Identify:
 
 - **Reference notes** — named NPCs, locations, factions, items the doc introduces or describes substantively. Apply `reference-note-extraction.md`.
@@ -195,6 +219,23 @@ Identify:
 - **Consequences** — explicit persistent facts about the world resulting from prior action. Past-facing.
 - **Beats** — GM-prepped scenes the party doesn't yet know about. Future-facing, GM-authored. ADR-0009 frontmatter; classify `kind:` from source-section headings per `beat-kind-classification.md`. *Threads vs Beats test*: if the party knows about it, it's a Thread; if it's the GM's prep, it's a Beat. Populate `linked_*` per the proximity rules in Step 3's Beat shape subsection.
 - **Secrets** — GM-only facts the party may not know but could discover. Apply `secret-extraction.md`. Each extracted Secret gets its own `secrets/<slug>.md` with ADR-0014 frontmatter and `belongs_to:` populated per the multi-container rule. On write, maintain bidirectional `## Secrets` section per `bidi-link-maintenance.md`.
+
+#### PC source: extraction branch
+
+When the GM-confirmed description is `PC source: <slug>'s backstory`, run the general extraction branch *and* the PC-source-specific work below. Per ADR-0023, the PC source branch composes with — does not replace — the general branch.
+
+- **Resolve the PC slug.** The `<slug>` from the classification is the PC. Verify the PC stub exists at `pcs/<slug>.md` (it will, because Phase 2 Step 5 staged and promoted any new PC stubs from the auto-add roster section before Phase 3 began). If the PC stub is missing at this point, surface to the GM and stop — the PC source doc names a PC the roster did not promote, which is an upstream contract violation.
+- **PC body enrichment** per `reference-note-extraction.md` "PC source body enrichment" subsection. The backstory prose becomes the body of `pcs/<slug>.md`, *appended* to any existing GM-authored body content. The agent never overwrites GM-authored body prose — per the GM-owned-body / agent-maintained-bidi-sections boundary (ADR-0023), the body is GM-owned and the agent's appends are additive only. If the live `pcs/<slug>.md` has GM-authored prose beyond the H1, propose the enrichment as an append (visible as a hunk diff) — the GM can edit at Step 4b review.
+- **Cross-extraction of named entities from backstory** per `reference-note-extraction.md` "PC source: cross-extraction" subsection. Named NPCs (parents, mentors, rivals), Locations (hometown, training grounds, ancestral seat), Factions (orders, guilds, family lines), and Items (heirlooms, signature gear) in the backstory prose become Reference notes with `belongs_to:` containing the PC. **This is the load-bearing extension** — backstory-extracted Reference notes carry the PC in `belongs_to:` so the PC-as-container bidi-link pattern fires at write time.
+- **Bidi-link extension — PC as container.** Per `bidi-link-maintenance.md` "PC as container" subsection, the PC file (`pcs/<slug>.md`) gains `## NPCs`, `## Locations`, `## Factions`, and `## Items` sections wiki-linking to each cross-extracted Reference note. The Reference notes maintain a symmetric `## PCs` section wiki-linking back. Same shape as Secrets bidi-links per ADR-0014 — the section names differ; the symmetry pattern is identical.
+- **Optional frontmatter slice.** When the backstory doc supplies them explicitly, populate `player:`, `class:`, and/or `level:` in the PC's frontmatter per `frontmatter-schemas.md` PC schema. Omit any field the source doesn't supply; do not invent. These fields are optional — a PC stub without them is valid.
+
+What **not** to extract from a PC source doc:
+
+- **The PC as their own NPC.** The named subject is a PC, not an NPC — do not propose an `npcs/<slug>.md` for them.
+- **In-campaign Threads / Consequences from a pre-campaign narrative.** A backstory describes events *before* the campaign began. Backstory events become Reference-note prose + PC body, not Threads (which are future-facing, party-aware) or Consequences (which are past facts resulting from *party* action — pre-campaign backstory is not a party action).
+- **Beats.** A backstory is not GM intent to deliver a scene. A *hook the GM wrote for delivery in play* alongside the backstory might be a Beat (e.g., a "GM aside: the family heirloom shows up in session 4" line) — extract it normally. Backstory prose itself is not Beat-shaped.
+- **Secrets the player wrote about their own PC.** Per `secret-extraction.md` "Player-secret rather than world-secret" exclusion, a PC's narrative quirk that the player is tracking out-of-character is not a Secret. If the GM wants to mark a backstory element as a Secret (a hidden fact about the PC's family the PC doesn't yet know), that surfaces through the normal Secret extraction heuristic — usually surfaced as ASK at Step 4a.
 
 **Date honesty for lifecycle objects.** Per ADR-0007 for Adventures: the agent never invents dates. For every Thread, Consequence, and Beat extracted during ingest, `created:` is left null unless the source doc explicitly provides a date the agent can attribute. Do **not** use the ingest date as a stand-in for an unknown source date.
 
@@ -353,12 +394,16 @@ Ingest-specific staging shape: write every proposed file to `.ttrpg-staging/doc-
 | Adventure (CREATE) | `.ttrpg-staging/doc-<N>/adventures/<slug>/adventure.md` (+ sub-files) |
 | Reference note (CREATE / UPDATE / disambiguated CREATE) | `.ttrpg-staging/doc-<N>/<kind>/<slug>.md` |
 | PC stub (CREATE — safety-net promotion) | `.ttrpg-staging/doc-<N>/pcs/<slug>.md` |
+| PC body enrichment (UPDATE — `PC source:` branch, append body) | `.ttrpg-staging/doc-<N>/pcs/<slug>.md` |
 | Thread / Consequence / Beat / Secret (CREATE / UPDATE / disambiguated) | `.ttrpg-staging/doc-<N>/<kind>/<slug>.md` |
 | Container back-reference (UPDATE — added `## Secrets` section bullet) | `.ttrpg-staging/doc-<N>/<container-path>` |
+| PC container back-reference (UPDATE — added `## NPCs` / `## Locations` / `## Factions` / `## Items` section bullets on the PC, `## PCs` section bullets on cross-extracted Reference notes) | `.ttrpg-staging/doc-<N>/<container-path>` |
 
 For UPDATE items, follow `staging-pattern.md` Section 2: `cp` the live file from the campaign repo into staging, then apply the proposed change via the Edit tool against the staged copy. This surfaces the live → proposed delta the way Claude Code shows changes for any file edit.
 
 **Bidi link staging for Secrets.** Every Secret CREATE or UPDATE drags container back-reference UPDATEs along with it: for each container in the Secret's `belongs_to:`, if that container's body doesn't already have a `## Secrets` section wiki-linking the Secret, stage an UPDATE to that container file too (per `bidi-link-maintenance.md`). Deleting a back-reference UPDATE without also adjusting the Secret's `belongs_to:` is a contract violation the agent surfaces at re-read time.
+
+**Bidi link staging for PC-as-container (PC source: branch).** Every cross-extracted Reference note from a `PC source:` doc whose `belongs_to:` contains the PC drags two back-reference UPDATEs along with it: (1) the PC file gains a `## NPCs` / `## Locations` / `## Factions` / `## Items` section bullet (per the Reference note's kind) wiki-linking the new note; (2) the Reference note carries a `## PCs` section bullet wiki-linking the PC. Per `bidi-link-maintenance.md` "PC as container," the pattern is symmetric to Secrets — the PC source's body enrichment is staged alongside, and deleting either back-reference UPDATE without also adjusting the cross-extracted Reference note's `belongs_to:` is the same contract violation as Secret back-reference deletion.
 
 Present a chat summary listing what's staged with metadata (description, lessons applied, summary counts, per-file CREATE/UPDATE annotations).
 
@@ -393,15 +438,17 @@ Rejected items (whether per-file via deletion or per-doc via reject-everything) 
 Once the GM says continue in Step 4b, move every file remaining in `.ttrpg-staging/doc-<N>/` to its corresponding final location in the campaign repo. Paths inside `doc-<N>/` mirror the campaign repo, so the move is a path translation.
 
 1. Create any needed directories under the campaign repo (only those needed for approved items; don't pre-create empty folders).
-2. **Move order matters for Secrets.** Move container files (Reference notes, Adventures) **before** Secret files, so the bidi back-references in the Secrets' `belongs_to:` resolve against containers that exist at the final location. Specifically:
-   - Move Reference-note CREATEs and UPDATEs first.
+2. **Move order matters for Secrets and PC-as-container bidi.** Move container files (Reference notes, Adventures, PCs) **before** Secret files, and move cross-extracted Reference notes (from `PC source:` docs) before the PC body enrichment, so the bidi back-references resolve against containers that exist at the final location. Specifically:
+   - Move Reference-note CREATEs and UPDATEs first (including cross-extracted Reference notes from `PC source:` docs).
    - Move Adventure CREATEs (including sub-files) next.
-   - Move container back-reference UPDATEs to existing-in-campaign-repo Reference notes / Adventures.
+   - Move PC body enrichments (`PC source:` branch) — append-only UPDATEs on `pcs/<slug>.md`.
+   - Move container back-reference UPDATEs to existing-in-campaign-repo Reference notes / Adventures / PCs (the `## Secrets` / `## NPCs` / `## Locations` / `## Factions` / `## Items` / `## PCs` section updates).
    - Move Secret files last.
    - Move Threads, Consequences, and Beats in any order — they have no bidi dependency.
 3. For each surviving staged file, dispatch by its Step 3b annotation. On path collisions not surfaced by Step 3b, STOP and tell the GM the exact conflicting path. Do not overwrite without explicit GM confirmation.
 4. **Validate Secret `belongs_to:` before writing the Secret file.** Per `secret-store.md` (`validate_belongs_to`): non-empty, ≥1 non-ephemeral entry, no unknown folder roots. On validation failure, STOP and re-present that Secret for re-edit.
 5. **Run bidi maintenance after each Secret write.** Per `bidi-link-maintenance.md`'s `apply_belongs_to`.
+5a. **Run bidi maintenance after each cross-extracted Reference note write (PC source: branch).** Per `bidi-link-maintenance.md` "PC as container," each cross-extracted Reference note whose `belongs_to:` contains the PC triggers a symmetric pair of back-reference writes: the PC file gains a `## NPCs` / `## Locations` / `## Factions` / `## Items` bullet (per the Reference note's kind), and the Reference note gains a `## PCs` bullet wiki-linking the PC. The maintenance is idempotent — re-running on an already-linked pair is a no-op.
 6. After each file is moved, delete it from staging. When `.ttrpg-staging/doc-<N>/` is empty, remove the directory. If `.ttrpg-staging/` is empty, remove that too.
 7. Do not modify `campaign.md`, `CLAUDE.md`, or anything under `.claude/` from inside Phase 3. Campaign-overview regeneration belongs to Phase 4.
 8. **Per-doc commit.** After every approved file from this doc has been moved into the campaign tree, make a single git commit checkpointing this doc's promotion. The commit's purpose is *forward-resilience* (crash-resume / cancel-and-resume), not a per-doc revert unit.

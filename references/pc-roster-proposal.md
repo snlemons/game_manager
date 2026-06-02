@@ -4,6 +4,8 @@ Per [ADR-0022](../docs/adr/0022-pc-roster-via-explicit-classification.md) (super
 
 ADR-0022 supersedes ADR-0018's skim-inference mechanism. The agent **does not** scan source docs' prose for PC candidates — v0.2 dogfooding showed skim inference produced too many false-positive candidates on every named character and not enough confidence to silently miss PCs the GM expected. The refined mechanism enumerates existing `pcs/<slug>.md` files, leaves a clearly-marked zone for GM-typed adds, and (per slice H2) consumes the `PC source: <slug>` doc-classification path for source-doc-driven PC stubs.
 
+Slice H2 of v0.3 implements the third pre-population source: when a source doc in the input directory is classified `PC source: <slug>'s backstory` during the description review, the declared `<slug>` auto-adds to the `## Auto-added from PC source: docs` section of the staged roster. The Phase 3 routing of those docs into PC body enrichment + cross-extraction is specified in `extraction-pipeline.md` and `reference-note-extraction.md`; this reference owns the auto-add mechanics into the survey roster file. See ADR-0023 for the PC source-doc ingestion design.
+
 ## When to propose
 
 The proposal runs against a campaign repo (with or without source docs in the input directory). It does **not** require the bounded skim to have happened first — the skim is no longer a signal source for this step.
@@ -13,13 +15,34 @@ The proposal runs against a campaign repo (with or without source docs in the in
 
 ## Sources of pre-populated roster entries
 
-The staged roster file is pre-populated from two sources (a third lands in slice H2):
+The staged roster file is pre-populated from three sources:
 
 1. **Existing `pcs/` enumeration.** List every `pcs/<slug>.md` file in the campaign repo. Read each file's frontmatter `aliases:` (if any) and its H1 (the canonical name). Each existing PC appears in the staged file marked `existing — pcs/<slug>.md` so the GM can see at a glance which entries are already-confirmed PCs versus newly proposed.
-2. **GM-typed adds zone.** The staged file carries a clearly-marked "Add other PCs here" zone (a labeled heading with a brief prose contract) where the GM types new PC entries before saying continue. Empty by default.
-3. **(Slice H2 — `PC source:` doc classification.)** Source docs the GM classified as `PC source: <slug>` during the description review will auto-add their declared `<slug>` to the staged roster in a dedicated section. **This slice (H1) does not implement that mechanism**; the staged file leaves a placeholder section labeled `Auto-added from PC source: docs` that stays empty until H2 populates it.
+2. **`PC source:` doc classification (slice H2).** For each markdown doc in the input directory that the bounded skim proposes — or the GM edits to — the classification `PC source: <slug>'s backstory`, auto-add `<slug>` to the staged roster's `## Auto-added from PC source: docs` section. The mechanism flows out of Step 2's description proposal: a doc-description line in `.ttrpg-staging/survey-descriptions.md` whose classification prefix is `PC source:` contributes its declared `<slug>` to this section. When the GM edits a description's slug (e.g., the agent proposed `aldric` but the GM edits to `aldric-of-highmoor`), the edited slug flows through to the auto-add roster line. Empty when no input docs classify as `PC source:`.
+3. **GM-typed adds zone.** The staged file carries a clearly-marked "Add other PCs here" zone (a labeled heading with a brief prose contract) where the GM types new PC entries before saying continue. Empty by default.
 
 The agent does **not** scan source-doc prose for PC candidates. No frequency-of-mention counting, no roster-section heading scan, no party-pronoun proximity scan, no PC-vs-NPC inference labels. The skim-based inference mechanism from ADR-0018 is gone.
+
+### Auto-add from `PC source:` docs — mechanics
+
+The auto-add is downstream of Step 2 description proposal. Two sub-cases govern the auto-add behavior:
+
+- **Auto-add slug already collides with an existing PC entry.** If `<slug>` from a `PC source:` doc matches a slug already listed in `## Existing PCs` (the doc names a PC the campaign already has), the auto-add is a no-op for the roster — the existing line covers it. Phase 3's per-doc extraction will still route through the PC source branch (per `extraction-pipeline.md`); the body enrichment and cross-extraction apply against the existing PC file. No duplicate roster line lands in `## Auto-added from PC source: docs`.
+- **Auto-add slug is new to the campaign.** When `<slug>` does not match an existing PC, write the entry to `## Auto-added from PC source: docs`. The auto-added line shape:
+
+  ```
+  <slug>         — auto-added from `<doc-name>` (PC source classification)
+  ```
+
+  No alias suffix is auto-added; the GM may add `— alias: <name>` at review.
+
+The GM may **edit** the auto-added section the same way they edit the `## Add other PCs here` section — delete an auto-added line to drop that PC from this run's roster (the underlying `PC source:` doc still extracts; the PC body enrichment lands against an existing-on-disk `pcs/<slug>.md` if one exists, otherwise surfaces as a contract violation per the Phase 3 PC source branch); add a `— alias: <name>` suffix to capture nicknames; rename the slug if the agent's classification picked the wrong canonical form.
+
+The GM may **not** add new lines to `## Auto-added from PC source: docs` directly — auto-add is driven by description classifications, and arbitrary additions would have no source-doc link. Lines typed into this section are interpreted the same way as `## Add other PCs here` entries per the section-symmetric parser rule (per `tests/test_pc_roster_proposal.py`'s parsing tests). The agent treats GM-typed additions to this section as equivalent to GM-typed additions to `## Add other PCs here`, but does not encourage them.
+
+### Cancel path for auto-add
+
+On cancel during the survey review, the auto-add lines are discarded along with the rest of `.ttrpg-staging/survey-pcs.md` per the existing cancel mechanics. The agent does **not** retroactively rewrite the source docs' classifications; they remain `PC source:` lines in `.ttrpg-staging/survey-descriptions.md` and will surface again on the GM's next re-attempt. No side effects on the campaign tree.
 
 ## Staged file format: `.ttrpg-staging/survey-pcs.md`
 
@@ -48,12 +71,20 @@ betha         — existing — `pcs/betha.md`
 
 ## Auto-added from PC source: docs
 
-(none yet — populated by H2 from docs the GM classifies as `PC source: <slug>`.)
+aldric        — auto-added from `aldric-backstory.md` (PC source classification)
 
 ## Add other PCs here
 
 (Type new PC entries below this line, one per line. Optional one-line body
 after tab/double-space. Optional `— alias: <name>` suffix.)
+```
+
+When no input doc classifies as `PC source:`, the `## Auto-added from PC source: docs` section renders an empty-state body in place of any entries:
+
+```markdown
+## Auto-added from PC source: docs
+
+(No `PC source:` docs in this input directory.)
 ```
 
 If the campaign repo has no existing PCs, the "Existing PCs" section renders with a one-line empty-state body instead of a list:
@@ -74,7 +105,7 @@ On continue, re-read `.ttrpg-staging/survey-pcs.md` from disk to capture GM edit
 
 - **Header / prose contract** — skipped (anything before the first `## ` section heading).
 - **`## Existing PCs` section** — each non-empty, non-empty-state line is a surviving pre-seeded PC entry. The line shape is `<slug>  — existing — \`pcs/<slug>.md\`[  — alias: <names>]`. If the GM deleted a pre-seeded line, that PC is dropped from this run's roster (the underlying `pcs/<slug>.md` file is **not** deleted from disk — drop-from-this-run is a roster-level signal only; the existing PC file persists). The `(No existing PCs in \`pcs/\`.)` empty-state line is ignored.
-- **`## Auto-added from PC source: docs` section** — in slice H1 this section is always empty (placeholder). The parser skips the contents (including the parenthetical empty-state body). Slice H2 will populate this section with entries shaped the same as "Add other PCs here" entries; the parser logic for both sections is the same.
+- **`## Auto-added from PC source: docs` section** — auto-added entries from `PC source:` doc classifications (slice H2). Line shape: `<slug>         — auto-added from \`<doc-name>\` (PC source classification)[  — alias: <names>]`. The parser extracts the slug (first whitespace-delimited token) and any aliases from a trailing `— alias:` suffix; the `auto-added from …` marker is informational (the section heading already classifies). The parsed entry's `source` is `"pc_source"` (distinguishable from `"existing"` and `"gm_typed"`). GM edits to this section follow the same rules as `## Add other PCs here` (delete lines to drop, add alias suffixes to capture nicknames); the empty-state body `(No \`PC source:\` docs in this input directory.)` is ignored. Lines in this section without the `auto-added from …` marker (e.g., a GM hand-typed entry that they meant to put in `## Add other PCs here`) are parsed as if they were in `## Add other PCs here` with `source="gm_typed"` — the section-symmetric parser rule means a typo doesn't lose the entry.
 - **`## Add other PCs here` section** — each non-empty, non-empty-state, non-parenthetical line is a GM-typed entry. The parser extracts:
   - The **slug** — the GM-typed first token (slug or free-form name). On any GM addition where the GM supplied a name rather than a slug, slugify per the [`dedup-matching.md`](./dedup-matching.md) normalization rule before recording.
   - The optional **one-line description** — anything after the slug and before any `— alias:` suffix, when the GM added one. Becomes the stub file's body.
@@ -105,7 +136,8 @@ Rules:
 - The slug is the GM-confirmed slug from `survey-pcs.md` (post-edit, post-refinement, post-slugify for free-form GM names).
 - The H1 is the GM-confirmed canonical name. When the staged roster line was `marisa`, the H1 is `Marisa` (the prose-readable form of the slug — title-case each hyphen-separated token); when the GM provided an explicit canonical name in the body (`marisa  Marisa Stoneforge — alias: Mari`) use the body's leading name as the H1.
 - `aliases:` carries the `— alias: <name>` entries from the staged line. If there are no aliases, omit the key entirely (per [`frontmatter-schemas.md`](./frontmatter-schemas.md) Reference-note default — absent reads as `[]`).
-- Body is the optional one-line description. If the GM didn't supply one, omit the body — leave the file as H1-only after the frontmatter. (Per ADR-0022 + ADR-0018, the stub is intentionally minimal; #57's PC backstory ingestion in slice H2 will extend the body for `PC source:` docs.)
+- Body is the optional one-line description. If the GM didn't supply one, omit the body — leave the file as H1-only after the frontmatter. (Per ADR-0022 + ADR-0018, the stub is intentionally minimal.) For `pc_source` entries, the Phase 3 PC source extraction branch (per `extraction-pipeline.md` Step 2 and ADR-0023) will append backstory prose to the body in a separate per-doc step — Phase 2's stub remains H1-only at promotion time; the body enrichment lands during the doc's per-doc extraction loop.
+- For `pc_source` entries, optional frontmatter fields `player:`, `class:`, and `level:` may be populated *during Phase 3 extraction* when the backstory doc supplies them explicitly. Phase 2's stub does **not** populate these fields — they enter the file when Phase 3 reads the source doc. See `frontmatter-schemas.md` PC schema and ADR-0023 for the optional-frontmatter contract.
 
 **Pre-seeded entries do not re-stage.** A surviving `## Existing PCs` line points at a file that already exists in `pcs/`; the agent does not stage a stub, does not overwrite, does not no-op-write. Pre-seeded entries flow into the in-memory PC roster handed off to Phase 3 (so Reference-note extraction and Beat `linked_pcs:` see them), but they do not touch disk during Phase 2 Step 5.
 
@@ -132,6 +164,8 @@ On cancel during the survey review, delete any staged `.ttrpg-staging/pcs/` dire
 - **The dual-file review prompt** (continue / cancel / verbal refinement covering both `survey-descriptions.md` and `survey-pcs.md`) — orchestration, lives in the consuming skill's SKILL.md per ADR-0018.
 - **The per-doc description proposal** (`survey-descriptions.md`) — see the consuming skill's SKILL.md.
 - **The processing-order proposal** (`survey-order.md`, multi-doc only) — see the consuming skill's SKILL.md.
-- **The `PC source: <slug>` doc-classification mechanism** that populates the `## Auto-added from PC source: docs` section — slice H2's scope; this reference reserves the section but does not specify the recognition rule.
+- **The `PC source: <slug>` doc-classification recognition rules** in the bounded skim — those live in `extraction-pipeline.md` § "Step 2 / PC source: classification rules." This reference owns only the auto-add from those classifications into the staged roster file.
+- **The Phase 3 PC body enrichment and cross-extraction** — lives in `reference-note-extraction.md` § "PC source: cross-extraction" and `extraction-pipeline.md` § "Step 2 / PC source: extraction branch."
+- **The PC-as-container bidi-link maintenance** — lives in `bidi-link-maintenance.md` § "PC as container."
 - **The Phase 3 PC-vs-NPC safety-net ASK** for late-addition PCs — see the consuming skill's SKILL.md and [`reference-note-extraction.md`](./reference-note-extraction.md) "PC vs NPC discriminator."
 - **The carried-forward "PC identity confirmation" lesson shape** — see the consuming skill's SKILL.md.

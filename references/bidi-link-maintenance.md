@@ -2,6 +2,8 @@
 
 Per [ADR-0014](../docs/adr/0014-secrets-as-multi-container-lifecycle-objects.md), every container listed in a Secret's `belongs_to:` carries a `## Secrets` section in its file body wiki-linking back to the Secret file. **The Secret file is the source of truth for content; the container's section is a derived view the agent maintains on every Secret write.** This reference is the canonical prose spec for that maintenance algorithm — the linker that keeps Secret↔container symmetry intact, and the linter that flags drift caused by manual GM edits.
 
+Per [ADR-0023](../docs/adr/0023-pc-source-doc-ingestion.md), the same bidirectional pattern extends to **PCs as containers** for cross-extracted Reference notes from `PC source: <slug>` docs. When a Reference note carries the PC in `belongs_to:`, the PC file gains a kind-named section (`## NPCs` / `## Locations` / `## Factions` / `## Items`) wiki-linking the Reference note, and the Reference note gains a `## PCs` section wiki-linking the PC. The shape mirrors Secrets exactly — the only difference is the section names. See "PC as container" below.
+
 The reference Python at [`tests/test_bidi_link.py`](../tests/test_bidi_link.py) (shipped by issue #36) is a near-translation of the algorithm described here; the v0.1 convention is that the SKILL.md prose describes the algorithm the LLM follows at runtime, and the reference Python pins the spec so drift between the prose and the algorithm becomes a test failure. Changes here must keep that suite green and stay reflected in the prose.
 
 The Secret schema (where `belongs_to:` is defined as a non-empty list of non-ephemeral container paths) lives in [`frontmatter-schemas.md`](./frontmatter-schemas.md). The Secret extraction heuristic that produces the candidate `belongs_to:` list lives in [`secret-extraction.md`](./secret-extraction.md). The store enumeration that the linter walks lives in [`secret-store.md`](./secret-store.md).
@@ -137,6 +139,74 @@ The intended invocation points:
 - **On-demand** when the GM asks the agent to "check Secret links" or sees suspicious Brief output (a Secret expected but missing from the Secret Push question).
 
 If the lint finds nothing, the agent doesn't surface anything — silence is the success signal. If the lint finds drift, the agent reports the findings as a short list with the actionable message per finding, and asks whether to heal them now (re-run `apply_belongs_to` for the missing-back-reference cases) or surface them for GM manual review.
+
+## PC as container (PC source: branch, per ADR-0023)
+
+Per [ADR-0023](../docs/adr/0023-pc-source-doc-ingestion.md), Reference notes cross-extracted from `PC source: <slug>` docs in `/ingest` Phase 3 carry the PC in their frontmatter `belongs_to:`. This makes the PC a **container** for those Reference notes — analogous to how an NPC, Location, or Adventure is a container for a Secret per ADR-0014. The bidirectional maintenance shape mirrors Secrets exactly; the section names differ.
+
+The four bidi pairs:
+
+| Reference note kind | Section on the PC | Section on the Reference note |
+|---|---|---|
+| `npcs/<slug>.md` | `## NPCs` (on `pcs/<pc-slug>.md`) | `## PCs` (on `npcs/<slug>.md`) |
+| `locations/<slug>.md` | `## Locations` (on `pcs/<pc-slug>.md`) | `## PCs` (on `locations/<slug>.md`) |
+| `factions/<slug>.md` | `## Factions` (on `pcs/<pc-slug>.md`) | `## PCs` (on `factions/<slug>.md`) |
+| `items/<slug>.md` | `## Items` (on `pcs/<pc-slug>.md`) | `## PCs` (on `items/<slug>.md`) |
+
+The Reference note's `belongs_to:` is the source of truth (the same way a Secret's `belongs_to:` is); the kind-named section on the PC and the `## PCs` section on the Reference note are derived views the agent maintains on every Reference-note write whose `belongs_to:` contains a PC.
+
+### `apply_pc_belongs_to` — the maintenance algorithm
+
+**Input:** a campaign root, a Reference-note path (e.g., `npcs/caelir-of-highmoor.md`), the Reference note's `belongs_to:` list (containing PC paths like `pcs/aldric.md`), and an optional summary string (one line, used as the bullet's trailing description — typically the Reference note's H1 or one-line body).
+
+**Output:** a per-PC result map: `True` if the PC's file was modified, `False` if the file was already correct (idempotent no-op). The Reference note itself is also potentially modified (its `## PCs` section); the result map covers both directions.
+
+**Behavior, per PC in `belongs_to:`:**
+
+1. **Resolve the PC path to its file.** `pcs/<slug>.md` is the file directly.
+2. **Verify the PC file exists.** If the file does not exist, surface the missing file to the GM and stop — same posture as the Secret case in step 2 of `apply_belongs_to`. Do not silently scaffold a PC stub from a Reference-note write.
+3. **Determine the section name on the PC file** by the Reference note's kind:
+   - `npcs/<slug>.md` → `## NPCs`
+   - `locations/<slug>.md` → `## Locations`
+   - `factions/<slug>.md` → `## Factions`
+   - `items/<slug>.md` → `## Items`
+4. **Read the PC file.** Split into frontmatter (preserve verbatim) and body.
+5. **Check for an existing forward-reference.** Scan the body for a wiki-link that resolves to the Reference note. Two forms count, the same way as Secrets:
+   - Canonical slug-path form: `[[<kind>/<slug>]]`, matching the Reference note's slug-path.
+   - Display-name (canonical-title) form: `[[<title>]]`, matching the Reference note's H1.
+6. **If a forward-reference is already present (in either form), the PC file is correct** — return `False` for this PC; do not modify.
+7. **Otherwise, add the forward-reference bullet.** Shape: `- [[<kind>/<slug>]] — <summary>`. Insert under the appropriate kind-named section, or append a fresh section if the heading doesn't yet exist. Section placement at end-of-file. Frontmatter preserved byte-for-byte.
+8. **Mirror on the Reference note: ensure a `## PCs` section back-references the PC.** Read the Reference note; if no wiki-link to the PC (canonical or display-name form) exists in its body, add a `- [[pcs/<pc-slug>]] — <PC summary>` bullet under a `## PCs` section (creating the section if absent). The Reference note's body is the source-of-truth body (the one-liner from extraction) plus the agent-maintained back-section.
+
+**Idempotency.** Re-running against the same Reference note + PC pair produces byte-identical files on the second run. Section detection short-circuits in step 5 (and the mirror step's analog); no duplicate bullets.
+
+**Frontmatter preservation.** Both files' frontmatter blocks are preserved verbatim; the linker only touches body text.
+
+**GM-owned body / agent-maintained bidi sections boundary** per ADR-0023. The body region above the agent-maintained sections is GM-owned — the linker never modifies it. The linker only inserts / updates bullets inside the kind-named sections.
+
+### Writer authors canonical slug-path form
+
+Same rule as Secrets per step 6 of `apply_belongs_to`: the writer always authors `- [[<kind>/<slug>]]` (and `- [[pcs/<pc-slug>]]` for the mirror) — canonical slug-path form, not display-name. The linker's reader accepts either form for backward compatibility, but the writer's hand commits to slug-path so cross-kind name collisions don't drift in.
+
+### When to invoke `apply_pc_belongs_to`
+
+- **`/ingest` Phase 3 (PC source: branch)** — after writing each cross-extracted Reference note whose `belongs_to:` contains a PC, call `apply_pc_belongs_to` with the Reference note's path, its `belongs_to:` list, and a summary derived from its H1 (or first-line body).
+- **`/ingest` Phase 3 (general branch)** — Reference notes extracted in the general branch do not typically have PCs in `belongs_to:` (the general branch doesn't populate PC containers). When the GM edits a Reference note at Step 4b to add a PC to its `belongs_to:`, the maintenance fires at Step 5 the same way.
+- **`/wrap-session`** — when a session's wrap proposes a Reference note whose `belongs_to:` includes a PC (rare in v0.3; expected to become more common with future PC tracking work), apply the maintenance after writing.
+
+Do **not** invoke `apply_pc_belongs_to` when a Reference note's body changes without its `belongs_to:` changing — the back-references already exist and the summary bullet is stable, the same way Secrets' bullets are stable through body changes.
+
+### Lint — PC-as-container drift
+
+`lint`'s three failure modes apply to PC-as-container the same way they apply to Secrets:
+
+- **Orphan wiki-link** — a PC file contains `[[<kind>/<slug>]]` under a kind-named section, but the linked Reference note doesn't exist. Surface as `"orphan"` finding with the PC as the container.
+- **Missing back-reference** — a Reference note's `belongs_to:` lists a PC, but the PC file doesn't link back under the appropriate kind-named section. Or the PC file links the Reference note but the Reference note doesn't carry a `## PCs` section pointing back. Surface as `"missing-back-reference"` for both directions.
+- **Cross-kind name collision** — display-name links inside PC bidi sections that resolve ambiguously. Same shape as Secrets.
+
+A `lint` implementation that walks the campaign for Secret drift can be extended to walk for PC-as-container drift by adding the four kind-named section names (`## NPCs` / `## Locations` / `## Factions` / `## Items`) and the inverse (`## PCs`) to its section enumeration. The detection logic is the same; the section labels are different.
+
+The v0.3 H2 reference Python at `tests/test_bidi_link.py` covers the Secret pattern as the load-bearing test fixture. The PC-as-container pattern's reference impl extends the same module — see the tests under `TestPcAsContainer` for the new coverage.
 
 ## What this algorithm does not handle
 

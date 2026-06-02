@@ -16,12 +16,16 @@ The corresponding ADRs are [ADR-0007](../docs/adr/0007-temporal-model-and-campai
 
 File: `<kind>/<slug>.md` where `<kind>` is `npcs`, `locations`, `factions`, `items`, or `pcs`.
 
-Reference notes do not require frontmatter (per `reference-note-extraction.md` — minimal-by-default). When frontmatter is present, the following fields are recognized; all are optional. The schema applies to every Reference-note kind.
+Reference notes do not require frontmatter (per `reference-note-extraction.md` — minimal-by-default). When frontmatter is present, the following fields are recognized; all are optional. The schema applies to every Reference-note kind, with three extra optional fields available only on PCs (per ADR-0023).
 
 ```yaml
 ---
 kind: npc                            # optional: npc | location | faction | item | pc
 aliases: []                          # optional: list of other names this entity goes by
+belongs_to: []                       # optional: list of PC container paths (PC-source cross-extraction; ADR-0023)
+player: ""                           # optional, PC only: player at the table
+class: ""                            # optional, PC only: character class
+level: 1                             # optional, PC only: character level (positive integer)
 ---
 ```
 
@@ -33,13 +37,29 @@ aliases: []                          # optional: list of other names this entity
   Default: empty list (or the key may be omitted entirely; absent reads as `[]`).
 
   The field is most load-bearing for NPCs (double identities, pseudonyms, pre-reveal masks) but is available on every Reference-note kind. PC aliases (nickname-vs-given-name) use the same field; Location aliases (a city's historical and current names) and Item aliases (a sword's true name vs the name a faction gave it) work the same way.
+- **`belongs_to`** — optional, list of strings. Paths to PC containers that this Reference note was cross-extracted from per ADR-0023. Each entry is a `pcs/<slug>.md` path. Populated when the Reference note was extracted from a `PC source: <pc-slug>` doc and the PC is the cross-extraction owner; absent (or empty list) otherwise. The field's source of truth is the Reference note; the symmetric `## NPCs` / `## Locations` / `## Factions` / `## Items` section on the PC and the `## PCs` section on the Reference note are derived views the agent maintains per `bidi-link-maintenance.md` § "PC as container."
+
+  Default: empty list (or the key may be omitted entirely; absent reads as `[]`).
+
+  This field deliberately reuses the same name as Secrets' `belongs_to:` — the semantic is parallel ("this Reference note is owned by these PCs as containers"), and the bidi-link maintenance reuses the symmetric-section pattern. The two `belongs_to:` fields don't collide because they appear on different file kinds (Secrets vs Reference notes).
+
+### PC-only optional fields (ADR-0023)
+
+These three fields are valid only on `pcs/<slug>.md` files. They appear when the source supplies them (typically a `PC source:` doc with player/class/level metadata) and are omitted otherwise. None are required; an `pcs/<slug>.md` file without any of them is the minimal stub shape per ADR-0022.
+
+- **`player`** — optional, string. The name (or handle) of the player at the table who controls this PC. Useful for GMs who manage rotating tables or want player-facing prep to address a player by name. The agent never invents this — it is populated only when the source doc supplies it explicitly (a metadata block, a "Player: <name>" line, etc.). Absent is fine.
+- **`class`** — optional, string. The PC's character class (or multi-class composite — *"Fighter / Cleric"* is valid). Populated only when the source doc supplies it explicitly. Multi-class entries are written as a single string verbatim from the source. Absent is fine.
+- **`level`** — optional, positive integer. The PC's character level. Populated only when the source doc supplies it explicitly. The agent never increments the value as sessions progress — level changes are GM-owned. Absent is fine.
+
+The three fields are independently optional — supplying `level:` without `class:` is valid; supplying `player:` alone is valid. They do not collectively form a "stat block" — they are the **selective B frontmatter slice** per [issue #57](https://github.com/snlemons/game_manager/issues/57)'s scoping. The full PC stat schema (HP, AC, abilities, proficiencies, equipment, spells, features) is **deferred** out of v0.3 scope per ADR-0023 (deferred-stats rationale).
 
 ### Defaults at creation
 
-- `/ingest` Phase 3 CREATE: omit `aliases:` (or write `aliases: []`) unless the source doc names both the canonical and at least one alias and the GM confirms the relationship at the per-doc review per `reference-note-extraction.md`. The agent's first proposal follows the canonical-choice heuristic in ADR-0017; the GM picks canonical at review.
-- `/wrap-session` Pass 2 CREATE: omit `aliases:` unless the session notes name both the canonical and an alias and the GM confirms the relationship at Step 3 ambiguity clarification.
-- UPDATE (alias added to an existing Reference note): append the new alias to the existing `aliases:` list (do not replace); preserve every other frontmatter field byte-for-byte.
-- `/ingest` Phase 2 PC stub CREATE (per [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md)): write `kind: pc` explicitly so the file is unambiguous on read, include `aliases:` only when the survey roster line captured nicknames (`— alias: <name>` suffixes), and write an optional one-line body if the GM enriched the staged annotation — otherwise leave the file as frontmatter + H1 only. The stub shape is intentionally minimal; longer-form PC content (backstory, disposition, party-role) lands later via hand-edit or via a future PC source-doc ingest per [#57](https://github.com/snlemons/game_manager/issues/57).
+- `/ingest` Phase 3 CREATE: omit `aliases:` (or write `aliases: []`) unless the source doc names both the canonical and at least one alias and the GM confirms the relationship at the per-doc review per `reference-note-extraction.md`. The agent's first proposal follows the canonical-choice heuristic in ADR-0017; the GM picks canonical at review. Omit `belongs_to:` unless the source doc is a `PC source: <slug>` doc and the entity was cross-extracted from PC backstory (per ADR-0023); on PC source cross-extraction, populate `belongs_to: [pcs/<slug>.md]`. Omit `player:` / `class:` / `level:` (PC-only fields) unless the source supplies them explicitly.
+- `/wrap-session` Pass 2 CREATE: omit `aliases:` unless the session notes name both the canonical and an alias and the GM confirms the relationship at Step 3 ambiguity clarification. Omit `belongs_to:` (`/wrap-session` does not extract from PC source docs).
+- UPDATE (alias added to an existing Reference note): append the new alias to the existing `aliases:` list (do not replace); preserve every other frontmatter field byte-for-byte. The same rule applies to `belongs_to:` updates — append new PC paths, never replace.
+- `/ingest` Phase 2 PC stub CREATE (per [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md) + [ADR-0022](../docs/adr/0022-pc-roster-via-explicit-classification.md)): write `kind: pc` explicitly so the file is unambiguous on read, include `aliases:` only when the survey roster line captured nicknames (`— alias: <name>` suffixes), and write an optional one-line body if the GM enriched the staged annotation — otherwise leave the file as frontmatter + H1 only. The stub shape is intentionally minimal; `player:` / `class:` / `level:` are **not** populated at Phase 2 stub creation, even when the roster line came from a `PC source:` auto-add — those fields land during Phase 3's PC source extraction branch when the source doc is read in full.
+- `/ingest` Phase 3 PC source UPDATE (per [ADR-0023](../docs/adr/0023-pc-source-doc-ingestion.md)): when a `PC source: <slug>` doc supplies `player:` / `class:` / `level:` explicitly in its backstory metadata, populate the corresponding fields on `pcs/<slug>.md`. Omit each field whose value the source doesn't supply. If a field already exists with a different value on the live PC file, surface the discrepancy as an ASK at Step 4a rather than overwriting (the GM's prior value wins by default).
 
 ### Worked example: PC stub
 
@@ -67,6 +87,38 @@ kind: pc
 ```
 
 Both shapes are valid. Downstream skills read `kind: pc` to disambiguate from NPCs; the `aliases:` field (when present) feeds the same dedup-matching pass that handles NPC aliases per [ADR-0017](../docs/adr/0017-npc-aliases-via-frontmatter-and-piped-links.md).
+
+### Worked example: PC after PC source extraction
+
+After Phase 3 runs against a `PC source: aldric` doc that supplied player / class / level metadata and a backstory naming a hometown, family, and an order, the file looks like:
+
+```yaml
+---
+kind: pc
+player: Sam
+class: Paladin
+level: 5
+---
+
+# Aldric of Highmoor
+
+Aldric was born in [[locations/highmoor]] to [[npcs/caelir-of-highmoor|Caelir]],
+a knight of the [[factions/order-of-the-ember|Order of the Ember]]…
+
+## NPCs
+
+- [[npcs/caelir-of-highmoor]] — Aldric's father
+
+## Locations
+
+- [[locations/highmoor]] — Aldric's hometown
+
+## Factions
+
+- [[factions/order-of-the-ember]] — the order Aldric serves
+```
+
+The `## NPCs` / `## Locations` / `## Factions` / `## Items` sections are agent-maintained per `bidi-link-maintenance.md` § "PC as container"; the body above them is GM-owned and may include backstory appended during the Phase 3 PC source branch. The `belongs_to:` field on the cross-extracted Reference notes (e.g., `npcs/caelir-of-highmoor.md`) carries `pcs/aldric.md` as the symmetric back-link.
 
 ### Validation
 
