@@ -11,6 +11,7 @@ paths:
   - "consequences/**/*.md"
   - "beats/**/*.md"
   - "secrets/**/*.md"
+  - ".ttrpg-staging/**/*.md"
 ---
 
 # Writing style and voice

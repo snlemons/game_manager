@@ -44,10 +44,15 @@ import yaml
 # --------------------------------------------------------------------------
 
 
-# The eleven content-bearing directory globs that drive auto-load. Listed
-# in the order they appear in the stub so parametrized failures point at
-# the right line. Adding a directory in a later version means extending
-# this tuple deliberately, which surfaces the change in code review.
+# The twelve content-bearing directory globs that drive auto-load.
+# Eleven anchored at the campaign root, plus `.ttrpg-staging/**/*.md` so
+# the rule auto-loads on the staging-pattern drafting paths too — see
+# issue #119 and the comment from 2026-06-02 for the empirical
+# verification that the auto-load fails on `.ttrpg-staging/**` without
+# this entry. Listed in the order they appear in the stub so
+# parametrized failures point at the right line. Adding a directory in
+# a later version means extending this tuple deliberately, which
+# surfaces the change in code review.
 EXPECTED_PATHS_GLOBS: tuple[str, ...] = (
     "sessions/**/*.md",
     "adventures/**/*.md",
@@ -60,6 +65,7 @@ EXPECTED_PATHS_GLOBS: tuple[str, ...] = (
     "consequences/**/*.md",
     "beats/**/*.md",
     "secrets/**/*.md",
+    ".ttrpg-staging/**/*.md",
 )
 
 # Placeholder section headings the stub ships with. ADR-0021 names these
