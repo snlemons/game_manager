@@ -45,72 +45,13 @@ Run the preflight exactly once per `/ingest` invocation; cache the result across
 
 ## Phase 1: Scaffold (implemented)
 
-### Step 1: Validate the target
+Phase 1 is the scaffolder: it writes the plugin's six template files into the target directory, runs `git init`, and makes the initial commit. The full procedure (target validation, template enumeration with `.claude/settings.json`-first write order, placeholder substitutions, `git init` and commit, the closing GM-facing report) lives in `../../references/scaffolder.md` per [ADR-0020](../../docs/adr/0020-modularization-via-shared-references.md). Follow that reference end-to-end for Phase 1; `/init-campaign` and `/init-adventure` (standalone mode) consume the same reference, so the procedure stays single-sourced there.
 
-1. Resolve the target directory to an absolute path.
-2. If it doesn't exist, create it (and any missing parent directories).
-3. If it exists and is non-empty, check for any of these markers of an existing campaign:
-   - `campaign.md`
-   - `.claude/rules/sessions.md`
-   - `.claude/rules/adventures.md`
-   - a `.git/` directory with any commits beyond an empty initial state
-   If any marker is present, **stop** and tell the GM the directory looks like an existing campaign repo. Don't overwrite. Don't merge.
-4. If it exists, is non-empty, and has none of those markers (e.g. it has source-doc markdown files the GM wants ingested in a later phase), confirm with the GM before proceeding.
+`/ingest`'s Phase 1 orchestration intent on top of the shared scaffolder:
 
-### Step 2: Write the six template files
-
-The plugin ships six templates under `../../templates/` (relative to this SKILL.md). For each, read the template from that path, substitute placeholders, and write to the target. The agent's cwd is the *campaign* directory, not the plugin install — these relative paths resolve from the SKILL.md's location, which is what Claude Code's markdown-link resolution uses for skill reference reads. Filenames have a `.template` suffix in the plugin; strip the suffix on write.
-
-**Order matters: `.claude/settings.json` is written FIRST so its permission rules are in effect before the remaining five writes.** The agent's first write of `.claude/settings.json` will prompt the GM for permission (the file doesn't exist yet, so no campaign-scoped permissions apply yet — this is unavoidable). After the GM accepts, the freshly-written `permissions.allow` array covers the remaining five template writes (`CLAUDE.md`, `.claude/rules/*`, `campaign.md`, `.gitignore` are all in the allow list), and the rest of Phase 1 proceeds without further prompts. The file is written first even though it isn't committed (see Step 3) — it's gitignored from the start because it carries machine-local absolute paths.
-
-Write the templates in this exact order:
-
-| # | Template source (path relative to this SKILL.md) | Written to (relative to target) |
-|---|---|---|
-| 1 | `../../templates/.claude/settings.json.template` | `.claude/settings.json` |
-| 2 | `../../templates/CLAUDE.md.template` | `CLAUDE.md` |
-| 3 | `../../templates/.claude/rules/sessions.md.template` | `.claude/rules/sessions.md` |
-| 4 | `../../templates/.claude/rules/adventures.md.template` | `.claude/rules/adventures.md` |
-| 5 | `../../templates/campaign.md.template` | `campaign.md` |
-| 6 | `../../templates/.gitignore.template` | `.gitignore` |
-
-The `.gitignore` excludes `.ttrpg-staging/`, which the skills use as a scratchpad for diff-style review surfaces (proposed descriptions, brief drafts, wrap proposals) that the GM edits in their IDE before approval. Staging contents are never committed.
-
-The `.claude/settings.json` pre-approves the standard Edit/Write/MultiEdit operations the plugin's skills perform on the campaign's structured folders (`npcs/`, `locations/`, etc.) so the GM isn't prompted for every file the agent writes during routine extraction. It also pre-approves a few read-only git commands the skills run for state inspection. The file is **gitignored** (the scaffolder's `.gitignore` excludes `.claude/settings.json`) because it carries absolute paths baked in at scaffold time — committing it would just guarantee drift on clone. The convention (which paths the plugin pre-approves) follows the campaign via the scaffolder template, not via a committed file; a fresh clone regenerates the file by re-running `/ingest` Phase 1 against the clone's location.
-
-Placeholder substitutions to apply to template content before writing:
-
-- `{{CAMPAIGN_NAME}}` → the GM-supplied campaign name, verbatim.
-- `{{CAMPAIGN_SYSTEM}}` → the GM-supplied system, verbatim.
-- `{{CAMPAIGN_PATH}}` → the resolved absolute path of the target campaign directory (e.g. `/Users/sofia/Documents/my-campaign`), **without** a trailing slash. The template uses this to bake absolute-path permission rules into `.claude/settings.json` (with a leading `/` already present in the template so the result is the `//absolute/path` form Claude Code's permission matcher requires). This makes permission grants survive any cwd or project-root resolution oddities. The cost is that moving the campaign directory invalidates the paths — the GM would need to regenerate or hand-edit `.claude/settings.json` after a move.
-
-Create intermediate directories as needed (notably `.claude/rules/`). Do not write any other files in this slice. In particular, do not create empty `npcs/`, `locations/`, `adventures/`, `sessions/`, `threads/`, `consequences/`, or `beats/` directories — they appear when content first lands in them, not before.
-
-### Step 3: Initialize the git repo and make an initial commit
-
-Run these commands in the target directory:
-
-```
-git init
-git add CLAUDE.md .claude/rules/sessions.md .claude/rules/adventures.md campaign.md .gitignore
-git commit -m "Scaffold campaign repo via ttrpg-gm /ingest"
-```
-
-`.claude/settings.json` is **not** included in the `git add` argument list — it was written in Step 2 (so its permissions are in effect for the rest of Phase 1) but it's gitignored by the `.gitignore` Phase 1 just wrote, so it stays untracked. Five files committed; six files written.
-
-If `git init` reports the directory is already a git repo, do **not** re-init. Stage and commit on the existing branch only with explicit GM confirmation; otherwise stop and tell the GM.
-
-Do not configure `user.name` or `user.email` from the plugin. Use whatever the GM's git config provides; if the commit fails because git has no identity configured, surface the underlying git error to the GM verbatim and stop.
-
-### Step 4: Report what was written
-
-Tell the GM, concisely:
-
-- the target directory (absolute path),
-- the five files committed in the initial commit (the four content templates plus `.gitignore`); note `.claude/settings.json` was also written but is intentionally gitignored (machine-local absolute paths),
-- the initial commit's hash and message.
-
-If the GM provided an input directory of source docs, continue directly into Phase 2. If `/ingest` was invoked scaffold-only (no input directory), the workflow ends here. Either way, no confirmation prompt — Phase 2 has its own review gates (description list, processing order), and Phase 3 has per-doc approval, so the GM has natural break points downstream.
+- Phase 1 is the entry to the rest of the `/ingest` workflow. After the scaffolder's Step 4 report, if the GM provided an input directory of source docs, continue directly into Phase 2 (Survey). If `/ingest` was invoked scaffold-only (no input directory), the workflow ends at the scaffolder's report. Either way, no extra confirmation prompt — Phase 2 has its own review gates (description list, PC roster, processing order), and Phase 3 has per-doc approval, so the GM has natural break points downstream.
+- The scaffolder's Step 1 marker check (`campaign.md`, `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, non-trivial `.git/`) is the same surface `/ingest`'s "scaffolded?" precondition check will read once slice G lands — the read-only path through Step 1 with no Step 2–4 writes. For Phase 1 today, the full Steps 1–4 run.
+- The settings preflight at the top of this SKILL.md runs once per invocation and caches across phases. For a fresh-scaffold Phase 1 invocation it's a no-op (no `.claude/settings.json` exists yet); for Phase 2 / 3 / 4 invocations against an already-scaffolded campaign it catches the moved-campaign case. The scaffolder reference does not re-document the preflight; both surfaces stay distinct.
 
 ## Phase 2: Survey
 
