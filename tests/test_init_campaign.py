@@ -296,7 +296,7 @@ class TestSkillMdExistsAndIsWellFormed:
 
         Token-presence check: the SKILL.md must document a from-scratch
         mode (the slice-D scope) and acknowledge a docs mode exists
-        (slice E placeholder; the prose can describe it as deferred).
+        (now slice E's deliverable — the docs branch is implemented).
         """
         text = (repo_root / SKILL_MD_PATH_RELATIVE).read_text(encoding="utf-8")
         lower = text.lower()
@@ -304,15 +304,11 @@ class TestSkillMdExistsAndIsWellFormed:
             "SKILL.md must document the from-scratch branch by name "
             "(token `from-scratch` or `from scratch`)."
         )
-        # docs mode is slice E; the SKILL.md may describe it as
-        # deferred / TODO. We don't enforce the exact framing, only
-        # that the docs branch is acknowledged somewhere in prose so
-        # the GM-facing Step 3 prompt has somewhere to route docs
-        # cases until slice E lands.
+        # Docs mode lands in slice E (#93). The token check is intentionally
+        # loose so this test stays insensitive to prose-level rewording.
         assert "docs" in lower, (
-            "SKILL.md must acknowledge the docs branch (even as a TODO "
-            "/ slice E placeholder) so Step 3's mode prompt has a "
-            "documented route for the docs case."
+            "SKILL.md must document the docs branch — slice E's "
+            "deliverable adds the docs-mode implementation."
         )
 
 
@@ -320,19 +316,26 @@ class TestSkillMdCitesSharedReferences:
     """Per ADR-0020, the skill consumes shared references via relative paths."""
 
     EXPECTED_REFERENCE_CITATIONS: tuple[str, ...] = (
-        # The scaffolder reference — consumed at Step 7.
+        # The scaffolder reference — consumed at Step 7 (from-scratch)
+        # and Step D1 (docs mode).
         "../../references/scaffolder.md",
         # The conversational-refinement-loop reference — drives Step 4's
-        # pitch elicitation.
+        # pitch elicitation (from-scratch only; skipped in docs mode).
         "../../references/conversational-refinement-loop.md",
-        # The PC roster proposal reference — consumed at Step 5.
+        # The PC roster proposal reference — consumed at Step 5
+        # (from-scratch) and via the extraction pipeline's Phase 2
+        # Step 2.5 in docs mode.
         "../../references/pc-roster-proposal.md",
-        # The campaign-overview composer — extended by this slice with
-        # the GM-authored opener block preservation rule.
+        # The campaign-overview composer — extended by slice D with the
+        # GM-authored opener block preservation rule, used by docs mode's
+        # Phase 4 regen via the extraction pipeline.
         "../../references/campaign-overview-composer.md",
         # The first-Adventure sub-flow — composes /init-adventure's
-        # in-campaign walkthrough at Step 6.
+        # in-campaign walkthrough at Step 6 (from-scratch only).
         "../init-adventure/SKILL.md",
+        # The extraction pipeline reference — consumed at Step D2 of
+        # docs mode (slice E). Phases 2 + 3 + 4 of the shared spec.
+        "../../references/extraction-pipeline.md",
     )
 
     def test_skill_md_cites_each_shared_reference(
@@ -857,4 +860,516 @@ class TestSkillMdCitesAdrs:
             "(PC roster as a survey deliverable, with empty-roster skip "
             "path) — the ADR is the source of the skip-path rule the "
             "step honors."
+        )
+
+
+# --------------------------------------------------------------------------
+# Tests — docs-mode branch (slice E, refs #93)
+#
+# Docs mode of `/init-campaign` runs the shared scaffolder reference at
+# Step D1 (same as the from-scratch branch's Step 7), then composes the
+# shared extraction pipeline reference at Step D2 (the same workflow
+# `/ingest` runs in Phases 2-4). Pitch elicitation, the optional PC
+# roster step (Step 5 of from-scratch), and the optional first-Adventure
+# sub-flow (Step 6) are all skipped — the docs themselves supply the
+# campaign content.
+#
+# These tests pin the structural shape:
+#
+#   * Docs mode is documented as an implemented branch (not a TODO).
+#   * Docs mode does NOT auto-create the GM-authored opener block —
+#     the pitch persistence rule still applies if the GM hand-authors
+#     it later, but `/init-campaign` docs mode itself never writes one.
+#   * Docs mode produces a scaffolded campaign repo with extracted
+#     content from the input docs (modelled via the per-doc + wrap-up
+#     commit chain from `test_ingest_per_doc_commits.py`).
+#   * The pipeline's commit-subject prefixes (`/ingest doc …`,
+#     `/ingest wrap-up …`) carry through even when the pipeline runs
+#     from `/init-campaign` — the prefix identifies the *workflow*,
+#     not the invoking skill.
+# --------------------------------------------------------------------------
+
+
+class TestDocsModeIsDocumentedAsImplemented:
+    """Docs mode is an implemented branch, not a deferred TODO.
+
+    Slice D shipped with the docs branch as a *TODO slice E* placeholder.
+    Slice E (this slice) implements the branch — the SKILL.md must
+    surface the implementation clearly so the LLM doesn't route docs
+    requests back to `/ingest` against an unscaffolded directory (the
+    failure mode the placeholder explicitly warned against).
+    """
+
+    def test_docs_mode_is_no_longer_a_todo_placeholder(
+        self,
+        repo_root: Path,
+    ) -> None:
+        """The SKILL.md does not describe docs mode as a TODO / slice E placeholder.
+
+        Slice D's prose contained the phrase `TODO slice E` describing
+        the unimplemented docs branch. Slice E removes that placeholder.
+        This test catches the failure mode where the slice E
+        implementation lands but the TODO marker is left in place by
+        accident.
+        """
+        text = (repo_root / SKILL_MD_PATH_RELATIVE).read_text(encoding="utf-8")
+        # The exact slice-D marker phrasing. If slice E re-uses the
+        # phrase to describe something else, this test will need to be
+        # tightened against the surrounding context — but the marker
+        # phrase as-is implies an unimplemented branch.
+        forbidden_phrases: tuple[str, ...] = (
+            "TODO slice E",
+            "docs mode is not yet implemented",
+            "docs branch is not implemented",
+            "docs mode isn't ready yet",
+        )
+        offenders = [p for p in forbidden_phrases if p in text]
+        assert not offenders, (
+            "SKILL.md still contains slice-D TODO placeholder phrasing "
+            "for docs mode: "
+            f"{offenders}. Slice E implements the branch; the prose "
+            "should describe the docs-mode flow as a concrete pipeline "
+            "(scaffold → extraction pipeline), not a deferred TODO."
+        )
+
+    def test_docs_mode_step_is_named_in_prose(
+        self,
+        repo_root: Path,
+    ) -> None:
+        """Docs-mode steps are named visibly in the SKILL.md prose.
+
+        The from-scratch branch documents its steps as Step 4 … Step 9
+        (the slice-D shape); the docs-mode branch needs an analogous
+        named step sequence so the LLM has a structural anchor for
+        each phase. The exact step labels (Step D1 / Step D2 / Step D3,
+        or similar) are an implementation choice — we only assert the
+        SKILL.md mentions scaffolding *first* and the extraction
+        pipeline *second*.
+        """
+        text = (repo_root / SKILL_MD_PATH_RELATIVE).read_text(encoding="utf-8")
+        # The two anchor references docs mode composes. Per the
+        # citations-test above, both are cited at least once; here we
+        # confirm they both appear in docs-mode-coded prose.
+        assert "scaffolder.md" in text, (
+            "Docs-mode prose must name the scaffolder reference — "
+            "Step D1 (the scaffold step) routes to it."
+        )
+        assert "extraction-pipeline.md" in text, (
+            "Docs-mode prose must name the extraction-pipeline "
+            "reference — Step D2 (the survey + per-doc + wrap-up step) "
+            "routes to it."
+        )
+
+    def test_docs_mode_skips_pitch_elicitation_in_prose(
+        self,
+        repo_root: Path,
+    ) -> None:
+        """The SKILL.md says docs mode skips pitch elicitation.
+
+        Pitch elicitation is the from-scratch branch's Step 4. In docs
+        mode the docs supply the campaign content directly, so pitch
+        elicitation is bypassed. The skill must say so explicitly so
+        the LLM doesn't compose the from-scratch flow on top of the
+        docs flow (over-prompting the GM).
+        """
+        text = (repo_root / SKILL_MD_PATH_RELATIVE).read_text(encoding="utf-8")
+        lower = text.lower()
+        # The skip is documented as either "pitch elicitation is
+        # skipped in docs mode" / "pitch elicitation skipped" / etc.
+        # We accept any phrasing that pairs "pitch" with "skip" in a
+        # docs-mode-adjacent sentence.
+        assert "pitch" in lower
+        # The literal pairing — looser than a regex on full prose, but
+        # tight enough to catch the omission case.
+        assert "skip" in lower
+        assert (
+            "pitch elicitation is skipped" in lower
+            or "pitch elicitation skipped" in lower
+            or "skips pitch elicitation" in lower
+            or "skips step 4" in lower
+            or "skipped in docs mode" in lower
+        ), (
+            "SKILL.md must surface that pitch elicitation is skipped "
+            "in docs mode (the docs supply the campaign content, so "
+            "the Step 4 pitch loop doesn't run). Without this the LLM "
+            "could compose the pitch loop on top of the extraction "
+            "pipeline, over-prompting the GM."
+        )
+
+
+class TestDocsModeProducesScaffoldedCampaignWithExtractedContent:
+    """Docs mode produces a scaffolded campaign repo + extracted content.
+
+    The docs-mode flow is mechanically: scaffolder (Step D1) →
+    extraction pipeline (Step D2). The scaffolder produces the six
+    documented committed files + the initial scaffold commit; the
+    pipeline produces per-doc commits (one per input doc) and a
+    wrap-up commit. We model the per-doc + wrap-up commits using the
+    reference helpers from `test_ingest_per_doc_commits.py` and assert
+    the resulting commit chain matches the documented shape.
+    """
+
+    def test_docs_mode_commit_chain_is_scaffold_then_per_doc_then_wrap_up(
+        self,
+        tmp_path: Path,
+        templates_dir: Path,
+    ) -> None:
+        """The end-state commit chain matches the spec.
+
+        Sequence: `Scaffold campaign repo via ttrpg-gm /ingest` → one
+        `/ingest doc <N>/<total>: …` commit per input doc → one final
+        `/ingest wrap-up (…)` commit. The pipeline's commit-subject
+        prefixes are preserved when run from `/init-campaign` — they
+        identify the *workflow* (the extraction pipeline), not the
+        invoking skill.
+        """
+        from test_ingest_scaffolding import scaffold_campaign
+        from test_ingest_per_doc_commits import (
+            _run_git,
+            commit_doc,
+            commit_wrap_up,
+            per_doc_commit_count,
+            wrap_up_commit_exists,
+        )
+
+        # Step D1: scaffolder.
+        target = tmp_path / "docs-mode-campaign"
+        scaffold_campaign(
+            templates_dir=templates_dir,
+            target=target,
+            campaign_name="Faerûn Campaign",
+            campaign_system="D&D 5e",
+        )
+
+        # Step D2: extraction pipeline. Model two input docs producing
+        # per-doc lifecycle writes + commits, then a wrap-up commit.
+        # The reference helpers `commit_doc` / `commit_wrap_up` mirror
+        # SKILL.md (or, here, the extraction pipeline reference's) Step
+        # 5.8 and Phase 4 Step 3c.
+        (target / "npcs").mkdir(parents=True, exist_ok=True)
+        (target / "npcs" / "sera.md").write_text(
+            "# Sera\n\nThe blacksmith.\n", encoding="utf-8"
+        )
+        (target / "npcs" / "maren.md").write_text(
+            "# Maren\n\nThe innkeeper.\n", encoding="utf-8"
+        )
+        commit_doc(
+            campaign=target,
+            doc_index=1,
+            doc_total=2,
+            doc_name="phandalin-gazetteer.md",
+            summary="2 NPCs",
+            paths_written=["npcs/sera.md", "npcs/maren.md"],
+        )
+        (target / "adventures" / "lost-mines").mkdir(parents=True)
+        (target / "adventures" / "lost-mines" / "adventure.md").write_text(
+            "---\nstatus: introduced\norder: ~\n---\n\n# Lost Mines\n",
+            encoding="utf-8",
+        )
+        commit_doc(
+            campaign=target,
+            doc_index=2,
+            doc_total=2,
+            doc_name="lost-mines.md",
+            summary="Adventure",
+            paths_written=["adventures/lost-mines/adventure.md"],
+        )
+        # Phase 4 wrap-up: campaign.md regen + Adventure backfill.
+        # The commit_wrap_up helper does `git add <paths>` then commits,
+        # so both files must have on-disk modifications relative to the
+        # last per-doc commit. Simulate Phase 4 Step 1 (Adventure
+        # order backfill — `order: ~` becomes `order: 1`) and Phase 4
+        # Step 2 (campaign.md regen).
+        (target / "adventures" / "lost-mines" / "adventure.md").write_text(
+            "---\nstatus: introduced\norder: 1\n---\n\n# Lost Mines\n",
+            encoding="utf-8",
+        )
+        (target / "campaign.md").write_text(
+            "# Faerûn Campaign — Campaign Overview\n\n"
+            "- **Campaign:** Faerûn Campaign\n"
+            "- **System:** D&D 5e\n"
+            "- **Status:** active\n"
+            "- **Last event:** 2026-06-02 (ingest)\n\n"
+            "## Adventures\n\n- [[lost-mines]]\n",
+            encoding="utf-8",
+        )
+        commit_wrap_up(
+            campaign=target,
+            summary="campaign.md regen, 1 Adventure backfilled with order: 1",
+            paths_written=[
+                "campaign.md",
+                "adventures/lost-mines/adventure.md",
+            ],
+        )
+
+        # Assertions on the commit chain.
+        assert per_doc_commit_count(target) == 2, (
+            "Two input docs should produce two `/ingest doc N/2: …` "
+            "per-doc commits."
+        )
+        assert wrap_up_commit_exists(target), (
+            "Phase 4 wrap-up commit should exist after all per-doc "
+            "commits land. Without it, the recovery pre-flight would "
+            "treat the campaign as crashed mid-Phase-3."
+        )
+        # The commit count: scaffold + 2 per-doc + wrap-up = 4.
+        commits = _run_git(
+            "log", "--format=%s", cwd=target
+        ).stdout.strip().splitlines()
+        assert len(commits) == 4, (
+            f"Expected 4 commits (scaffold + 2 per-doc + wrap-up); "
+            f"got {len(commits)}: {commits}"
+        )
+        # Order is most-recent first; the scaffold commit is last.
+        assert commits[-1] == "Scaffold campaign repo via ttrpg-gm /ingest"
+        assert commits[0].startswith("/ingest wrap-up "), (
+            "Most recent commit should be the wrap-up commit (slice E "
+            "spec: docs mode ends with Phase 4 wrap-up)."
+        )
+
+    def test_docs_mode_target_is_a_campaign_shape(
+        self,
+        tmp_path: Path,
+        templates_dir: Path,
+    ) -> None:
+        """The scaffolded target is structurally a campaign repo.
+
+        Re-uses the scaffolder reference impl: the same six documented
+        files land regardless of which consumer (`/ingest`,
+        `/init-adventure` standalone, `/init-campaign` from-scratch,
+        `/init-campaign` docs mode) invoked the scaffolder. The
+        docs-mode path doesn't customize the scaffolder output.
+        """
+        from test_ingest_scaffolding import (
+            EXPECTED_SCAFFOLDED_FILES,
+            scaffold_campaign,
+        )
+
+        target = tmp_path / "docs-mode-campaign"
+        scaffold_campaign(
+            templates_dir=templates_dir,
+            target=target,
+            campaign_name="Faerûn Campaign",
+            campaign_system="D&D 5e",
+        )
+
+        for _, dest_rel in EXPECTED_SCAFFOLDED_FILES:
+            assert (target / dest_rel).is_file(), (
+                f"Docs-mode scaffold did not write {dest_rel}; per "
+                "SKILL.md Step D1 the docs branch produces the same "
+                "campaign-shaped repo any other consumer of the "
+                "scaffolder reference produces."
+            )
+
+
+class TestDocsModeDoesNotAutoCreateOpenerBlock:
+    """Docs mode skips pitch elicitation, so no opener block is auto-created.
+
+    The from-scratch branch's Step 8 #1 writes the GM-authored opener
+    block (the pitch elicited at Step 4 lands between markers). Docs
+    mode skips Step 4 entirely — there's no pitch to land. The
+    composer's back-compat path (regenerating with no opener when
+    neither marker is present) is the relevant rule for docs-mode
+    `campaign.md` regens, and is already pinned by
+    `TestComposerPreservesOpenerAcrossRegen.test_back_compat_…`.
+
+    This test pins the docs-mode-specific commitment: after Steps D1
+    and D2, no opener markers appear in `campaign.md`.
+    """
+
+    def test_docs_mode_campaign_md_has_no_opener_markers_after_scaffold(
+        self,
+        tmp_path: Path,
+        templates_dir: Path,
+    ) -> None:
+        """After the scaffolder runs (Step D1), there's no opener block.
+
+        Docs mode never invokes the pitch loop. The scaffolder's
+        `campaign.md` template doesn't contain the opener markers; the
+        only path that adds them is Step 8 #1 of the from-scratch
+        branch. Confirm the docs-mode shape leaves them absent.
+        """
+        from test_ingest_scaffolding import scaffold_campaign
+
+        target = tmp_path / "docs-mode-campaign"
+        scaffold_campaign(
+            templates_dir=templates_dir,
+            target=target,
+            campaign_name="Faerûn Campaign",
+            campaign_system="D&D 5e",
+        )
+        text = (target / "campaign.md").read_text(encoding="utf-8")
+        assert OPENER_START_MARKER not in text, (
+            "Docs mode does not run the pitch loop, so the opener-block "
+            "start marker should never appear in the scaffolded "
+            "`campaign.md`. If it does, the scaffolder template has "
+            "drifted or docs mode is wrongly invoking Step 8."
+        )
+        assert OPENER_END_MARKER not in text, (
+            "Docs mode does not run the pitch loop, so the opener-block "
+            "end marker should never appear in the scaffolded "
+            "`campaign.md`. If it does, the scaffolder template has "
+            "drifted or docs mode is wrongly invoking Step 8."
+        )
+
+    def test_docs_mode_supports_late_gm_authored_opener_via_composer_rule(
+        self,
+        tmp_path: Path,
+        templates_dir: Path,
+    ) -> None:
+        """If the GM later hand-authors an opener, the composer preserves it.
+
+        The pitch persistence rule from slice D applies independent of
+        which mode created the campaign — the composer reads the
+        markers literally, so a GM who hand-edits `campaign.md` post-
+        docs-mode-run gets the same byte-for-byte preservation across
+        future regens.
+
+        This test mirrors the from-scratch
+        `test_opener_block_survives_one_regen` from
+        `TestComposerPreservesOpenerAcrossRegen` but starts from a
+        scaffolded-without-pitch campaign (the docs-mode end state)
+        and verifies the hand-authored opener still survives.
+        """
+        from test_ingest_scaffolding import scaffold_campaign
+
+        target = tmp_path / "docs-mode-campaign"
+        scaffold_campaign(
+            templates_dir=templates_dir,
+            target=target,
+            campaign_name="Faerûn Campaign",
+            campaign_system="D&D 5e",
+        )
+        # No Step 8 — the docs-mode run ends without writing an opener.
+        # The GM later hand-authors one (modelled by the same
+        # `insert_opener_block` helper since the operation is identical
+        # whether the agent or the GM does it).
+        late_pitch = (
+            "Added after docs-mode run: a curated pitch reframing the "
+            "ingested setting as a noir caper across the Sword Coast."
+        )
+        insert_opener_block(
+            campaign_md_path=target / "campaign.md",
+            pitch_body=late_pitch,
+        )
+        original = extract_opener_block(target / "campaign.md")
+        assert original is not None, (
+            "Hand-authored opener block should be detectable by the "
+            "extractor after the GM inserts it."
+        )
+
+        regenerated = compose_campaign_md_preserving_opener(
+            campaign_md_path=target / "campaign.md",
+            campaign_name="Faerûn Campaign",
+            system="D&D 5e",
+        )
+        (target / "campaign.md").write_text(regenerated, encoding="utf-8")
+        after_regen = extract_opener_block(target / "campaign.md")
+        assert after_regen == original, (
+            "Hand-authored opener block (post-docs-mode-run) must be "
+            "preserved byte-for-byte across composer regens — the "
+            "preservation rule is independent of which mode created "
+            "the campaign."
+        )
+
+
+class TestDocsModeReusesExtractionPipelineReference:
+    """Docs mode composes the same extraction-pipeline.md reference `/ingest` uses.
+
+    Slice B lifted Phases 2-4 of `/ingest` into the shared
+    `references/extraction-pipeline.md`. Slice E composes that
+    reference from `/init-campaign` docs mode, so the same canonical
+    workflow drives both skills. These tests guard the citation and
+    the shape (no docs-mode-specific re-inlining of pipeline prose).
+    """
+
+    def test_extraction_pipeline_reference_is_cited_relative(
+        self,
+        repo_root: Path,
+    ) -> None:
+        """The extraction-pipeline citation uses the relative-path form.
+
+        Per ADR-0020 and #69, references are cited as relative paths
+        from the SKILL.md's location. From `skills/init-campaign/SKILL.md`,
+        the extraction pipeline at `references/extraction-pipeline.md`
+        resolves to `../../references/extraction-pipeline.md`.
+        """
+        text = (repo_root / SKILL_MD_PATH_RELATIVE).read_text(encoding="utf-8")
+        assert "../../references/extraction-pipeline.md" in text, (
+            "Docs mode must cite the extraction-pipeline reference at "
+            "`../../references/extraction-pipeline.md` (relative path "
+            "from the SKILL.md). Per slice B's lift, this is the "
+            "canonical spec for Phases 2-4."
+        )
+
+    def test_extraction_pipeline_reference_documents_init_campaign_consumer(
+        self,
+        repo_root: Path,
+    ) -> None:
+        """The reference acknowledges /init-campaign as a consumer.
+
+        Slice B's reference prose names `/init-campaign`'s docs-mode
+        branch as a consumer alongside `/ingest`. This test guards that
+        the reference doesn't silently drop the mention (which would
+        leave the docs-mode consumer un-documented from the reference's
+        perspective).
+        """
+        ref = repo_root / "references" / "extraction-pipeline.md"
+        content = ref.read_text(encoding="utf-8")
+        assert "init-campaign" in content, (
+            "The extraction-pipeline reference should mention "
+            "`/init-campaign` as a consumer — slice B (the lift) "
+            "named it explicitly, and slice E (this slice) implements "
+            "the consumer. Dropping the mention from the reference "
+            "would leave the consumer un-grounded in the spec."
+        )
+
+
+class TestDocsModeFromScratchRegressionsStillHold:
+    """Slice D's from-scratch invariants must survive the slice E edit.
+
+    Slice E's docs-mode addition must not regress the from-scratch
+    branch. These tests are a structural belt-and-suspenders: the
+    existing `TestFromScratchProducesScaffoldedCampaignShape` and
+    `TestFirstAdventureSubFlowComposesOnTopOfScaffold` already cover
+    the from-scratch produce-a-campaign shape, but this test set asserts
+    the from-scratch branch's Steps 4-9 *labels* survive the slice-E
+    edit (we don't move Step 7 to Step D1 by accident, etc.).
+    """
+
+    def test_from_scratch_step_4_pitch_loop_label_preserved(
+        self,
+        repo_root: Path,
+    ) -> None:
+        """Step 4 (pitch elicitation) is still named `Step 4`."""
+        text = (repo_root / SKILL_MD_PATH_RELATIVE).read_text(encoding="utf-8")
+        assert "Step 4 — Collect and refine the pitch" in text, (
+            "Slice E edits must preserve the from-scratch branch's "
+            "Step 4 label. If you renamed it, update the from-scratch "
+            "tests too."
+        )
+
+    def test_from_scratch_step_7_scaffolder_label_preserved(
+        self,
+        repo_root: Path,
+    ) -> None:
+        """Step 7 (scaffolder) is still named `Step 7`."""
+        text = (repo_root / SKILL_MD_PATH_RELATIVE).read_text(encoding="utf-8")
+        assert "Step 7 — Scaffold the campaign repo" in text, (
+            "Slice E edits must preserve the from-scratch branch's "
+            "Step 7 label. The Step 7 scaffolder call is the from-"
+            "scratch analog of docs mode's Step D1, but the label "
+            "stays."
+        )
+
+    def test_from_scratch_step_8_pitch_promotion_label_preserved(
+        self,
+        repo_root: Path,
+    ) -> None:
+        """Step 8 (promote staging to scaffolded campaign) is still named `Step 8`."""
+        text = (repo_root / SKILL_MD_PATH_RELATIVE).read_text(encoding="utf-8")
+        assert "Step 8 — Promote staging to the scaffolded campaign" in text, (
+            "Slice E edits must preserve the from-scratch branch's "
+            "Step 8 label — the pitch-promotion-into-opener-block step "
+            "is load-bearing for the composer's preservation rule."
         )
