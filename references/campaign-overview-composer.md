@@ -4,7 +4,7 @@ Canonical spec for the agent-maintained Campaign overview file. `/wrap-session`,
 
 The corresponding ADR is [ADR-0007](../docs/adr/0007-temporal-model-and-campaign-overview.md) — this reference is the live spec; the ADR is the historical decision.
 
-The campaign-root `campaign.md` is **agent-generated**. Manual GM edits are reconciled (or overwritten with warning) at next regeneration (ADR-0007). GM-editorial content (themes, pitch, house rules) lives in a separate file the agent doesn't touch.
+The campaign-root `campaign.md` is **agent-generated**. Manual GM edits are reconciled (or overwritten with warning) at next regeneration (ADR-0007). GM-editorial content (themes, pitch, house rules) lives in a separate file the agent doesn't touch — *or* in the explicitly-bounded GM-authored opener block at the top of `campaign.md` itself (see "GM-authored opener block preservation" below), introduced by `/init-campaign` so the campaign's pitch lives glance-readably in the overview without ever being clobbered by a regen.
 
 ## When this composer runs
 
@@ -19,12 +19,13 @@ In every case the composer is a deterministic function of current campaign state
 Render exactly these sections in this exact order:
 
 1. Header (campaign name + system, optional Status / Last event lines — see "Skill-specific variants")
-2. `## Party` — the PC roster, rendered identically by every consuming skill
-3. `## Where the party might go next session` — the forward-looking menu
-4. `## Adventures` — **ingest-only**, skipped by `/wrap-session` and `/prep-session`
-5. `## Open threads`
-6. `## Recent significant consequences`
-7. `## Pending beats`
+2. *(Optional)* GM-authored opener block — preserved verbatim across regens when present (see "GM-authored opener block preservation" below)
+3. `## Party` — the PC roster, rendered identically by every consuming skill
+4. `## Where the party might go next session` — the forward-looking menu
+5. `## Adventures` — **ingest-only**, skipped by `/wrap-session` and `/prep-session`
+6. `## Open threads`
+7. `## Recent significant consequences`
+8. `## Pending beats`
 
 The header preserves verbatim the italic agent-maintained header paragraph from `templates/campaign.md.template`. Do not paraphrase that paragraph — it tells the GM the file is agent-managed.
 
@@ -41,6 +42,59 @@ The header preserves verbatim the italic agent-maintained header paragraph from 
 
 - `{{CAMPAIGN_NAME}}` — read from the existing `campaign.md`'s H1 or `**Campaign:**` line (whichever is present). Don't re-prompt the GM. If neither is parseable, surface the path and ask before continuing — do not invent a name.
 - `{{CAMPAIGN_SYSTEM}}` — read from the existing `**System:**` line.
+
+## GM-authored opener block preservation
+
+`/init-campaign` lands the GM-authored pitch into `campaign.md` as a top-level block sitting between the header and the first agent-managed section (`## Party`). The composer **must preserve this block verbatim across every regen** — it is the GM's voice, not state the composer derives.
+
+### Structural boundaries
+
+The block is delimited by a pair of HTML-comment markers the composer recognizes exactly:
+
+```markdown
+- **Campaign:** {{CAMPAIGN_NAME}}
+- **System:** {{CAMPAIGN_SYSTEM}}
+
+<!-- gm-opener:start -->
+
+<GM-authored content — paragraphs, bullets, sub-headings, anything. The composer
+treats this entire region as opaque bytes.>
+
+<!-- gm-opener:end -->
+
+## Party
+```
+
+- **Start marker:** the literal line `<!-- gm-opener:start -->` (no surrounding whitespace; exact byte match). The marker is the only signal the composer uses to detect the block.
+- **End marker:** the literal line `<!-- gm-opener:end -->`. Same exactness rule.
+- **Position:** the markers must sit between the header (the last `- **System:**` line) and the first agent-managed section heading (`## Party`). Any content the composer's renderer would otherwise put in this position is held below the end marker; content above the end marker is the GM's.
+- **Content:** anything between the markers. Paragraphs, bullets, sub-headings (`###`, `####`), wiki links, code blocks — all preserved byte-for-byte. The composer does not parse the block's structure and does not rewrite it.
+
+### Composer behavior on regen
+
+When the composer regenerates `campaign.md`, it must:
+
+1. **Read the existing `campaign.md`** before composing. If the file has both `<!-- gm-opener:start -->` and `<!-- gm-opener:end -->` markers in order (start before end, both above any `## Party` heading), extract the bytes from the start marker through the end marker inclusive as the **opener block** to preserve.
+2. **Compose the regenerated output** with the opener block inserted verbatim between the header and the `## Party` section. The agent-managed sections below `## Party` regenerate normally.
+3. **If only one marker is present, or they are out of order, or content appears between the markers and the start of `## Party` that the markers do not bracket:** the composer treats the file as malformed at the opener-block level. **Stop and surface the malformation to the GM** with the literal path and the marker state observed — do not guess where the GM meant the block to end. Do not regenerate until the GM has cleaned up the markers.
+4. **If neither marker is present:** the file has no opener block — render the regen with no opener (the section is optional). This is the back-compat path for campaigns scaffolded before this rule shipped, and for campaigns the GM never paired with `/init-campaign`.
+
+### What the composer never does to the block
+
+- **Never** rewrite, paraphrase, or "tidy" content between the markers. The block is the GM's authored voice; the composer is read-only against it.
+- **Never** add markers itself during regen. The markers appear only when `/init-campaign` (or a future `/init-adventure` standalone-mode extension, or a GM hand-edit) introduces them. The composer's job is preservation, not insertion.
+- **Never** strip a marker pair the GM has emptied (i.e., the start and end markers with only whitespace between them). The empty block is the GM's signal that they want the opener slot reserved but have nothing to say there yet; the composer leaves it intact.
+- **Never** propose changes to the block via the GM-edit-reconciliation path that applies to other agent-managed sections (ADR-0007). The opener block is explicitly carved out from that reconciliation surface.
+
+### Determinism preserved
+
+The opener-block preservation rule does not break the composer's determinism contract: given identical `campaign.md` input (the existing file *plus* current campaign state), the composer produces byte-identical output across runs. The opener block is part of the input the composer reads; preserving it verbatim is a deterministic operation. The `tests/test_wrap_session_idempotency.py` invariants stay valid.
+
+### Skill-specific notes
+
+- **`/init-campaign`** introduces the block at Step 8's pitch promotion — Edits the markers into the scaffolder's placeholder `campaign.md` with the pitch content between them.
+- **`/wrap-session`, `/prep-session`, `/ingest` Phase 4** preserve the block on every regen, per the rules above. None of these skills introduce or modify the block.
+- **`/init-adventure`** does not introduce or modify the block (the Adventure walkthrough produces Adventure / Location / NPC / Beat / Secret / Thread files, not pitch content). In standalone mode the scaffolder's placeholder `campaign.md` has no opener block; the regen at Step 4 produces a populated overview with no opener. If the GM wants an opener after the fact, they can either hand-edit the markers in or re-run `/init-campaign` (which will refuse to re-scaffold per the scaffolder's idempotency check; this is a known constraint until a future `/upgrade-campaign` skill ships).
 
 ## `## Party`
 

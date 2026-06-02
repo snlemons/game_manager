@@ -100,14 +100,15 @@ class TestManifestDoesNotDeclareSkills:
 
         Belt-and-suspenders for the auto-discovery contract: skills come
         from the filesystem, not the manifest, so the SKILL.md files
-        must be present at their conventional paths. v0.3 slice F adds
-        `/init-adventure`; future v0.3 slices add `/init-campaign`.
+        must be present at their conventional paths. v0.3 slice F added
+        `/init-adventure`; slice D adds `/init-campaign`.
         """
         for skill_name in (
             "ingest",
             "prep-session",
             "wrap-session",
             "init-adventure",
+            "init-campaign",
         ):
             skill_path = repo_root / "skills" / skill_name / "SKILL.md"
             assert skill_path.is_file(), (
