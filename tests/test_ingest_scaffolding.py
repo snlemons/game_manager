@@ -67,6 +67,7 @@ Requires `pytest` and `pyyaml` on the path. Both are standard.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -76,6 +77,7 @@ import yaml
 from _helpers import (
     EXISTING_CAMPAIGN_MARKERS,
     EXPECTED_COMMITTED_FILES,
+    EXPECTED_EXECUTABLE_FILES,
     EXPECTED_SCAFFOLDED_FILES,
     ScaffolderAlreadyScaffoldedError,
     scaffold_campaign,
@@ -179,10 +181,19 @@ class TestScaffoldedFiles:
         # The scaffolder is contracted to substitute every
         # `{{TOKEN}}` placeholder. Any survivor indicates a template
         # was changed without a matching scaffolder update.
-        assert "{{" not in text and "}}" not in text, (
-            f"{dest_rel} still contains an unsubstituted placeholder; "
-            "the scaffolder's substitution map and the templates have "
-            "drifted apart."
+        #
+        # Match the specific `{{UPPER_SNAKE_CASE}}` placeholder shape
+        # rather than bare `{{` / `}}`. The hook script template ships
+        # a JSON-emitting `printf` with literal `}}` in its content
+        # (the closing braces of the JSON object), which is not a
+        # placeholder. Constraining the search to the placeholder
+        # shape keeps this check precise without false-positives on
+        # incidental `{{` / `}}` in shell or JSON literals.
+        survivors = re.findall(r"\{\{[A-Z_]+\}\}", text)
+        assert not survivors, (
+            f"{dest_rel} still contains unsubstituted placeholder(s) "
+            f"{survivors}; the scaffolder's substitution map and the "
+            "templates have drifted apart."
         )
 
 
@@ -335,6 +346,58 @@ class TestSettingsJson:
         assert absolute in text, (
             "settings.json does not contain the absolute campaign "
             "path the matcher was supposed to be parameterised by."
+        )
+
+    def test_settings_carries_pretooluse_hook_registration(
+        self,
+        scaffolded_campaign: Path,
+    ) -> None:
+        """Per issue #121 and ADR-0021's mechanism amendment.
+
+        The settings template gains a top-level `hooks.PreToolUse`
+        array registering the style-aware-write-gate hook on
+        `Write|Edit|MultiEdit`. The hook is the backstop for the
+        CLAUDE.md style-Read directive (workaround for Claude Code
+        #23478 where path-scoped auto-load doesn't fire on Write).
+        Without the registration, the hook script ships unused.
+        """
+        data = json.loads(
+            (
+                scaffolded_campaign / ".claude/settings.json"
+            ).read_text(encoding="utf-8")
+        )
+        assert "hooks" in data, (
+            "settings.json missing `hooks` block; issue #121 added the "
+            "PreToolUse registration for the style-aware-write-gate hook."
+        )
+        pre_tool_use = data["hooks"].get("PreToolUse")
+        assert isinstance(pre_tool_use, list) and pre_tool_use, (
+            "`hooks.PreToolUse` must be a non-empty list of matcher "
+            f"entries; got {pre_tool_use!r}."
+        )
+        # Find the entry matching Write|Edit|MultiEdit.
+        matching = [
+            entry for entry in pre_tool_use
+            if entry.get("matcher") == "Write|Edit|MultiEdit"
+        ]
+        assert matching, (
+            "`hooks.PreToolUse` does not carry an entry with "
+            "`matcher: \"Write|Edit|MultiEdit\"`; the style-aware-write-"
+            "gate hook would not fire on the drafting tools it backstops."
+        )
+        entry = matching[0]
+        hooks_list = entry.get("hooks", [])
+        assert hooks_list, (
+            "PreToolUse matcher entry has no `hooks` list; nothing would "
+            "actually run when the matcher fires."
+        )
+        commands = [h.get("command", "") for h in hooks_list]
+        assert any(
+            "style-aware-write-gate.sh" in cmd for cmd in commands
+        ), (
+            "PreToolUse matcher entry does not reference "
+            "`style-aware-write-gate.sh`; the hook script ships unused. "
+            f"Commands seen: {commands}"
         )
 
     def test_settings_plugin_read_rule_uses_claude_plugin_root(
@@ -514,6 +577,170 @@ class TestCampaignOverviewPlaceholder:
         assert "The Sunless Citadel Revisited" in first_line, (
             "campaign.md H1 did not receive the substituted campaign "
             f"name; first line was {first_line!r}"
+        )
+
+
+class TestStyleHookShipped:
+    """`.claude/hooks/style-aware-write-gate.sh` is shipped by the scaffolder (issue #121).
+
+    Per ADR-0021's mechanism-layer amendment, the hook is a PreToolUse
+    backstop for the CLAUDE.md style-Read directive (workaround for
+    Claude Code #23478, where path-scoped auto-load doesn't fire on
+    Write). The hook ships in version control alongside the settings
+    template that registers it, and the scaffolder marks it executable
+    at write time so a future change that drops the `bash` prefix from
+    the settings registration would not silently fail.
+    """
+
+    def test_hook_was_written(
+        self,
+        scaffolded_campaign: Path,
+    ) -> None:
+        assert (
+            scaffolded_campaign / ".claude/hooks/style-aware-write-gate.sh"
+        ).is_file(), (
+            "Scaffolder did not write "
+            "`.claude/hooks/style-aware-write-gate.sh`. Issue #121 "
+            "wired the eighth template into the scaffolder; verify "
+            "EXPECTED_SCAFFOLDED_FILES and the `git add` line."
+        )
+
+    @pytest.mark.parametrize(
+        "executable_rel",
+        EXPECTED_EXECUTABLE_FILES,
+        ids=EXPECTED_EXECUTABLE_FILES,
+    )
+    def test_executable_files_have_owner_execute_bit(
+        self,
+        scaffolded_campaign: Path,
+        executable_rel: str,
+    ) -> None:
+        """Owner-execute bit is set on every file in EXPECTED_EXECUTABLE_FILES.
+
+        Per `references/scaffolder.md` Step 2 the scaffolder marks the
+        hook executable at write time. Test against owner-execute (the
+        umask-independent floor); group/other-execute are nice-to-have
+        but vary by host umask. Parametrized over the full executable
+        set so a future addition (e.g. a second hook) is automatically
+        covered as soon as its entry lands in `EXPECTED_EXECUTABLE_FILES`.
+        """
+        path = scaffolded_campaign / executable_rel
+        mode = path.stat().st_mode
+        assert mode & 0o100, (
+            f"`{executable_rel}` is not owner-executable (mode "
+            f"{oct(mode)}). The scaffolder must `chmod +x` files in "
+            "`EXPECTED_EXECUTABLE_FILES` after writing them."
+        )
+
+    def test_hook_is_in_initial_commit(
+        self,
+        scaffolded_campaign: Path,
+    ) -> None:
+        """The hook is captured by the initial commit, not just on disk."""
+        result = subprocess.run(
+            ["git", "ls-tree", "-r", "--name-only", "HEAD"],
+            cwd=scaffolded_campaign,
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+        tracked = set(result.stdout.splitlines())
+        assert (
+            ".claude/hooks/style-aware-write-gate.sh" in tracked
+        ), (
+            "`.claude/hooks/style-aware-write-gate.sh` is not tracked by "
+            "the initial commit. Per issue #121 the hook rides in "
+            "version control; the scaffolder's `git add` step must "
+            "include it."
+        )
+
+    def test_hook_content_matches_template(
+        self,
+        scaffolded_campaign: Path,
+        templates_dir: Path,
+    ) -> None:
+        """The scaffolder is a pass-through over the hook template.
+
+        The hook template carries no `{{...}}` placeholders, so the
+        written file should be byte-identical to the template (mode
+        differs — that's checked in `test_hook_is_executable`).
+        """
+        template_text = (
+            templates_dir
+            / ".claude/hooks/style-aware-write-gate.sh.template"
+        ).read_text(encoding="utf-8")
+        written_text = (
+            scaffolded_campaign
+            / ".claude/hooks/style-aware-write-gate.sh"
+        ).read_text(encoding="utf-8")
+        assert written_text == template_text, (
+            "`.claude/hooks/style-aware-write-gate.sh` does not match "
+            "its template byte-for-byte. The hook template carries no "
+            "`{{...}}` placeholders, so the scaffolder should write it "
+            "verbatim."
+        )
+
+
+class TestClaudeMdStyleDirective:
+    """`CLAUDE.md` carries the explicit style-Read directive (issue #121).
+
+    Per ADR-0021's mechanism-layer amendment, the CLAUDE.md template
+    instructs the agent to Read `.claude/rules/style.md` before drafting
+    prose under content-bearing paths. This is the primary mechanism
+    (the hook is the per-call backstop), and the prose explicitly cites
+    Claude Code #23478 as the upstream bug being worked around. A
+    template edit that drops the directive silently re-introduces the
+    pre-#121 incorrect "you don't need to ask the agent to consult it"
+    claim.
+    """
+
+    @pytest.mark.parametrize(
+        "expected_substring",
+        [
+            "Read `.claude/rules/style.md`",
+            "23478",
+            ".ttrpg-staging/",
+        ],
+        ids=[
+            "explicit-read-directive",
+            "issue-23478-reference",
+            "staging-path-in-scope",
+        ],
+    )
+    def test_directive_substring_present(
+        self,
+        scaffolded_campaign: Path,
+        expected_substring: str,
+    ) -> None:
+        text = (scaffolded_campaign / "CLAUDE.md").read_text(
+            encoding="utf-8"
+        )
+        assert expected_substring in text, (
+            f"CLAUDE.md is missing expected style-directive substring "
+            f"{expected_substring!r}. Issue #121 added the explicit "
+            "Read directive (workaround for Claude Code #23478); a "
+            "template edit that drops the directive silently leaves "
+            "agents in the pre-#121 incorrect-auto-load state."
+        )
+
+    def test_old_incorrect_claim_removed(
+        self,
+        scaffolded_campaign: Path,
+    ) -> None:
+        """The pre-#121 prose claimed auto-load worked — empirically wrong.
+
+        Per Claude Code #23478, path-scoped auto-load doesn't fire on
+        the Write tool. The old prose `"you don't need to ask the agent
+        to consult it"` was wrong; the new directive instructs the
+        agent to Read it explicitly.
+        """
+        text = (scaffolded_campaign / "CLAUDE.md").read_text(
+            encoding="utf-8"
+        )
+        assert "you don't need to ask the agent to consult it" not in text, (
+            "CLAUDE.md still carries the pre-#121 incorrect claim that "
+            "auto-load suffices. Per #23478 it does not. Issue #121 "
+            "replaced that prose with the explicit Read directive."
         )
 
 

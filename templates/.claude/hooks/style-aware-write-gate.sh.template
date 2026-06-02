@@ -1,0 +1,46 @@
+#!/bin/bash
+# PreToolUse hook for Write/Edit/MultiEdit tools on content-bearing paths.
+#
+# Backstop reminder, not a content injector. CLAUDE.md instructs the agent to
+# Read .claude/rules/style.md once at the start of any prose drafting session;
+# this hook emits a short reminder per tool call so the agent has a moment-of-
+# truth nudge to verify the style guide is in context (e.g. after compaction
+# may have dropped it).
+#
+# Output is hookSpecificOutput with permissionDecision: allow plus a short
+# additionalContext string. The full style.md content is loaded once via the
+# agent's explicit Read, not by this hook.
+
+set -euo pipefail
+
+HOOK_INPUT="$(cat)"
+FILE_PATH="$(printf '%s' "$HOOK_INPUT" | jq -r '.tool_input.file_path // empty')"
+
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+STYLE_FILE="$PROJECT_DIR/.claude/rules/style.md"
+
+emit_allow_passthrough() {
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}\n'
+}
+
+if [ -z "$FILE_PATH" ] || [ ! -f "$STYLE_FILE" ]; then
+    emit_allow_passthrough
+    exit 0
+fi
+
+case "$FILE_PATH" in
+    */sessions/*|*/adventures/*|*/npcs/*|*/pcs/*|*/locations/*|*/factions/*|*/items/*|*/threads/*|*/consequences/*|*/beats/*|*/secrets/*|*/.ttrpg-staging/*)
+        jq -n '{
+            hookSpecificOutput: {
+                hookEventName: "PreToolUse",
+                permissionDecision: "allow",
+                additionalContext: "Reminder: this file is in a content-bearing path steered by .claude/rules/style.md. If you have not already Read that file in this session (or if compaction may have dropped its content), Read it before drafting prose — the constraints there apply to all narration in this campaign."
+            }
+        }'
+        exit 0
+        ;;
+    *)
+        emit_allow_passthrough
+        exit 0
+        ;;
+esac

@@ -1,8 +1,8 @@
 # Campaign scaffolder
 
-The scaffolder is the deterministic procedure that turns an empty (or near-empty) target directory into a fresh ttrpg-gm campaign repo: it writes the plugin's seven template files into the target, runs `git init`, and makes a single initial commit. Per [ADR-0020](../docs/adr/0020-modularization-via-shared-references.md), the scaffolder is consumed by `/init-campaign`, `/init-adventure` (standalone mode), and `/ingest` (for the "scaffolded?" precondition check — read-only, slice G). This reference is the canonical spec; each consuming SKILL.md just points here.
+The scaffolder is the deterministic procedure that turns an empty (or near-empty) target directory into a fresh ttrpg-gm campaign repo: it writes the plugin's eight template files into the target, runs `git init`, and makes a single initial commit. Per [ADR-0020](../docs/adr/0020-modularization-via-shared-references.md), the scaffolder is consumed by `/init-campaign`, `/init-adventure` (standalone mode), and `/ingest` (for the "scaffolded?" precondition check — read-only, slice G). This reference is the canonical spec; each consuming SKILL.md just points here.
 
-The behavior is fully deterministic — no LLM judgement, no conversational refinement. The agent reads templates, substitutes three placeholders verbatim, writes seven files in a specific order, runs `git init`, and makes one commit. The reference-impl Python at `../tests/test_ingest_scaffolding.py` mirrors this spec for spec-drift detection.
+The behavior is fully deterministic — no LLM judgement, no conversational refinement. The agent reads templates, substitutes three placeholders verbatim, writes eight files in a specific order, marks the hook script executable, runs `git init`, and makes one commit. The reference-impl Python at `../tests/test_ingest_scaffolding.py` mirrors this spec for spec-drift detection.
 
 ## Inputs the caller provides
 
@@ -27,11 +27,11 @@ If any of these are missing, the consumer must ask the GM for them before invoki
    If any marker is present, **stop** and tell the GM the directory looks like an existing campaign repo. Don't overwrite. Don't merge. (This is the same check `/ingest`'s scaffolded-precondition surface inspects in read-only mode; the campaign-content markers — `campaign.md`, `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, plus `CLAUDE.md` — are also the canonical marker set documented in `campaign-locate.md` for runtime location checks across `/ingest`, `/prep-session`, `/wrap-session`, `/init-adventure`, and `/init-campaign`. Changes to either marker list must update the other.)
 4. If it exists, is non-empty, and has none of those markers (e.g. it has source-doc markdown files the GM wants ingested in a later phase), confirm with the GM before proceeding.
 
-## Step 2: Write the seven template files
+## Step 2: Write the eight template files
 
-The plugin ships seven templates under `../templates/` (relative to this reference). For each, read the template from that path, substitute placeholders, and write to the target. The agent's cwd is the *campaign* directory, not the plugin install — these relative paths resolve from the reading file's location, which is what Claude Code's markdown-link resolution uses for skill / reference reads. Filenames have a `.template` suffix in the plugin; strip the suffix on write.
+The plugin ships eight templates under `../templates/` (relative to this reference). For each, read the template from that path, substitute placeholders, and write to the target. The agent's cwd is the *campaign* directory, not the plugin install — these relative paths resolve from the reading file's location, which is what Claude Code's markdown-link resolution uses for skill / reference reads. Filenames have a `.template` suffix in the plugin; strip the suffix on write.
 
-**Order matters: `.claude/settings.json` is written FIRST so its permission rules are in effect before the remaining six writes.** The agent's first write of `.claude/settings.json` will prompt the GM for permission (the file doesn't exist yet, so no campaign-scoped permissions apply yet — this is unavoidable). After the GM accepts, the freshly-written `permissions.allow` array covers the remaining six template writes (`CLAUDE.md`, `.claude/rules/*`, `campaign.md`, `.gitignore` are all in the allow list), and the rest of the scaffold proceeds without further prompts. The file is written first even though it isn't committed (see Step 3) — it's gitignored from the start because it carries machine-local absolute paths.
+**Order matters: `.claude/settings.json` is written FIRST so its permission rules are in effect before the remaining seven writes.** The agent's first write of `.claude/settings.json` will prompt the GM for permission (the file doesn't exist yet, so no campaign-scoped permissions apply yet — this is unavoidable). After the GM accepts, the freshly-written `permissions.allow` array covers the remaining seven template writes (`CLAUDE.md`, `.claude/rules/*`, `.claude/hooks/*`, `campaign.md`, `.gitignore` are all in the allow list), and the rest of the scaffold proceeds without further prompts. The file is written first even though it isn't committed (see Step 3) — it's gitignored from the start because it carries machine-local absolute paths.
 
 Write the templates in this exact order:
 
@@ -42,8 +42,11 @@ Write the templates in this exact order:
 | 3 | `../templates/.claude/rules/sessions.md.template` | `.claude/rules/sessions.md` |
 | 4 | `../templates/.claude/rules/adventures.md.template` | `.claude/rules/adventures.md` |
 | 5 | `../templates/.claude/rules/style.md.template` | `.claude/rules/style.md` |
-| 6 | `../templates/campaign.md.template` | `campaign.md` |
-| 7 | `../templates/.gitignore.template` | `.gitignore` |
+| 6 | `../templates/.claude/hooks/style-aware-write-gate.sh.template` | `.claude/hooks/style-aware-write-gate.sh` |
+| 7 | `../templates/campaign.md.template` | `campaign.md` |
+| 8 | `../templates/.gitignore.template` | `.gitignore` |
+
+**After writing `.claude/hooks/style-aware-write-gate.sh`, mark it executable (`chmod +x`).** Every other shipped file is a plain markdown / JSON / gitignore — the hook is the one file that runs as a script. The settings template registers the hook via `bash <path>`, so the executable bit is not strictly required for the registered invocation, but the hook is conventionally executable and a future change to invoke it directly (without the `bash` prefix) would silently break if the bit weren't set. Set it at scaffold time, not later.
 
 The `.gitignore` excludes `.ttrpg-staging/`, which the skills use as a scratchpad for diff-style review surfaces (proposed descriptions, brief drafts, wrap proposals) that the GM edits in their IDE before approval. Staging contents are never committed. It also excludes `.claude/settings.json` (next paragraph).
 
@@ -63,7 +66,7 @@ Issue #69 dropped the prior `{{HOME}}` substitution: the plugin-install Read rul
 
 ### Intermediate directories
 
-Create intermediate directories as needed (notably `.claude/rules/`). Do not write any other files. In particular, do not create empty `npcs/`, `locations/`, `factions/`, `items/`, `adventures/`, `sessions/`, `threads/`, `consequences/`, `beats/`, or `pcs/` directories — they appear when content first lands in them, not before. (The `pcs/` directory is populated by `/ingest` Phase 2 Step 5b when the survey-confirmed PC roster is non-empty; it stays absent on a scaffold-only run, per [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md).)
+Create intermediate directories as needed (notably `.claude/rules/` and `.claude/hooks/`). Do not write any other files. In particular, do not create empty `npcs/`, `locations/`, `factions/`, `items/`, `adventures/`, `sessions/`, `threads/`, `consequences/`, `beats/`, or `pcs/` directories — they appear when content first lands in them, not before. (The `pcs/` directory is populated by `/ingest` Phase 2 Step 5b when the survey-confirmed PC roster is non-empty; it stays absent on a scaffold-only run, per [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md).)
 
 ## Step 3: Initialize the git repo and make an initial commit
 
@@ -71,11 +74,11 @@ Run these commands in the target directory:
 
 ```
 git init
-git add CLAUDE.md .claude/rules/sessions.md .claude/rules/adventures.md .claude/rules/style.md campaign.md .gitignore
+git add CLAUDE.md .claude/rules/sessions.md .claude/rules/adventures.md .claude/rules/style.md .claude/hooks/style-aware-write-gate.sh campaign.md .gitignore
 git commit -m "Scaffold campaign repo via ttrpg-gm /ingest"
 ```
 
-`.claude/settings.json` is **not** included in the `git add` argument list — it was written in Step 2 (so its permissions are in effect for the rest of the scaffolder run) but it's gitignored by the `.gitignore` Step 2 just wrote, so it stays untracked. Six files committed; seven files written. (Per [ADR-0021](../docs/adr/0021-gm-writing-style-via-claude-rules-style.md), `.claude/rules/style.md` is committed even though it's GM-authored thereafter — the GM's voice belongs in version control, and the agent's `Edit`/`Write`/`MultiEdit` against it is blocked by the `permissions.deny` block in `.claude/settings.json`.)
+`.claude/settings.json` is **not** included in the `git add` argument list — it was written in Step 2 (so its permissions are in effect for the rest of the scaffolder run) but it's gitignored by the `.gitignore` Step 2 just wrote, so it stays untracked. Seven files committed; eight files written. (Per [ADR-0021](../docs/adr/0021-gm-writing-style-via-claude-rules-style.md), `.claude/rules/style.md` is committed even though it's GM-authored thereafter — the GM's voice belongs in version control, and the agent's `Edit`/`Write`/`MultiEdit` against it is blocked by the `permissions.deny` block in `.claude/settings.json`. The hook script `.claude/hooks/style-aware-write-gate.sh` is also committed — it's a plugin-shipped backstop for the CLAUDE.md style-Read directive, and lives in version control alongside the settings that register it via `bash $CLAUDE_PROJECT_DIR/.claude/hooks/style-aware-write-gate.sh`.)
 
 The commit message is the same regardless of which consumer invoked the scaffolder (`/ingest` Phase 1 today, `/init-campaign` post-v0.3, future `/init-adventure` standalone mode). Future tooling (e.g., an `/upgrade-campaign` skill) may consult the commit subject to detect plugin-scaffolded repos, so the subject line is load-bearing — keep it stable across consumers.
 
@@ -88,7 +91,7 @@ Do not configure `user.name` or `user.email` from the plugin. Use whatever the G
 Tell the GM, concisely:
 
 - the target directory (absolute path),
-- the six files committed in the initial commit (the five content templates plus `.gitignore`); note `.claude/settings.json` was also written but is intentionally gitignored (machine-local absolute paths),
+- the seven files committed in the initial commit (the six content templates plus `.gitignore`); note `.claude/settings.json` was also written but is intentionally gitignored (machine-local absolute paths),
 - the initial commit's hash and message.
 
 What happens after the report is consumer-specific:
@@ -102,7 +105,7 @@ What happens after the report is consumer-specific:
 
 If a consumer re-invokes the scaffolder against a target directory that already has the markers from Step 1 (`campaign.md`, `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, or non-trivial `.git/`), Step 1 stops before any file is written. The existing campaign is untouched — no template overwrites, no second commit, no `git init` re-run. This is the intended contract: the scaffolder is destructive of an empty target and protective of a populated one. There is no merge-mode, no force-mode, no `--update` flag; a GM who wants to refresh just `.claude/settings.json` after a move uses `../references/preflight.md`, not the scaffolder.
 
-The "exists but non-empty without markers" case (Step 1.4) is the one consumer-confirmable path. If the GM confirms, the scaffolder proceeds as if the target were empty — the existing non-marker files are left in place and the seven templates land alongside them. The initial commit only stages the six scaffolded paths; pre-existing files stay untracked unless the GM stages them separately.
+The "exists but non-empty without markers" case (Step 1.4) is the one consumer-confirmable path. If the GM confirms, the scaffolder proceeds as if the target were empty — the existing non-marker files are left in place and the eight templates land alongside them. The initial commit only stages the seven scaffolded paths; pre-existing files stay untracked unless the GM stages them separately.
 
 ## What this reference does NOT cover
 
