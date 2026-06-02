@@ -20,8 +20,8 @@ The marker list is the same one `scaffolder.md` Step 1 consults when it refuses 
 ### Why these four specifically
 
 - **`CLAUDE.md`** carries the campaign-scoped agent instructions; without it, the agent has no campaign-local glossary or rules to consult.
-- **`.claude/rules/sessions.md`** and **`.claude/rules/adventures.md`** are the path-scoped rule files [ADR-0012](../docs/adr/0012-path-scoped-claude-rules.md) introduces — their presence signals the campaign was scaffolded by the plugin, not just any directory the GM dropped a `CLAUDE.md` into.
-- **`campaign.md`** is the agent-maintained Campaign overview ([ADR-0007](../docs/adr/0007-agent-maintained-campaign-overview.md)) — its presence signals the scaffold completed (not interrupted mid-write).
+- **`.claude/rules/sessions.md`** and **`.claude/rules/adventures.md`** are the path-scoped rule files [ADR-0012](../docs/adr/0012-rule-organization-via-claude-rules.md) introduces — their presence signals the campaign was scaffolded by the plugin, not just any directory the GM dropped a `CLAUDE.md` into.
+- **`campaign.md`** is the agent-maintained Campaign overview ([ADR-0007](../docs/adr/0007-temporal-model-and-campaign-overview.md)) — its presence signals the scaffold completed (not interrupted mid-write).
 
 Each of the four is mandatory because dropping any one would let a half-scaffolded or partially-deleted campaign masquerade as scaffolded.
 
