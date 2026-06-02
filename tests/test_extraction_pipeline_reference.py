@@ -673,22 +673,31 @@ class TestSkillCitations:
             "lifts Phases 2/3/4 *minus Step 2.5* into the reference."
         )
 
-    def test_skill_phase_1_cites_scaffolder_reference(
+    def test_skill_precondition_section_cites_scaffolder_reference(
         self, ingest_skill_text: str
     ) -> None:
-        """Phase 1 (Scaffold) cites the scaffolder reference per slice A.
+        """The Precondition: scaffolded? section cites the scaffolder reference.
 
-        Phase 1 is slice A's scope. Slice B's edits must not touch the
-        Phase 1 section. After slice A merged, the Phase 1 step prose was
-        lifted to ``references/scaffolder.md`` and SKILL.md now cites that
-        reference. This test guards that B's edits left Phase 1's citation
-        shape intact.
+        Slice A lifted Phase 1's scaffolder prose into
+        ``references/scaffolder.md``. Slice G then removed Phase 1 from
+        ``/ingest`` entirely (since ``/ingest`` no longer scaffolds — per
+        ADR-0019) and replaced it with an upfront "Precondition: scaffolded?"
+        check that consumes the scaffolder reference's Step 1 marker list in
+        read-only mode. This test guards both invariants: Phase 1 is gone, and
+        the precondition section references the scaffolder reference for the
+        marker list.
         """
-        assert "## Phase 1: Scaffold" in ingest_skill_text
+        assert "## Phase 1: Scaffold" not in ingest_skill_text, (
+            "Phase 1 was removed from /ingest in slice G. "
+            "/ingest no longer scaffolds; that's /init-campaign's job."
+        )
+        assert "## Precondition: scaffolded?" in ingest_skill_text, (
+            "/ingest must have the upfront Precondition: scaffolded? section "
+            "per slice G (ADR-0019)."
+        )
         assert "../../references/scaffolder.md" in ingest_skill_text, (
-            "Phase 1 in SKILL.md must cite ../../references/scaffolder.md "
-            "(the scaffolder reference established by slice A). "
-            "Slice B does not modify Phase 1."
+            "The Precondition section in SKILL.md must cite "
+            "../../references/scaffolder.md for the canonical marker list."
         )
 
 

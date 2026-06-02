@@ -1,57 +1,55 @@
 ---
 name: ingest
-description: Extract structure from existing TTRPG campaign notes into a scaffolded campaign repo. In slice 4 of v0.1, all four phases are implemented — the scaffolder (writes the root CLAUDE.md, .claude/rules/sessions.md, .claude/rules/adventures.md, and a campaign.md placeholder into the target directory, then runs git init and an initial commit), the survey phase (discover input docs, bounded-skim each, propose one-line descriptions, present diff-style for GM edit, propose a processing order, confirm with GM), the per-doc extraction loop with multi-doc cross-doc dedup and cross-doc learning (walk docs in confirmed order, extract Reference notes / Adventure / Threads / Consequences / Beats / Secrets per doc — classifying Beats by `kind:` from section headings and populating Secret `belongs_to:` from the ingested Adventure plus any named NPCs/Locations/Factions; dedup against existing campaign files with confident-update / ambiguous-ask thresholds; carry GM corrections forward as visible lessons applied to subsequent docs), and the wrap-up phase (bulk-prompt the GM for any missing Adventure `order:` values, regenerate `campaign.md` as the agent-maintained Campaign overview per ADR-0007, and make a follow-up git commit with a count-summary message capturing everything ingested since the scaffolder's initial commit).
+description: Extract structure from existing TTRPG campaign notes into an already-scaffolded campaign repo. Hard-stops if the target directory isn't scaffolded — direct the GM to `/init-campaign` to start a new campaign. The remaining phases are the survey (discover input docs, bounded-skim each, propose one-line descriptions and a PC roster, propose a processing order, confirm with GM), the per-doc extraction loop with multi-doc cross-doc dedup and cross-doc learning (walk docs in confirmed order, extract Reference notes / Adventure / Threads / Consequences / Beats / Secrets per doc; dedup against existing campaign files with confident-update / ambiguous-ask thresholds; carry GM corrections forward as visible lessons applied to subsequent docs), and the wrap-up phase (bulk-prompt the GM for any missing Adventure `order:` values, regenerate `campaign.md` as the agent-maintained Campaign overview per ADR-0007, and make a follow-up git commit capturing the wrap-up's own changes).
 ---
 
 # /ingest
 
-`/ingest` is the workflow that turns an existing pile of campaign notes into a structured, agent-navigable campaign repo.
+`/ingest` is the workflow that turns an existing pile of campaign notes into structured, agent-navigable content inside a campaign repo that has already been scaffolded.
 
-The full workflow has four phases:
+`/ingest` no longer scaffolds new campaigns. Per [ADR-0019](../../docs/adr/0019-init-campaign-as-bootstrapping-front-door.md), the bootstrap entry for net-new campaigns is `/init-campaign`; `/ingest` requires a pre-scaffolded campaign repo and hard-stops if invoked against an unscaffolded directory.
 
-1. **Scaffold** — write the plugin's templates into the target directory, `git init`, and make an initial commit. **(Implemented in slice 1.)**
-2. **Survey** — discover input docs, bounded-skim each, propose a one-line description per doc as an editable diff-style list, propose a processing order (world info → adventures → session-shaped), confirm both with the GM. **(Implemented in slice 3.)**
-3. **Per-doc extraction loop** — for each doc, in the confirmed processing order, extract Reference notes, adventure metadata, Threads, and Consequences; cross-doc dedup against existing campaign files (confident matches propose updates; ambiguous matches surface to the GM); present a per-doc proposed diff; the GM approves; corrections carry forward as visible lessons applied to subsequent docs. **(Single-doc case implemented in slice 2; multi-doc cross-doc dedup and cross-doc learning implemented in slice 3.)**
-4. **Wrap-up** — bulk-prompt the GM for any missing `order:` values on ingest-era Adventures, regenerate the campaign-root `campaign.md` as the agent-maintained Campaign overview, and make a follow-up git commit capturing the wrap-up's own changes (`campaign.md` regen plus any Adventure `order:` backfill — Phase 3's per-doc commits handle the rest, per issue #61). **(Implemented in slice 4.)**
+The workflow has three phases plus an upfront precondition check:
 
-In this slice, all four phases run end-to-end. Phase 4 runs after the per-doc loop completes (or, if the GM invokes `/ingest` on an already-populated repo just to finalize, runs against current campaign state).
+- **Precondition: scaffolded?** — read-only marker check. Hard-stop if the target isn't a scaffolded campaign repo, directing the GM to `/init-campaign`.
+1. **Survey** — discover input docs, bounded-skim each, propose a one-line description per doc as an editable diff-style list, propose a PC roster, propose a processing order (world info → adventures → session-shaped), confirm all three with the GM.
+2. **Per-doc extraction loop** — for each doc, in the confirmed processing order, extract Reference notes, adventure metadata, Threads, Consequences, Beats, and Secrets; cross-doc dedup against existing campaign files (confident matches propose updates; ambiguous matches surface to the GM); present a per-doc proposed diff; the GM approves; corrections carry forward as visible lessons applied to subsequent docs.
+3. **Wrap-up** — bulk-prompt the GM for any missing `order:` values on ingest-era Adventures, regenerate the campaign-root `campaign.md` as the agent-maintained Campaign overview, and make a follow-up git commit capturing the wrap-up's own changes (`campaign.md` regen plus any Adventure `order:` backfill — Phase 3's per-doc commits handle the rest, per issue #61).
+
+Phase 4 runs after the per-doc loop completes (or, if the GM invokes `/ingest` on an already-populated repo just to finalize, runs against current campaign state).
 
 Follow the domain vocabulary defined in the plugin's `CONTEXT.md` and the campaign repo's `CLAUDE.md`: **GM**, **PC**, **NPC**, **Campaign**, **Adventure**, **Atlas**, **Reference note**, **Session**, **Brief**, **In-play notes**, **Log**, **Thread**, **Consequence**, **Beat**, **Campaign overview**. Don't drift to synonyms the glossary explicitly avoids (no "DM", "module" for non-published adventures, "hook" for Thread, "seed" for Beat, "story"/"game" for Campaign, "world" for Atlas, etc.).
 
 ## When to invoke this skill
 
-The GM invokes `/ingest` to start a new campaign repo from existing notes, or to ingest additional source docs into an already-scaffolded campaign. The slice-1 scaffold phase also covers the "fresh start, no source docs yet" path — the GM gets a blank campaign repo to start writing into. The slice-2 per-doc extraction loop covers the "I have one markdown doc I'd like extracted into the campaign" path. The slice-3 survey plus multi-doc per-doc loop covers the "I have a pile of markdown notes from a prior tool and I want them ingested as a batch with cross-doc dedup" path.
+The GM invokes `/ingest` to add source docs to an already-scaffolded campaign — either a single markdown doc the GM wants extracted into the campaign or a batch of markdown notes from a prior tool that needs ingesting with cross-doc dedup. Both single-doc and multi-doc inputs run through the same Survey → Per-doc loop → Wrap-up pipeline. For a brand-new campaign with no scaffold yet, invoke `/init-campaign` instead — `/ingest` will hard-stop on an unscaffolded directory and direct the GM there.
 
 ## Inputs the GM provides
 
 The GM provides:
 
-- **Target directory** — where the campaign repo should live. May be an empty directory, a not-yet-existing directory, or (with explicit GM confirmation) a directory containing only source notes the GM wants to ingest later. **Never** scaffold over a directory that already contains a campaign repo (presence of `campaign.md`, `.claude/rules/sessions.md`, or a non-trivial `.git/`); abort and tell the GM.
-- **Campaign name** — human-readable (e.g. *The Sunless Citadel Revisited*). Used in `CLAUDE.md` and `campaign.md`.
-- **System** — the rule system (e.g. *D&D 5e*, *Pathfinder 2e*, *Call of Cthulhu*). Free-form prose.
-
-If any of these are missing, ask the GM for them before doing anything that touches the filesystem. Don't invent campaign names or system labels.
-
-For the per-doc extraction loop, the GM additionally provides:
-
+- **Campaign directory** — the already-scaffolded target campaign repo. Defaults to the current working directory if it is a scaffolded campaign repo. The precondition check below validates this; if it isn't scaffolded, `/ingest` hard-stops and directs the GM to `/init-campaign`.
 - **Input directory** — a path containing the source doc(s) to ingest. v0.1 is flat-directory only (no recursion into subdirectories; ADR-0006).
-- **Campaign directory** — the already-scaffolded target campaign repo (may be the same path the GM scaffolded earlier; defaults to the current working directory if it is a campaign repo).
 
-## Settings preflight (run once before any phase touches an existing campaign)
+If either is missing, ask the GM for it before doing anything that touches the filesystem.
 
-Before any other work, follow the procedure in `../../references/preflight.md` against the campaign root the GM named (or cwd if the GM didn't name one and cwd is a scaffolded campaign repo). The preflight is a no-op when `.claude/settings.json` is absent — which is the normal Phase 1 fresh-scaffold case — so running it unconditionally at the top of the invocation is safe. For Phase 2 / Phase 3 / Phase 4 invocations against an already-scaffolded campaign, the preflight catches the moved-campaign case and offers the GM a regenerate-or-proceed prompt. If the GM declines regeneration, continue with the current settings — do not warn again this run. If the GM accepts, the file is rewritten and `/ingest` continues with no further preflight output.
+## Precondition: scaffolded? (run first, before any phase)
+
+Before any other work — before the settings preflight, before Phase 2's survey, before anything that reads or writes campaign state — verify the campaign directory is a scaffolded campaign repo. This is a read-only inspection of the same Step 1 marker set documented in `../../references/scaffolder.md`: presence of `CLAUDE.md`, `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, and `campaign.md` at the campaign root. The scaffolder reference owns the canonical marker list; this precondition consumes its Step 1 in read-only mode (no Steps 2–4 writes) per [ADR-0019](../../docs/adr/0019-init-campaign-as-bootstrapping-front-door.md).
+
+If any marker is absent, **hard-stop** with this message verbatim:
+
+> *"This directory isn't a scaffolded campaign repo. Run `/init-campaign` to start a new campaign, or invoke `/ingest` from a campaign that's already scaffolded."*
+
+Do not proceed to the settings preflight. Do not write to the filesystem. Do not offer to scaffold — `/ingest` no longer scaffolds; that's `/init-campaign`'s job.
+
+If every marker is present, continue to the settings preflight below.
+
+## Settings preflight (run once after the precondition passes)
+
+Once the precondition has confirmed the campaign is scaffolded, follow the procedure in `../../references/preflight.md` against the campaign root. The preflight catches the moved-campaign case (absolute paths baked into `.claude/settings.json` no longer match the current location) and offers the GM a regenerate-or-proceed prompt. If the GM declines regeneration, continue with the current settings — do not warn again this run. If the GM accepts, the file is rewritten and `/ingest` continues with no further preflight output.
 
 Run the preflight exactly once per `/ingest` invocation; cache the result across all phases of the run.
-
-## Phase 1: Scaffold (implemented)
-
-Phase 1 is the scaffolder: it writes the plugin's six template files into the target directory, runs `git init`, and makes the initial commit. The full procedure (target validation, template enumeration with `.claude/settings.json`-first write order, placeholder substitutions, `git init` and commit, the closing GM-facing report) lives in `../../references/scaffolder.md` per [ADR-0020](../../docs/adr/0020-modularization-via-shared-references.md). Follow that reference end-to-end for Phase 1; `/init-campaign` and `/init-adventure` (standalone mode) consume the same reference, so the procedure stays single-sourced there.
-
-`/ingest`'s Phase 1 orchestration intent on top of the shared scaffolder:
-
-- Phase 1 is the entry to the rest of the `/ingest` workflow. After the scaffolder's Step 4 report, if the GM provided an input directory of source docs, continue directly into Phase 2 (Survey). If `/ingest` was invoked scaffold-only (no input directory), the workflow ends at the scaffolder's report. Either way, no extra confirmation prompt — Phase 2 has its own review gates (description list, PC roster, processing order), and Phase 3 has per-doc approval, so the GM has natural break points downstream.
-- The scaffolder's Step 1 marker check (`campaign.md`, `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, non-trivial `.git/`) is the same surface `/ingest`'s "scaffolded?" precondition check will read once slice G lands — the read-only path through Step 1 with no Step 2–4 writes. For Phase 1 today, the full Steps 1–4 run.
-- The settings preflight at the top of this SKILL.md runs once per invocation and caches across phases. For a fresh-scaffold Phase 1 invocation it's a no-op (no `.claude/settings.json` exists yet); for Phase 2 / 3 / 4 invocations against an already-scaffolded campaign it catches the moved-campaign case. The scaffolder reference does not re-document the preflight; both surfaces stay distinct.
 
 ## Phase 2: Survey
 
