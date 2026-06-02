@@ -24,7 +24,7 @@ If any of these are missing, the consumer must ask the GM for them before invoki
    - `.claude/rules/adventures.md`
    - a `.git/` directory with any commits beyond an empty initial state
 
-   If any marker is present, **stop** and tell the GM the directory looks like an existing campaign repo. Don't overwrite. Don't merge. (This is the same check `/ingest`'s scaffolded-precondition surface inspects in read-only mode.)
+   If any marker is present, **stop** and tell the GM the directory looks like an existing campaign repo. Don't overwrite. Don't merge. (This is the same check `/ingest`'s scaffolded-precondition surface inspects in read-only mode; the campaign-content markers — `campaign.md`, `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, plus `CLAUDE.md` — are also the canonical marker set documented in `campaign-locate.md` for runtime location checks across `/ingest`, `/prep-session`, `/wrap-session`, `/init-adventure`, and `/init-campaign`. Changes to either marker list must update the other.)
 4. If it exists, is non-empty, and has none of those markers (e.g. it has source-doc markdown files the GM wants ingested in a later phase), confirm with the GM before proceeding.
 
 ## Step 2: Write the seven template files
