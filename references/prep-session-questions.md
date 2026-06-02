@@ -2,19 +2,19 @@
 
 `/prep-session`'s Step 3.5 (the conversational refinement loop introduced by [ADR-0015](../docs/adr/0015-conversational-refinement-loop-in-prep-session.md)) surfaces rule-based follow-up questions about the drafted Brief. Each question category has a **predicate** the agent evaluates against current campaign state and the just-drafted Brief, a **phrasing template** for asking the GM, and **response-handling notes** for how the agent acts on the answer. A category stays silent when its predicate is false; the GM only sees questions whose conditions are actually met.
 
-The corresponding ADR is [ADR-0015](../docs/adr/0015-conversational-refinement-loop-in-prep-session.md). The Secret enumeration that the Secret Push predicate walks lives in [`secret-store.md`](./secret-store.md). The staging behavior the agent uses when revising the Brief on a GM response lives in [`staging-pattern.md`](./staging-pattern.md) ("Iterative agent revisions during a review loop"). The Brief section template the agent revises lives in `skills/prep-session/SKILL.md` Step 3.
+The corresponding ADR is [ADR-0015](../docs/adr/0015-conversational-refinement-loop-in-prep-session.md). The Secret enumeration that the Secret Push predicate walks lives in [`secret-store.md`](./secret-store.md). The **loop mechanics** the agent uses when revising the Brief on a GM response (initial-draft Write, revision via Edit, mandatory re-read on every turn, verbal-skip exits, no re-prompting within a run) live in [`conversational-refinement-loop.md`](./conversational-refinement-loop.md), which sits on top of the underlying staging contract in [`staging-pattern.md`](./staging-pattern.md). The Brief section template the agent revises lives in `skills/prep-session/SKILL.md` Step 3.
 
 ## How the loop uses these questions
 
 Step 3.5 evaluates every category in order. Each category whose predicate is true contributes one (or, in the case of categories that legitimately produce multiple findings, a small batch of) question(s) to the loop's queue. The agent then presents queued questions to the GM, ideally batching closely-related questions into a single turn so the GM isn't pinged seven separate times.
 
-Per ADR-0015's skip semantics:
+Per the shared loop's skip semantics (per ADR-0015):
 
 - The agent's loop preamble mentions the verbal escape (*"...or say 'looks good' / 'skip questions' to finalize as-is."*).
 - If the GM responds without addressing a queued question, that question is dropped — treat the non-response as "decided not to engage." **No re-prompting** within the same run.
-- "approve" / "looks good" / "draft is good" exits the loop; "cancel" exits without writing (per the staging pattern's cancel semantics).
+- "approve" / "looks good" / "draft is good" exits the loop; "cancel" exits without writing (per the shared loop's cancel semantic).
 
-When the GM does engage with a question, the agent revises the staged `.ttrpg-staging/brief-draft.md` via the Edit tool so the IDE shows a native diff (per [#16](https://github.com/snlemons/game_manager/issues/16)), then re-presents the loop preamble for the next turn.
+When the GM does engage with a question, the agent revises the staged `.ttrpg-staging/brief-draft.md` via the Edit tool so the IDE shows a native diff (per [#16](https://github.com/snlemons/game_manager/issues/16) and [`conversational-refinement-loop.md`](./conversational-refinement-loop.md)), then re-presents the loop preamble for the next turn.
 
 ## The seven categories
 
