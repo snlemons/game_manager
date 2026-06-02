@@ -318,13 +318,17 @@ This is the desired output shape. The framing stays "optional, weave in if possi
 
 Per [ADR-0015](../../docs/adr/0015-conversational-refinement-loop-in-prep-session.md), `/prep-session` is a draft-first-then-converse workflow. After Step 3's draft, write the Brief to staging once, then enter a multi-turn loop where the agent surfaces rule-based follow-up questions, the GM responds, and the agent revises the staged Brief via Edit until the GM explicitly approves or cancels. Step 4 below is the approval-gate exit of this loop, not a separate terminal review.
 
-### 3.5a — Stage the initial draft
+**Run the loop mechanics at `../../references/conversational-refinement-loop.md`** — that file is the canonical spec for the loop's lifecycle (initial-draft via Write to a single staging file, mandatory re-read at the top of every turn, revisions via Edit so the IDE shows targeted-hunk diffs, verbal-skip exits, no re-prompting within a run, GM-paced loop count, mid-loop GM hand-edits treated as authoritative). The mechanics are shared with `/init-campaign` and `/init-adventure` and don't need re-stating here.
 
-Write the Step 3 drafted Brief to `.ttrpg-staging/brief-draft.md` using the Write tool. Create `.ttrpg-staging/` at the campaign root if it doesn't exist. Claude Code's standard file-write diff shows the full draft in the GM's IDE — this is the GM's first view of the proposed Brief and the surface every subsequent loop turn edits in place.
+The `/prep-session`-specific bindings to the shared loop:
 
-Do **not** create `sessions/YYYY-MM-DD-session-N/` or write `brief.md` to its final location at this step. The session directory's existence is the GM's signal that they approved a Brief for that session; the directory only materializes at Step 5 after the loop exits via approve.
+- **Staging path.** `.ttrpg-staging/brief-draft.md` at the campaign root (created lazily if `.ttrpg-staging/` doesn't yet exist).
+- **Initial-draft content.** The Step 3 Brief, in full, per the ADR-0010 section order documented above.
+- **Final-location target.** `sessions/YYYY-MM-DD-session-N/brief.md`. Do **not** create `sessions/YYYY-MM-DD-session-N/` or write `brief.md` to its final location at this step — the session directory's existence is the GM's signal that they approved a Brief for that session, and the directory only materializes at Step 5 after the loop exits via approve.
+- **Loop preamble text.** *"Brief draft is at `.ttrpg-staging/brief-draft.md`. I have `N` follow-up question(s) to help you refine it — or say 'looks good' / 'skip questions' to finalize as-is."*
+- **Question queue.** Computed per the seven categories enumerated below; full predicates / phrasing / response-handling at `../../references/prep-session-questions.md`.
 
-### 3.5b — Compute the question queue
+### 3.5a — Compute the question queue (the seven categories)
 
 Evaluate every question category in `../../references/prep-session-questions.md` against current campaign state and the just-staged Brief. Each category whose predicate is true contributes one (or, where the category produces multiple findings, a small batched set of) question(s) to the loop's queue.
 
@@ -340,33 +344,9 @@ Evaluate every question category in `../../references/prep-session-questions.md`
 
 See `../../references/prep-session-questions.md` for each category's full predicate (including silent-cases), phrasing templates, response handling (per the accept / decline / defer shapes or the category-specific shape set), and worked examples. The file's order matches the firing order above, and the SKILL.md enumeration should be kept in sync if a future slice adds or reorders categories.
 
-When multiple categories' predicates fire, batch closely-related questions into the same turn (ADR-0015's "ideally batching closely-related questions into a single turn so the GM isn't pinged seven separate times"). Unrelated categories surface in separate turns. GM Focus Check is always its own turn — its open-ended framing doesn't compose with rule-shaped asks.
+When multiple categories' predicates fire, batch closely-related questions into the same turn (per the shared loop's queue-shape rules). Unrelated categories surface in separate turns. GM Focus Check is always its own turn — its open-ended framing doesn't compose with rule-shaped asks.
 
-If no category's predicate is true (the question queue is empty), skip directly to Step 4's approval ask — but still mention the staging path in the loop preamble so the GM knows where the Brief is and how to edit it.
-
-### 3.5c — Run the loop
-
-The loop iterates until the GM explicitly approves or cancels. Each turn has this shape (per `../../references/staging-pattern.md`'s "Iterative agent revisions during a review loop" section):
-
-1. **Open the turn with the loop preamble.** First turn after staging: *"Brief draft is at `.ttrpg-staging/brief-draft.md`. I have `N` follow-up question(s) to help you refine it — or say 'looks good' / 'skip questions' to finalize as-is."* Subsequent turns: just present the next queued question. The preamble's mention of the verbal skip ("looks good" / "skip questions" / "draft is good") is the GM's escape from the loop without writing additional revisions.
-2. **Present queued questions.** Per ADR-0015, present rule-based questions one batch at a time, not all seven categories serialised. Closely-related questions (e.g., multiple Secret-Push buckets across Adventures) batch into the same turn; unrelated categories surface in separate turns. Apply the per-category phrasing templates from `../../references/prep-session-questions.md`.
-3. **Wait for the GM's reply.** Three response shapes the loop accepts at any turn:
-   - **Approve / "looks good" / "draft is good" / "continue" / "skip questions"** → exit the loop. Proceed to Step 4's continue branch (re-read staging, then Step 5 writes to final location).
-   - **Cancel** → exit the loop. Proceed to Step 4's cancel branch (delete staging, exit without writing).
-   - **Anything else** → treat as a turn-level response to the queued question. Go to step 4.
-4. **Re-read `.ttrpg-staging/brief-draft.md` from scratch.** The re-read is mandatory and unconditional — the GM may have edited the staged file directly in their IDE between turns and the agent must observe those edits as ground truth before revising. Per `../../references/staging-pattern.md`, the re-read happens at the top of every loop turn, not only at exit.
-5. **Compute revisions from the GM's reply.** Each question category's "Response handling" subsection in `../../references/prep-session-questions.md` defines what kinds of revisions the GM's reply implies. For Secret Push:
-   - **Accept (push one or more Secrets)** → revise the Brief. For each accepted Secret, add either (a) a new bullet to the "Beats to weave in" section if the GM is hard-committing to landing a Clue this session, or (b) a one-line nudge to the "GM scratchpad" if the GM is soft-flagging "watch for an opening." See the Secret Push category's response-handling notes for the exact bullet shapes and the accept-phrasing-to-shape mapping.
-   - **Decline / "not this session" / "skip"** → no revision. The agent does not pre-emptively edit the Brief to reflect the decline; staging stays byte-identical for this turn.
-   - **Defer / non-engagement (the GM replies addressing something else, asks the agent to do an unrelated thing, replies with a partial sentence and moves on)** → treat as decline per ADR-0015's "no re-prompting" rule. The question is dropped from the queue. The loop continues.
-6. **Apply revisions via Edit, not Write.** Edit's diff display surfaces the targeted delta against content the GM has already seen once. Rewriting the whole staged file via Write would show the GM a full-file diff instead of the targeted change they're reacting to — the loop reads as confusing churn rather than incremental refinement. If the revision is a whole-section rewrite, Edit can still express it (old_string = the section's current bytes, new_string = the rewritten section); the targeted diff is still preferable to a full re-stage. Before applying, check whether the intended revision would overwrite GM-authored content the agent did not draft — if so, surface the conflict in chat (*"You edited the [section] after the last turn; my proposed revision would touch a line you changed. Apply anyway, or skip?"*) rather than silently clobbering.
-7. **Loop back.** Present the next queued question, or — when the queue is exhausted — drop into Step 4's approval ask. The agent does not need to announce "all questions covered, asking for approval now"; the transition from a question turn to Step 4's continue/cancel ask is the signal.
-
-**No re-prompting within the same run.** A question dropped because the GM didn't engage with it does not resurface. The Step 3.5 loop is one-pass through the queue; the GM gets to revisit questions in a future `/prep-session` run if they re-prep the same session.
-
-**Loop turn count is GM-paced, not agent-paced.** The agent doesn't impose a max-turn limit; the loop runs as long as the GM keeps engaging. A GM who answers every question in detail produces a longer loop than a GM who skips questions verbally on the first turn — both are valid.
-
-**Mid-loop GM edits to the staged file are picked up automatically.** Because step 4's re-read is unconditional, a GM who prefers to hand-edit the staged Brief between turns (rather than answering questions in chat) does so freely. The agent observes the edits on the next turn and treats them as authoritative; no separate "I edited the file, here are the changes" signal is required from the GM. This means the GM can mix chat replies and direct IDE edits in any combination — the agent's behavior is the same either way.
+If no category's predicate is true (the question queue is empty), the loop skips directly to Step 4's approval ask — but the loop preamble still mentions the staging path so the GM knows where the Brief is and how to edit it (per the shared loop reference).
 
 ## Step 4 — Approval gate (loop exit)
 
