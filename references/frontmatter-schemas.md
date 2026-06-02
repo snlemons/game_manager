@@ -157,7 +157,7 @@ File: `beats/<slug>.md`.
 status: pending                      # required: pending | delivered | dropped
 created: 2026-05-29                  # YYYY-MM-DD of when the GM (or the agent on behalf of the GM) authored the Beat; ~ for ingest-era
 delivered: ~                         # YYYY-MM-DD; null until status transitions to delivered
-kind: ~                              # optional open-enum string; starter values news | handout | character-moment | set-piece | clue | escalation
+kind: ~                              # optional open-enum string; starter values news | handout | character-moment | set-piece | clue | escalation | puzzle
 linked_pcs: []                       # optional list of PC slugs
 linked_npcs: []                      # optional list of NPC slugs
 linked_adventures: []                # optional list of Adventure slugs
@@ -171,7 +171,7 @@ linked_secrets: []                   # optional list of Secret slugs
 - **`status`** — required. `pending` (waiting for an opening to land), `delivered` (the scene played out), `dropped` (the GM is abandoning it; NPC died, location gone, no longer wanted).
 - **`created`** — YYYY-MM-DD. For Beats `/wrap-session` proposes, the session date when the GM scratched it down. For ingest-era Beats, null unless the source supplies a date.
 - **`delivered`** — YYYY-MM-DD of the session that landed the Beat. Null until status transitions to `delivered`. On `dropped`, leave `delivered:` null — the lifecycle terminates without a delivery date.
-- **`kind`** — optional, open-enum string. Classifies the Beat for kind-specific surfacing in `/prep-session` (see ADR-0014 for the Clue/Escalation cases). Starter values: `news | handout | character-moment | set-piece | clue | escalation`. The enum is intentionally **open** — any string is accepted at schema-validation time, and new kinds may be added as dogfooding reveals distinct prep-surfacing needs without a schema change. Absent or `~` means "unclassified"; unclassified Beats surface normally.
+- **`kind`** — optional, open-enum string. Classifies the Beat for kind-specific surfacing in `/prep-session` (see ADR-0014 for the Clue/Escalation cases). Starter values: `news | handout | character-moment | set-piece | clue | escalation | puzzle`. The enum is intentionally **open** — any string is accepted at schema-validation time, and new kinds may be added as dogfooding reveals distinct prep-surfacing needs without a schema change. Absent or `~` means "unclassified"; unclassified Beats surface normally.
 - **`linked_secrets`** — optional list of Secret slugs. Populated on Beats whose intent (or incidental content) reveals one or more Secrets — see ADR-0014. A Beat with `kind: clue` conventionally has `linked_secrets:` populated pointing to the Secret it reveals; the agent queries Clues per Secret to track revelation progress. A Beat with `linked_secrets:` populated but `kind:` other than `clue` (or unset) is a Beat that incidentally touches a Secret. Values are Secret slugs, slugified per the same rule as `dedup-matching.md`.
 - **`linked_*`** — optional lists of slugs. These feed `/prep-session`'s tiered surfacing (ADR-0009 surfacing-at-scale). Empty `[]` is honest; missing keys are a schema violation. **Populate at extraction time when the source clearly supports it** — the `/ingest` SKILL.md has detailed proximity heuristics (Step 3, **Beat shape** subsection) for which links the source justifies. Empty is better than wrong.
 

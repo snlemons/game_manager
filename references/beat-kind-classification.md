@@ -22,8 +22,9 @@ Per `frontmatter-schemas.md` and CONTEXT.md, the starter values for `kind:` are:
 - `set-piece` — a planned scene with structural prep. A chase, an ambush, a ritual, a heist. Has its own choreography and the GM wants to land the scene as designed.
 - `clue` — a Beat whose intent is to reveal (part of) a Secret. Conventionally paired with `linked_secrets:` populated pointing to the Secret it reveals (see `secret-extraction.md` for the pairing).
 - `escalation` — held back as a back-pocket lever for raising stakes mid-session. The reinforcements arrive, the timer runs out, the cult succeeds at the ritual the party didn't stop. Surfaced separately via `/prep-session`'s Escalation Prep question, not in the main "Beats to weave in" list.
+- `puzzle` — a one-shot encounter the party engages with by reasoning through a problem: a riddle, a logic puzzle, a room-bound mechanical trick the party has to figure out to proceed. The Beat body holds the puzzle text — room description, riddle, mechanics, solution. Lifecycle is the standard `pending → delivered` (delivered when the puzzle has been presented and resolved, whether the party solved it cleanly or muddled through). Typically `linked_adventures:` populated (puzzles are usually authored as part of a specific Adventure) and often `linked_locations:` if the puzzle is room-bound. See [#60](https://github.com/snlemons/game_manager/issues/60) for the design discussion; this is Option A from that issue.
 
-The enum is **open**. Any string is accepted at schema-validation time. New kinds may be added as dogfooding reveals distinct prep-surfacing needs without a schema change — but the extracting skills should **not** invent new kinds during a wrap or ingest. If a Beat doesn't fit one of the six starter values, classify it as `~` (unclassified) and let the GM hand-edit a new kind if they want to track it. The agent inventing kinds would scatter the campaign with one-off labels nothing queries.
+The enum is **open**. Any string is accepted at schema-validation time. New kinds may be added as dogfooding reveals distinct prep-surfacing needs without a schema change — but the extracting skills should **not** invent new kinds during a wrap or ingest. If a Beat doesn't fit one of the seven starter values, classify it as `~` (unclassified) and let the GM hand-edit a new kind if they want to track it. The agent inventing kinds would scatter the campaign with one-off labels nothing queries.
 
 ## Heuristic by prose shape
 
@@ -34,10 +35,13 @@ For each proposed Beat, classify by matching the Beat's description against thes
 | Words: "reveal", "discover", "find out", "the party learns that…", "Clue that…", explicit mention of a Secret-shaped fact | `clue` |
 | Words: "escalation", "if things go badly", "if the timer runs out", "back-pocket", "raise the stakes", "if the party isn't doing X by Y, then…" | `escalation` |
 | Names a specific PC and only that PC ("for Darius:", "Darius's hook:", "Sera-specific moment") | `character-moment` |
+| Words: "puzzle", "riddle", "the trick is", "the solution is", "to solve this", "the riddle is", "solving the…", names a self-contained problem the party reasons through to proceed | `puzzle` |
 | Words: "set up", "set-piece", "ambush", "chase", "ritual", "heist", names a choreographed scene with multiple beats / stages | `set-piece` |
 | Words: "give them", "hand the party", "they receive", "physical item", names a specific item or document | `handout` |
 | Words: "drop the news", "they hear", "messenger arrives", "rumor", "word reaches them", "poster" | `news` |
 | None of the above clearly apply | `~` (unclassified) |
+
+`puzzle` is placed above `set-piece` in this precedence order intentionally: puzzles are a structured kind of scene, and the puzzle signals ("riddle", "the solution is") are more specific than the set-piece signals ("set up", "ambush"). A Beat whose body reads as both ("set up the Mirror Room puzzle") should land as `puzzle` — the puzzle is the load-bearing shape, the set-piece framing is the surrounding scaffolding.
 
 When two signals conflict (e.g., "for Darius: messenger arrives with news that his parent is dead" — both `character-moment` and `news`), prefer the **outer** framing — the GM's scoping note ("for Darius:") wins over the inner event shape. `character-moment` here. If the framing is co-equal ("news about Darius" with no GM scoping cue), classify as the inner shape (`news`) and surface the alternative at ambiguity clarification.
 
@@ -88,6 +92,7 @@ Treat the **enclosing section heading** (the nearest `##` or `###` above the Bea
 - **"Hidden Information for the DM"** / **"Hidden Information"** / **"GM Reveals"** → `kind: clue`. Each item is a Beat whose intent is to reveal something to the party. Pair with `linked_secrets:` if the section also has a corresponding Secret extracted from "Secrets and Lies" / "Adventure Background" — the structural pairing is *common in modules*: the Secrets section enumerates the hidden facts, the Hidden Information section enumerates the planned ways to reveal those facts. See "Linking Clue Beats to extracted Secrets" below.
 - **"Triggers"** / **"Escalations"** / **"What Happens If…"** / **"The Clock"** / **"If the Party Doesn't Act"** → `kind: escalation`. Each conditional item is one Beat.
 - **"Personal Hooks"** / **"PC Hooks"** / **"Spotlight Beats"** (or any section that pairs Beats with a named PC) → `kind: character-moment`. The PC name in the section header (or in the body's attribution) populates `linked_pcs:`.
+- **"Puzzles"** / **"Riddles"** / **"Brain-Teasers"** → `kind: puzzle`. Each puzzle in the section becomes one Beat; the Beat body holds the puzzle text (room description, riddle wording, mechanics, intended solution). Subsection headings naming a specific puzzle by name (e.g., `### The Mirror Room Puzzle`, `### The Riddle of the Three Doors`, `### Lock-Mechanism Puzzle`) under an Adventure or Location section also classify as `kind: puzzle` — the "Puzzle" / "Riddle" suffix in the subsection heading is the signal even when the enclosing section is generic ("## Scenes" or "## Chapter Three"). Puzzles are typically room-bound, so populate `linked_locations:` if the source names the location; structural `linked_adventures:` per the usual rule.
 - **"Random Encounters"** / **"Wandering Monsters"** / **"Random Tables"** → `kind: set-piece` for any individual encounter substantial enough to extract; skip the random-table mechanical scaffolding (the table itself is not a Beat — the encounters *it lists* might be).
 
 ### Subsection refinement
@@ -96,6 +101,8 @@ When the enclosing heading matches a kind but a **subsection** narrows it furthe
 
 - `## Scenes → ### The Ambush at the Bridge` → `kind: set-piece` (the subsection just names the scene).
 - `## Adventure Reveals → ### When the Party Searches Maren's Room` → `kind: clue` (the subsection describes a Clue Beat the source called out by name).
+- `## Scenes → ### The Mirror Room Puzzle` → `kind: puzzle` (the subsection's "Puzzle" suffix is more specific than the enclosing "Scenes" heading — puzzle wins over set-piece).
+- `## Chapter Three: The Tomb → ### The Riddle of the Three Doors` → `kind: puzzle` (a riddle-named subsection under a chapter heading; the riddle naming is the kind signal).
 
 When the enclosing heading matches one kind but the subsection content reads as a different kind (e.g., a "Scenes" section that contains an item labeled "Rumor: …"), surface as an ASK at review: *"Source heading classifies as `set-piece` but the body reads as `news` (a rumor drop) — which kind?"*
 
