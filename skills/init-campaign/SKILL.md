@@ -79,6 +79,8 @@ Pitch elicitation, the PC-roster step from the from-scratch branch (Step 5), and
 
 ### Step D1 — Scaffold the campaign repo
 
+Apply the **Already-scaffolded?** shape from `../../references/campaign-locate.md` — the same shape Step 7 uses in from-scratch mode. The scaffolder's Step 1 marker check decides whether the target already has a scaffolded campaign (refuse to clobber) or is empty / non-campaign-content (proceed). Docs mode differs from from-scratch mode only in what runs *after* the scaffold (the extraction pipeline, not pitch elicitation); the scaffold itself is identical.
+
 Run the shared scaffolder reference at `../../references/scaffolder.md` against the target directory. Inputs are the campaign name (Step 1), the system (Step 2), and the target directory. The scaffolder handles target-directory validation, the seven template writes with placeholder substitution, `git init`, and the initial commit (*"Scaffold campaign repo via ttrpg-gm /ingest"* — the commit message is stable across consumers per the scaffolder reference's Step 3 note).
 
 The scaffolder's Step 1 (target validation) is the only place docs-mode-specific guidance applies: when the target directory already contains source docs the GM wants extracted, the scaffolder's "exists but non-empty without markers" branch fires (Step 1.4) and asks for GM confirmation before scaffolding alongside the existing files. Confirm with the GM, then proceed. The scaffolder will leave the input docs untouched (they aren't in its `git add` set) and land the campaign-shape files alongside them.
@@ -189,6 +191,8 @@ If the GM cancels mid-Adventure-sub-flow, the cancel-path semantics of `/init-ad
 The two-skill composition is intentional per [ADR-0019](../../docs/adr/0019-init-campaign-as-bootstrapping-front-door.md) — the first-Adventure surface lives in `/init-adventure` so the same prose serves both bootstrapping and net-new-Adventure-in-existing-campaign cases.
 
 ## Step 7 — Scaffold the campaign repo
+
+Apply the **Already-scaffolded?** shape from `../../references/campaign-locate.md` — that reference is the canonical spec for the four-marker check that decides whether the target already has a scaffolded campaign (in which case the scaffolder refuses to clobber) or is empty / non-campaign-content (in which case the scaffolder proceeds). The check is delegated to the scaffolder reference's Step 1; `/init-campaign` does not re-implement the marker inspection.
 
 Run the shared scaffolder reference at `../../references/scaffolder.md` against the target directory. The scaffolder handles: target-directory validation (Step 1 — refuse to overwrite an existing scaffolded campaign), the six template writes with placeholder substitution (`{{CAMPAIGN_NAME}}` from Step 1, `{{CAMPAIGN_SYSTEM}}` from Step 2, `{{CAMPAIGN_PATH}}` from the resolved target path), `git init`, and the initial commit (*"Scaffold campaign repo via ttrpg-gm /ingest"* — the commit message is stable across consumers per the scaffolder reference's Step 3 note).
 

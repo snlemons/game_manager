@@ -35,9 +35,11 @@ If either is missing, ask the GM for it before doing anything that touches the f
 
 ## Precondition: scaffolded? (run first, before any phase)
 
-Before any other work — before the settings preflight, before Phase 2's survey, before anything that reads or writes campaign state — verify the campaign directory is a scaffolded campaign repo. This is a read-only inspection of the same Step 1 marker set documented in `../../references/scaffolder.md`: presence of `CLAUDE.md`, `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, and `campaign.md` at the campaign root. The scaffolder reference owns the canonical marker list; this precondition consumes its Step 1 in read-only mode (no Steps 2–4 writes) per [ADR-0019](../../docs/adr/0019-init-campaign-as-bootstrapping-front-door.md).
+Before any other work — before the settings preflight, before Phase 2's survey, before anything that reads or writes campaign state — verify the campaign directory is a scaffolded campaign repo.
 
-If any marker is absent, **hard-stop** with this message verbatim:
+Apply the **Hard-stop** shape from `../../references/campaign-locate.md` — that reference is the canonical spec for the four-marker check (`CLAUDE.md`, `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, `campaign.md`) and the no-fallback / no-conversational-recovery routing per [ADR-0019](../../docs/adr/0019-init-campaign-as-bootstrapping-front-door.md). The marker list overlaps with `../../references/scaffolder.md` Step 1 by design — the two references' marker lists are kept in sync.
+
+If any marker is absent, **hard-stop** with this message verbatim (per the Hard-stop shape's "skill-specific phrasing" carve-out):
 
 > *"This directory isn't a scaffolded campaign repo. Run `/init-campaign` to start a new campaign, or invoke `/ingest` from a campaign that's already scaffolded."*
 

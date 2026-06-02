@@ -36,19 +36,12 @@ Before any work, decide which mode the skill is running in by inspecting the cwd
 
 ### Step 0a — Detect the mode
 
-Check the cwd for the **campaign-repo markers** that identify a scaffolded campaign:
+Apply the **Auto-detect mode** shape from `../../references/campaign-locate.md` — that reference is the canonical spec for the four-marker check (`CLAUDE.md`, `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, `campaign.md`) and the mode-resolution routing including the partial-scaffold and non-campaign-content branches. `/init-adventure`'s skill-specific phrasing for the two ambiguous branches:
 
-- `CLAUDE.md` at the root
-- `.claude/rules/sessions.md`
-- `.claude/rules/adventures.md`
-- `campaign.md`
-
-Mode resolution:
-
-- **All four markers present in cwd:** in-campaign mode. The cwd is the campaign root for the rest of the workflow.
-- **None of the four markers present in cwd, and cwd is empty (or contains only files the GM has confirmed are not a campaign repo, e.g., loose notes the GM has not yet ingested):** standalone mode. The cwd will become the campaign root after the scaffolder runs (or a GM-named subdirectory will).
-- **Some markers present, others absent:** the cwd looks like a partially-scaffolded or half-broken campaign. **Stop** and surface to the GM: *"This directory has some campaign markers (`<list present>`) but is missing others (`<list absent>`) — it doesn't look like a fully-scaffolded campaign. Did you mean to run from a different directory? Or is this a broken scaffold I should not write into?"* Wait for explicit GM guidance.
+- **Some markers present, others absent (partial / half-broken scaffold):** stop and surface to the GM: *"This directory has some campaign markers (`<list present>`) but is missing others (`<list absent>`) — it doesn't look like a fully-scaffolded campaign. Did you mean to run from a different directory? Or is this a broken scaffold I should not write into?"* Wait for explicit GM guidance.
 - **Non-campaign content present and not GM-confirmed as safe:** ask before continuing: *"This directory contains files but doesn't look like a scaffolded campaign. Run `/init-adventure` in standalone mode and scaffold a campaign here (alongside the existing files), or did you mean to run from a different directory?"*
+
+The detection is **a check, not a write** — no files change at this step per the Auto-detect mode shape's invariants.
 
 ### Step 0b — Confirm with the GM before routing
 

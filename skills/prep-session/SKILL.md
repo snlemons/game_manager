@@ -35,11 +35,11 @@ If the current working directory is not a campaign repo (no `campaign.md`, no `s
 
 The skill operates on **a campaign repo**, which may or may not be the current working directory. Don't assume cwd.
 
-1. Check cwd for the campaign-repo markers: `CLAUDE.md` at the root, `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, and `campaign.md`. If all four are present, cwd is the campaign repo — use it.
-2. If any are missing, **ask the GM** for the absolute path of the campaign repo (e.g., *"I don't see a scaffolded campaign in the current directory. Where is the campaign repo? (Give an absolute path or a `~/`-anchored path.)"*). Resolve their answer to an absolute path. Re-check the four markers there. If still missing, surface what was missing and stop — the campaign isn't scaffolded.
-3. Use that absolute path as the **campaign root** for the rest of this workflow. Every path in subsequent steps (e.g., `sessions/...`, `adventures/...`, `beats/...`, `.ttrpg-staging/...`) resolves *relative to the campaign root*, not relative to cwd. Pass absolute paths to file tools so they work regardless of cwd.
+Apply the **Locate-or-ask** shape from `../../references/campaign-locate.md` — that reference is the canonical spec for the four-marker check (`CLAUDE.md`, `.claude/rules/sessions.md`, `.claude/rules/adventures.md`, `campaign.md`) and the cwd-then-ask-the-GM routing. `/prep-session`'s skill-specific orchestration on top of the shared shape:
 
-Don't repeat the pre-flight if the campaign root is already determined in this run.
+- **GM-facing phrasing when cwd is missing markers:** *"I don't see a scaffolded campaign in the current directory. Where is the campaign repo? (Give an absolute path or a `~/`-anchored path.)"* Resolve the GM's answer to an absolute path; re-check the four markers there per the shared shape. If still missing, surface what was missing and stop — the campaign isn't scaffolded.
+- **Resolved-root semantics:** the path that passes the marker check is the **campaign root** for the rest of this workflow. Every path in subsequent steps (e.g., `sessions/...`, `adventures/...`, `beats/...`, `.ttrpg-staging/...`) resolves *relative to the campaign root*, not relative to cwd. Pass absolute paths to file tools so they work regardless of cwd.
+- **Cache the result.** Don't repeat the locate-or-ask exchange if the campaign root is already determined in this run; the check is per-invocation.
 
 ### Settings preflight (run once before Step 1)
 
