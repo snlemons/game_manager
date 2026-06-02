@@ -19,11 +19,12 @@ In every case the composer is a deterministic function of current campaign state
 Render exactly these sections in this exact order:
 
 1. Header (campaign name + system, optional Status / Last event lines — see "Skill-specific variants")
-2. `## Where the party might go next session` — the forward-looking menu
-3. `## Adventures` — **ingest-only**, skipped by `/wrap-session` and `/prep-session`
-4. `## Open threads`
-5. `## Recent significant consequences`
-6. `## Pending beats`
+2. `## Party` — the PC roster, rendered identically by every consuming skill
+3. `## Where the party might go next session` — the forward-looking menu
+4. `## Adventures` — **ingest-only**, skipped by `/wrap-session` and `/prep-session`
+5. `## Open threads`
+6. `## Recent significant consequences`
+7. `## Pending beats`
 
 The header preserves verbatim the italic agent-maintained header paragraph from `templates/campaign.md.template`. Do not paraphrase that paragraph — it tells the GM the file is agent-managed.
 
@@ -40,6 +41,28 @@ The header preserves verbatim the italic agent-maintained header paragraph from 
 
 - `{{CAMPAIGN_NAME}}` — read from the existing `campaign.md`'s H1 or `**Campaign:**` line (whichever is present). Don't re-prompt the GM. If neither is parseable, surface the path and ask before continuing — do not invent a name.
 - `{{CAMPAIGN_SYSTEM}}` — read from the existing `**System:**` line.
+
+## `## Party`
+
+The PC roster, rendered identically by `/wrap-session`, `/prep-session`, and `/ingest`. No skill-specific variants.
+
+For every `pcs/<slug>.md` file, render one bullet:
+
+```markdown
+- **[[<canonical name>]]** — <one-line body>
+```
+
+- `<canonical name>` is the file's H1 (the canonical PC name; aliases are not surfaced here — they live in frontmatter for dedup/matching). Wrap it in `[[...]]` so the rendered overview links back to the PC's Reference note.
+- `<one-line body>` is the first non-empty line of the PC file's body (after the frontmatter and H1, skipping blank lines). Truncate at the first period for terseness if the body is multi-sentence. Preserve wiki links inside the excerpt verbatim (don't strip `[[...]]`).
+- If the PC file has no body content (a bare frontmatter + H1 stub, as is common for the minimal `/ingest` Phase 2 promotion shape per ADR-0018), render the bullet with just the canonical name and no em-dash trailer:
+
+  ```markdown
+  - **[[<canonical name>]]**
+  ```
+
+  Do not invent a body. ADR-0007: the agent never fabricates facts it doesn't have.
+- **Ordering:** alphabetical by slug (the `<slug>` portion of `pcs/<slug>.md`). Never rely on filesystem enumeration order.
+- If `pcs/` is empty or does not exist, render `_None._` under the heading.
 
 ## `## Where the party might go next session`
 
