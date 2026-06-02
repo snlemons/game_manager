@@ -7,7 +7,7 @@ correctness. The full `/ingest` workflow has four phases (see
 `skills/ingest/SKILL.md`); only **Phase 1 (Scaffold)** is fully
 deterministic — the agent reads templates, substitutes three
 placeholders (`{{CAMPAIGN_NAME}}`, `{{CAMPAIGN_SYSTEM}}`,
-`{{CAMPAIGN_PATH}}`), writes six files (five committed + one
+`{{CAMPAIGN_PATH}}`), writes seven files (six committed + one
 gitignored `.claude/settings.json`), runs `git init`, and makes
 one initial commit. Phases 2–4 (survey, per-doc extraction, wrap-up)
 are LLM-driven and out of scope here. See the README at
@@ -26,7 +26,7 @@ against a temporary target directory using the real `templates/`
 directory that ships with the plugin. The test then asserts external
 behavior only:
 
-- The six expected files were written at the documented paths (no
+- The seven expected files were written at the documented paths (no
   more, no fewer at the documented locations).
 - All placeholder tokens (`{{CAMPAIGN_NAME}}`, `{{CAMPAIGN_SYSTEM}}`,
   `{{CAMPAIGN_PATH}}`) were substituted — no `{{...}}` survives in
@@ -39,7 +39,7 @@ behavior only:
 - `.claude/settings.json` is valid JSON and contains a
   `permissions.allow` array.
 - `git init` produced a repo with exactly one commit, the commit
-  contains the five committed scaffolded paths (the six written
+  contains the six committed scaffolded paths (the seven written
   paths minus the gitignored `.claude/settings.json`) and nothing
   else, and no uncommitted state remains (the gitignored
   `.claude/settings.json` does not appear in `git status`).
@@ -75,26 +75,32 @@ import pytest
 import yaml
 
 
-# The six templated paths the scaffolder is contracted to write into a
-# campaign repo, in the **exact write order** specified by
+# The seven templated paths the scaffolder is contracted to write into
+# a campaign repo, in the **exact write order** specified by
 # `references/scaffolder.md` Step 2. Source paths are under
 # `templates/` (with `.template` suffix); destination paths are
 # relative to the campaign repo root.
 #
 # `.claude/settings.json` is FIRST so its `permissions.allow` rules
-# are in effect for the remaining five writes — the one-prompt
+# are in effect for the remaining six writes — the one-prompt
 # property the scaffolder reference guarantees. Slice A (#81) pinned
 # this ordering with `TestWriteOrder` below.
+#
+# `.claude/rules/style.md` was added in issue #103 (slice K follow-up)
+# per ADR-0021. The file is committed to version control even though
+# it is GM-authored thereafter — the deny entries in
+# `.claude/settings.json` block agent edits at the permission layer.
 EXPECTED_SCAFFOLDED_FILES: list[tuple[str, str]] = [
     (".claude/settings.json.template", ".claude/settings.json"),
     ("CLAUDE.md.template", "CLAUDE.md"),
     (".claude/rules/sessions.md.template", ".claude/rules/sessions.md"),
     (".claude/rules/adventures.md.template", ".claude/rules/adventures.md"),
+    (".claude/rules/style.md.template", ".claude/rules/style.md"),
     ("campaign.md.template", "campaign.md"),
     (".gitignore.template", ".gitignore"),
 ]
 
-# The five paths actually staged into the initial commit. This is the
+# The six paths actually staged into the initial commit. This is the
 # scaffolded set minus `.claude/settings.json`, which is gitignored from
 # the start because it carries machine-local absolute paths (see issue
 # #62 and `skills/ingest/SKILL.md` Phase 1 Step 3). The file is still
@@ -268,8 +274,8 @@ def scaffold_campaign(
       directories are created on demand. Templates are written in the
       exact order documented in `references/scaffolder.md` Step 2,
       with `.claude/settings.json` first so its permission rules are
-      in effect for the remaining five writes.
-    - Run `git init`, stage the five committed written files
+      in effect for the remaining six writes.
+    - Run `git init`, stage the six committed written files
       explicitly (the gitignored `.claude/settings.json` is excluded),
       commit with the documented message (Step 3).
 
@@ -308,11 +314,17 @@ def scaffold_campaign(
     # list — it's written to disk above (its permissions are in effect
     # for the rest of Phase 1) but gitignored by the `.gitignore` that
     # was also just written. See issue #62.
+    #
+    # `.claude/rules/style.md` was added in issue #103 (slice K
+    # follow-up); per ADR-0021 the file is committed so the GM's voice
+    # rides in version control. Agent edits against it are blocked at
+    # the permissions layer by the deny entries in `.claude/settings.json`.
     _run_git(
         "add",
         "CLAUDE.md",
         ".claude/rules/sessions.md",
         ".claude/rules/adventures.md",
+        ".claude/rules/style.md",
         "campaign.md",
         ".gitignore",
         cwd=target,
@@ -385,7 +397,7 @@ def _split_frontmatter(text: str) -> tuple[dict, str]:
 
 
 class TestScaffoldedFiles:
-    """The six documented files land at the documented paths."""
+    """The seven documented files land at the documented paths."""
 
     @pytest.mark.parametrize(
         "dest_rel",
@@ -421,7 +433,7 @@ class TestScaffoldedFiles:
 
 
 class TestRuleFileFrontmatter:
-    """The two scoped-rule files parse as valid YAML frontmatter + body."""
+    """The three scoped-rule files parse as valid YAML frontmatter + body."""
 
     def test_sessions_rule_frontmatter_parses(
         self,
@@ -449,6 +461,30 @@ class TestRuleFileFrontmatter:
         fm, body = _split_frontmatter(text)
         assert "paths" in fm, (
             "adventures.md rule file missing `paths:` frontmatter scope"
+        )
+        assert isinstance(fm["paths"], list) and fm["paths"], (
+            "`paths:` must be a non-empty list"
+        )
+        assert body.strip(), "Rule file body must not be empty"
+
+    def test_style_rule_frontmatter_parses(
+        self,
+        scaffolded_campaign: Path,
+    ) -> None:
+        """`.claude/rules/style.md` (issue #103, ADR-0021) lands shaped.
+
+        The scaffolder ships the stub verbatim from
+        `templates/.claude/rules/style.md.template`. Per ADR-0021 the
+        frontmatter carries an eleven-glob `paths:` list covering every
+        content-bearing campaign directory; the body is the GM-authored
+        writing-style steering contract.
+        """
+        text = (
+            scaffolded_campaign / ".claude/rules/style.md"
+        ).read_text(encoding="utf-8")
+        fm, body = _split_frontmatter(text)
+        assert "paths" in fm, (
+            "style.md rule file missing `paths:` frontmatter scope"
         )
         assert isinstance(fm["paths"], list) and fm["paths"], (
             "`paths:` must be a non-empty list"
@@ -655,9 +691,9 @@ class TestGitInit:
     ) -> None:
         """No untracked or modified files after the scaffolder runs.
 
-        Per SKILL.md Phase 1 Step 3, the scaffolder writes six files
-        (five committed + one gitignored `.claude/settings.json`) and
-        commits exactly the five non-ignored files. The gitignored
+        Per SKILL.md Phase 1 Step 3, the scaffolder writes seven files
+        (six committed + one gitignored `.claude/settings.json`) and
+        commits exactly the six non-ignored files. The gitignored
         settings file does not appear in `git status --porcelain` —
         gitignored paths are filtered out by porcelain output. Anything
         else here means the scaffolder dropped a stray file or staged
@@ -678,7 +714,7 @@ class TestGitInit:
         self,
         scaffolded_campaign: Path,
     ) -> None:
-        """The initial commit contains the five committed files only.
+        """The initial commit contains the six committed files only.
 
         `.claude/settings.json` is written to disk but gitignored from
         the start (issue #62 — its absolute paths are machine-local).
@@ -727,17 +763,88 @@ class TestCampaignOverviewPlaceholder:
         )
 
 
+class TestStyleRuleShipped:
+    """`.claude/rules/style.md` is shipped by the scaffolder (issue #103).
+
+    Slice K (#100) landed `templates/.claude/rules/style.md.template`
+    and the ADR/glossary/permissions-deny pieces but intentionally
+    deferred the scaffolder wiring. Issue #103 closes that loop. These
+    tests pin the wiring: the file is written to disk at the documented
+    destination, it lands in the initial commit (the GM's voice belongs
+    in version control per ADR-0021), and its bytes match the template
+    verbatim — the scaffolder is a pass-through and the style template
+    carries no `{{...}}` placeholders to substitute.
+    """
+
+    def test_style_rule_was_written(
+        self,
+        scaffolded_campaign: Path,
+    ) -> None:
+        assert (
+            scaffolded_campaign / ".claude/rules/style.md"
+        ).is_file(), (
+            "Scaffolder did not write `.claude/rules/style.md`. "
+            "Issue #103 wired the seventh template into the scaffolder; "
+            "verify EXPECTED_SCAFFOLDED_FILES and the `git add` line."
+        )
+
+    def test_style_rule_is_in_initial_commit(
+        self,
+        scaffolded_campaign: Path,
+    ) -> None:
+        """The file is captured by the initial commit, not just on disk."""
+        result = subprocess.run(
+            ["git", "ls-tree", "-r", "--name-only", "HEAD"],
+            cwd=scaffolded_campaign,
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+        tracked = set(result.stdout.splitlines())
+        assert ".claude/rules/style.md" in tracked, (
+            "`.claude/rules/style.md` is not tracked by the initial "
+            "commit. Per ADR-0021 the GM's writing-style file rides in "
+            "version control; the scaffolder's `git add` step must "
+            "include it."
+        )
+
+    def test_style_rule_content_matches_template(
+        self,
+        scaffolded_campaign: Path,
+        templates_dir: Path,
+    ) -> None:
+        """The scaffolder is a pass-through over the style.md template.
+
+        `templates/.claude/rules/style.md.template` carries no
+        `{{...}}` placeholders (verified by `test_style_template.py`),
+        so the written file should be byte-identical to the template.
+        Any drift here means a substitution leaked or the read/write
+        path mangled the content.
+        """
+        template_text = (
+            templates_dir / ".claude/rules/style.md.template"
+        ).read_text(encoding="utf-8")
+        written_text = (
+            scaffolded_campaign / ".claude/rules/style.md"
+        ).read_text(encoding="utf-8")
+        assert written_text == template_text, (
+            "`.claude/rules/style.md` does not match its template "
+            "byte-for-byte. The style template carries no `{{...}}` "
+            "placeholders, so the scaffolder should write it verbatim."
+        )
+
+
 # --------------------------------------------------------------------------
 # Slice A (#81) additions — write order, gitignore membership, idempotency.
 # --------------------------------------------------------------------------
 
 
 class TestWriteOrder:
-    """`.claude/settings.json` is written before the other five templates.
+    """`.claude/settings.json` is written before the other six templates.
 
     Per `references/scaffolder.md` Step 2, the settings file is written
     first so its `permissions.allow` rules are in effect before the
-    remaining five template writes. The agent only takes one permission
+    remaining six template writes. The agent only takes one permission
     prompt (the settings.json write itself); every subsequent write
     falls under the freshly-installed allow list. Reorderings would
     break that property and re-introduce per-file permission prompts.
@@ -769,7 +876,7 @@ class TestWriteOrder:
         tmp_path: Path,
         templates_dir: Path,
     ) -> None:
-        """All six writes happen in the documented sequence.
+        """All seven writes happen in the documented sequence.
 
         `references/scaffolder.md` Step 2 documents the exact write
         order in a numbered table; the scaffolder follows it without
@@ -912,7 +1019,7 @@ class TestIdempotency:
         scaffolded_campaign: Path,
         templates_dir: Path,
     ) -> None:
-        """The five committed files are byte-identical after a rejected re-run."""
+        """The six committed files are byte-identical after a rejected re-run."""
         before: dict[str, bytes] = {
             dest: (scaffolded_campaign / dest).read_bytes()
             for dest in EXPECTED_COMMITTED_FILES
