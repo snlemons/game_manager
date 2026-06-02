@@ -1,7 +1,7 @@
 {
   "name": "ttrpg-gm",
-  "version": "0.2.0",
-  "description": "TTRPG GM workflow plugin: /ingest, /prep-session, /wrap-session.",
+  "version": "0.3.0-dev",
+  "description": "TTRPG GM workflow plugin: /ingest, /prep-session, /wrap-session, /init-adventure.",
   "author": {
     "name": "Sofia Lemons"
   },
