@@ -26,7 +26,7 @@ def templates_dir(repo_root: Path) -> Path:
     """Absolute path to the plugin's `templates/` directory.
 
     The scaffolder phase of `/ingest` reads from here when it writes the
-    six template files into a new campaign repo.
+    seven template files into a new campaign repo.
     """
     return repo_root / "templates"
 
