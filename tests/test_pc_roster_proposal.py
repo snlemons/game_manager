@@ -9,38 +9,43 @@ per-skill prose can't silently drift apart: any change to the documented
 algorithm must land in both the reference and this file, and the tests
 catch mismatches.
 
-Per [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md), the
-PC roster is a Phase 2 (Survey) deliverable. The proposal aggregates
-skim signals across the corpus, classifies candidates as "Likely PC" or
-"Possible NPC", writes `.ttrpg-staging/survey-pcs.md` as the GM review
-surface, parses the GM-edited roster back, and promotes surviving
-entries to `pcs/<slug>.md` stubs (with a collision check against
-existing PC files).
+Per [ADR-0022](../docs/adr/0022-pc-roster-via-explicit-classification.md)
+(superseding [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md)),
+the PC roster is a Phase 2 (Survey) deliverable. The refined v0.3
+mechanism pre-populates the staged file from two sources — existing
+`pcs/<slug>.md` enumeration and a GM-typed-adds zone — plus a
+slice-H2-reserved `## Auto-added from PC source: docs` section (empty
+in slice H1). The skim-based PC candidate inference from ADR-0018 is
+gone: no frequency-of-mention counting, no roster-section scanning, no
+"Likely PC" / "Possible NPC" classification.
 
 The four operations covered here mirror the four contract pieces of the
 proposal:
 
-  - **`classify_candidates`** — given per-doc skim signals (frequency,
-    explicit-roster hits, party-pronoun hits, aliases captured), classify
-    each candidate as "Likely PC" or "Possible NPC" per the rules.
-  - **`render_survey_pcs_md`** — render the candidate set as the staged
-    file shape documented in pc-roster-proposal.md, including the empty
-    state.
-  - **`parse_survey_pcs_md`** — parse a GM-edited staged file back into
-    the surviving roster (slug, optional one-line body, aliases).
-  - **`stage_and_promote_stubs`** — stage `.ttrpg-staging/pcs/<slug>.md`
-    stubs, refuse promotion on collision with an existing `pcs/<slug>.md`,
-    and promote successfully when no collision exists.
+  - **`enumerate_existing_pcs`** — given a campaign repo with a `pcs/`
+    directory, list each existing PC file with its slug, H1, and
+    `aliases:`. These pre-seed the `## Existing PCs` section.
+  - **`render_survey_pcs_md`** — render the three-section staged file
+    shape documented in pc-roster-proposal.md, including the empty
+    states for each section.
+  - **`parse_survey_pcs_md`** — walk the GM-edited staged file section
+    by section, returning surviving pre-seeded entries (kept as
+    no-promotion roster lines) and GM-typed entries (slugified,
+    aliases parsed, body parsed) from the "Add other PCs here" zone.
+  - **`stage_and_promote_stubs`** — stage only **new** entries (GM-typed
+    adds) at `.ttrpg-staging/pcs/<slug>.md`, refuse promotion on
+    collision with an existing `pcs/<slug>.md`, and promote
+    successfully when no collision exists. Pre-seeded entries do not
+    re-stage.
 
 The reference impl mirrors what `references/pc-roster-proposal.md` and
-`skills/ingest/SKILL.md` Phase 2 Step 2.5 + Step 5 document; if the prose
-and this file diverge, one of them is wrong.
+`skills/ingest/SKILL.md` document; if the prose and this file diverge,
+one of them is wrong.
 
-This slice (B2) is the structural extraction only — zero behavior
-change. The current skim-based candidate detection is preserved
-verbatim. The mechanism refinement (drop skim inference, add
-existing-`pcs/` enumeration, GM-typed-adds zone) ships in slice H1 as
-the ADR-0018 supersession.
+Slice H1 of v0.3 implements the ADR-0018 supersession: skim inference
+is dropped; existing-`pcs/` enumeration + GM-typed-adds zone replace it.
+Slice H2 will populate the `## Auto-added from PC source: docs` section
+from GM-classified docs.
 """
 
 from __future__ import annotations
@@ -92,69 +97,88 @@ def slugify(name: str) -> str:
     return s.strip("-")
 
 
-@dataclass
-class CandidateSignals:
-    """Per-candidate aggregated skim signals for one input corpus.
+# ---------------------------------------------------------------------------
+# Existing-pcs/ enumeration — the pre-seeding source under ADR-0022.
+# ---------------------------------------------------------------------------
 
-    Aggregated across all docs in the input directory before
-    classification, per pc-roster-proposal.md "Aggregation and candidate
-    classification."
+
+@dataclass
+class ExistingPC:
+    r"""One pre-seeded entry sourced from a `pcs/<slug>.md` file.
+
+    Per pc-roster-proposal.md "Sources of pre-populated roster entries,"
+    each existing PC file produces a roster line of shape
+    `<slug>  — existing — \`pcs/<slug>.md\`[  — alias: <names>]`.
+    The H1 is read for canonical-name preservation; aliases come from
+    the frontmatter.
     """
-
-    name: str
-    doc_count: int = 0
-    explicit_roster_hit: bool = False
-    party_pronoun_hit: bool = False
-    aliases: list[str] = field(default_factory=list)
-
-
-@dataclass
-class ClassifiedCandidate:
-    """One candidate after classification — what gets rendered to the staged file."""
 
     slug: str
-    canonical_name: str
-    doc_count: int
-    classification: str  # "Likely PC" or "Possible NPC"
+    canonical_name: str = ""
     aliases: list[str] = field(default_factory=list)
-    annotation_detail: str = ""  # e.g., "session logs 1, 3, 5, 7, 9"
-    extra_label: str = ""  # e.g., "(one-off mention)" or "alias"
 
 
-def classify_candidates(
-    signals: list[CandidateSignals],
-) -> list[ClassifiedCandidate]:
-    """Aggregate skim signals and classify per pc-roster-proposal.md.
+def enumerate_existing_pcs(campaign_root: Path) -> list[ExistingPC]:
+    """List every `pcs/<slug>.md` file in the campaign repo.
 
-    Classification rule (verbatim from the reference):
-      - "Likely PC" — appears in multiple docs as an actor, named under
-        an explicit roster heading, or named in proximity to "the party"
-        / "the PCs" patterns.
-      - "Possible NPC" — appears once, in a one-off mention, or in a
-        pattern that reads more like NPC framing than PC framing. The
-        candidate is still surfaced; the label tells the GM where the
-        agent leaned.
+    Returns one `ExistingPC` per file, with the slug derived from the
+    filename (stem), the canonical name read from the file's H1, and
+    `aliases:` parsed from frontmatter (`[]` if absent). The list is
+    sorted by slug for deterministic rendering.
+
+    If `pcs/` doesn't exist, returns []. This is the "no existing PCs"
+    case; the staged file renders an empty-state body in that section.
     """
-    classified: list[ClassifiedCandidate] = []
-    for sig in signals:
-        if (
-            sig.explicit_roster_hit
-            or sig.doc_count >= 2
-            or sig.party_pronoun_hit
-        ):
-            label = "Likely PC"
-        else:
-            label = "Possible NPC"
-        classified.append(
-            ClassifiedCandidate(
-                slug=slugify(sig.name),
-                canonical_name=sig.name,
-                doc_count=sig.doc_count,
-                classification=label,
-                aliases=list(sig.aliases),
-            )
+    pcs_dir = campaign_root / "pcs"
+    if not pcs_dir.is_dir():
+        return []
+    results: list[ExistingPC] = []
+    for path in sorted(pcs_dir.glob("*.md")):
+        slug = path.stem
+        text = path.read_text(encoding="utf-8")
+        canonical = _read_h1(text) or slug
+        aliases = _read_frontmatter_aliases(text)
+        results.append(
+            ExistingPC(slug=slug, canonical_name=canonical, aliases=aliases)
         )
-    return classified
+    return results
+
+
+def _read_h1(text: str) -> str:
+    """Return the first `# <text>` line after any frontmatter, or empty."""
+    lines = text.splitlines()
+    i = 0
+    if lines and lines[0].strip() == "---":
+        # Skip frontmatter.
+        i = 1
+        while i < len(lines) and lines[i].strip() != "---":
+            i += 1
+        i += 1  # Past the closing ---.
+    for line in lines[i:]:
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            return stripped[2:].strip()
+    return ""
+
+
+def _read_frontmatter_aliases(text: str) -> list[str]:
+    """Return the `aliases:` list from frontmatter, or [] if absent."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return []
+    fm_lines: list[str] = []
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        fm_lines.append(line)
+    try:
+        data = yaml.safe_load("\n".join(fm_lines)) or {}
+    except yaml.YAMLError:
+        return []
+    aliases = data.get("aliases") or []
+    if not isinstance(aliases, list):
+        return []
+    return [str(a) for a in aliases]
 
 
 # ---------------------------------------------------------------------------
@@ -164,232 +188,213 @@ def classify_candidates(
 
 SURVEY_PCS_HEADER = """# Survey: proposed PC roster
 
-Edit this list — confirm, rename, remove, or add. Names not in this list will
-be treated as NPC candidates in Phase 3 (with a safety-net ASK at per-doc
-review for any unknown named character). Empty the list if you have no PCs to
-add yet — you can add them later by re-running `/ingest` against a PC-roster
-doc or by hand-editing `pcs/`.
+Edit this list — confirm, rename, remove, or add. Existing PCs are pre-seeded
+from `pcs/`. Add new PCs by typing them into the "Add other PCs here" zone
+below. Empty the entire roster if you have no PCs to confirm yet — you can
+add them later by hand-editing `pcs/` or by running `/ingest` against a
+PC-roster doc.
 
-To add a PC: add a new line with the slug. Optional one-line description
-after a tab or two spaces becomes the stub file's body. Nicknames go in
-`— alias: <name>` suffixes (multiple aliases comma-separated).
+To add a PC: type a new line in the "Add other PCs here" zone with the slug
+(or a free-form name; the agent slugifies on continue). Optional one-line
+description after a tab or two spaces becomes the stub file's body.
+Nicknames go in `— alias: <name>` suffixes (multiple aliases
+comma-separated).
 
 """
 
 
-SURVEY_PCS_EMPTY_BODY = (
-    "(No PC candidates surfaced from the skim. Add PC slugs here as needed — one\n"
-    "per line, optional `— alias: <nickname>` suffix — or leave empty and add PCs\n"
-    "later by hand-editing `pcs/` or running `/ingest` against a PC-roster doc.)\n"
+# Load-bearing section headings — the parser uses these to classify
+# lines. The reference's "Staged file format" section pins them
+# verbatim.
+EXISTING_PCS_HEADING = "## Existing PCs"
+AUTO_ADDED_HEADING = "## Auto-added from PC source: docs"
+GM_ADDS_HEADING = "## Add other PCs here"
+
+EXISTING_PCS_EMPTY_BODY = "(No existing PCs in `pcs/`.)"
+AUTO_ADDED_PLACEHOLDER_BODY = (
+    "(none yet — populated by H2 from docs the GM classifies as "
+    "`PC source: <slug>`.)"
+)
+GM_ADDS_INSTRUCTIONAL_BODY = (
+    "(Type new PC entries below this line, one per line. Optional one-line "
+    "body after tab/double-space. Optional `— alias: <name>` suffix.)"
 )
 
 
-def render_survey_pcs_md(candidates: list[ClassifiedCandidate]) -> str:
+def render_survey_pcs_md(existing: list[ExistingPC]) -> str:
     """Render `.ttrpg-staging/survey-pcs.md` per pc-roster-proposal.md.
 
-    The header is fixed prose; each candidate is one line with the slug,
-    a frequency annotation, classification, and any `— alias:` suffix.
-    Empty rosters render the empty-state body instead of the candidate
-    block.
+    Three labeled sections:
+      - `## Existing PCs` — one line per pre-seeded PC (slug + existing
+        marker + optional alias suffix), or the empty-state body when
+        `pcs/` is empty or absent.
+      - `## Auto-added from PC source: docs` — slice-H1 placeholder
+        (always renders the parenthetical empty-state body).
+      - `## Add other PCs here` — instructional empty-state body; the
+        GM types entries below it before saying continue.
+
+    The three section headings are load-bearing; the parser keys off
+    them when walking the file.
     """
-    if not candidates:
-        return SURVEY_PCS_HEADER.rstrip() + "\n\n" + SURVEY_PCS_EMPTY_BODY
-    lines: list[str] = []
-    for c in candidates:
-        # Frequency annotation: "appears in N docs" with an optional
-        # detail (e.g., "session logs 1, 3, 5") if the agent captured one.
-        if c.doc_count == 1:
-            freq = "appears in 1 doc"
-        else:
-            freq = f"appears in {c.doc_count} docs"
-        if c.annotation_detail:
-            freq = f"{freq} ({c.annotation_detail})"
-        # Classification suffix.
-        cls = c.classification
-        if c.extra_label:
-            cls = f"{cls} ({c.extra_label})"
-        line = f"{c.slug}         — {freq}. {cls}."
-        if c.aliases:
-            line += f" — alias: {', '.join(c.aliases)}"
-        lines.append(line)
-    return SURVEY_PCS_HEADER + "\n".join(lines) + "\n"
+    parts = [SURVEY_PCS_HEADER, EXISTING_PCS_HEADING, ""]
+    if existing:
+        for pc in existing:
+            line = f"{pc.slug}         — existing — `pcs/{pc.slug}.md`"
+            if pc.aliases:
+                line += f" — alias: {', '.join(pc.aliases)}"
+            parts.append(line)
+    else:
+        parts.append(EXISTING_PCS_EMPTY_BODY)
+    parts.append("")
+    parts.append(AUTO_ADDED_HEADING)
+    parts.append("")
+    parts.append(AUTO_ADDED_PLACEHOLDER_BODY)
+    parts.append("")
+    parts.append(GM_ADDS_HEADING)
+    parts.append("")
+    parts.append(GM_ADDS_INSTRUCTIONAL_BODY)
+    parts.append("")
+    return "\n".join(parts)
 
 
 @dataclass
 class ParsedRosterEntry:
     """A surviving PC entry after the GM's review.
 
-    Per pc-roster-proposal.md "Parsing the GM-edited roster," each
-    non-comment, non-header line yields one entry with the slug, an
-    optional one-line body, and aliases parsed from any `— alias:` suffix.
+    `source` distinguishes pre-seeded entries (which do not re-stage)
+    from GM-typed adds (which stage a new stub and promote to
+    `pcs/<slug>.md`). H2 will add a third source value when the
+    `PC source:` mechanism lands.
     """
 
     slug: str
     body: str = ""
     aliases: list[str] = field(default_factory=list)
+    source: str = "gm_typed"  # "existing" | "gm_typed" | (future: "pc_source")
 
 
-# Lines starting with `#` are headers/comments per the staged-file
-# convention. The empty-state line starts with `(No PC candidates ...`
-# and must also be ignored on parse.
 _HEADER_PREFIX = "#"
-_EMPTY_STATE_PREFIX = "(No PC candidates"
-# A line that contains "appears in" is one the agent rendered — the
-# "frequency annotation" prefix marks an agent-authored entry, where
-# anything after a dash-separated annotation is metadata, not body.
-_FREQ_ANNOTATION_MARKER = re.compile(r"\s+—\s+appears in\s+\d+\s+doc")
-# `— alias:` suffix can carry one or more comma-separated aliases.
+# Suffix patterns the parser uses.
+_EXISTING_MARKER_RE = re.compile(
+    r"\s+—\s+existing\s+—\s+`pcs/[^`]+`", flags=re.IGNORECASE
+)
 _ALIAS_SUFFIX = re.compile(r"—\s*alias:\s*(.+?)\s*$", re.IGNORECASE)
 
 
 def parse_survey_pcs_md(content: str) -> list[ParsedRosterEntry]:
     """Parse the GM-edited `.ttrpg-staging/survey-pcs.md` back to entries.
 
-    The staged file has a fixed structure: an `# H1` header line, then
-    fixed instructional contract prose, then a blank line, then the
-    entry block (one entry per line) or the empty-state body line.
+    Walk the file section by section. Each `## ` heading switches the
+    current section; lines within a section are interpreted per that
+    section's rules.
 
-    The parser strips the known header prefix (everything up to and
-    including the final blank line that follows the contract prose),
-    then walks the remaining body line by line. Each non-empty
-    non-empty-state line is an entry; parse slug + body + aliases per
-    the reference.
-
-    Returns [] when the roster is empty (no entries after the header).
+    Returns surviving entries in document order: pre-seeded existing
+    PCs first (source="existing"), then GM-typed adds from the
+    "Add other PCs here" zone (source="gm_typed"). The
+    "Auto-added from PC source: docs" section is parsed the same way
+    as "Add other PCs here" (per the reference: "the parser logic for
+    both sections is the same"), so when H2 populates it the entries
+    flow through. In slice H1 the section is always empty.
     """
-    body = _strip_header_prefix(content)
-
     entries: list[ParsedRosterEntry] = []
-    in_empty_state = False
-    for raw in body.splitlines():
+    current_section: str | None = None
+
+    for raw in content.splitlines():
         stripped = raw.strip()
         if not stripped:
-            # A blank line ends the empty-state block; subsequent lines
-            # (if any) are GM-added entries.
-            in_empty_state = False
             continue
-        if in_empty_state:
-            # Inside the multi-line empty-state parenthetical; skip.
+
+        # Section heading?
+        if stripped.startswith("## "):
+            current_section = stripped
             continue
+        # H1 / other header → not a section heading we recognize.
         if stripped.startswith(_HEADER_PREFIX):
-            # Defensive: stray header line in the body shouldn't happen.
-            continue
-        if stripped.startswith(_EMPTY_STATE_PREFIX):
-            # Empty-state body line; skip this and the rest of the
-            # parenthetical block until a blank line.
-            in_empty_state = True
+            current_section = None
             continue
 
-        line_to_parse = stripped
+        # Anything before any section heading is contract prose; skip.
+        if current_section is None:
+            continue
 
-        # Extract aliases from the `— alias: ...` suffix if present.
-        aliases: list[str] = []
-        alias_match = _ALIAS_SUFFIX.search(line_to_parse)
-        if alias_match:
-            alias_str = alias_match.group(1)
-            aliases = [a.strip() for a in alias_str.split(",") if a.strip()]
-            # Strip the alias suffix off the line for further parsing.
-            line_to_parse = line_to_parse[: alias_match.start()].rstrip(" —")
+        # Empty-state / instructional parentheticals are not entries.
+        if stripped.startswith("(") and stripped.endswith(")"):
+            continue
 
-        # Strip the frequency/classification annotation if the agent
-        # rendered one. The annotation begins at " — appears in N docs"
-        # and runs to the end of the line.
-        freq_match = _FREQ_ANNOTATION_MARKER.search(line_to_parse)
-        if freq_match:
-            line_before_annotation = line_to_parse[: freq_match.start()].rstrip()
+        if current_section == EXISTING_PCS_HEADING:
+            entry = _parse_existing_line(stripped)
+            if entry is not None:
+                entries.append(entry)
+        elif current_section in (AUTO_ADDED_HEADING, GM_ADDS_HEADING):
+            entry = _parse_gm_typed_line(stripped)
+            if entry is not None:
+                entries.append(entry)
         else:
-            line_before_annotation = line_to_parse
-
-        # The remaining content is "<slug>[<whitespace><optional body>]"
-        # or just "<slug or name>" (a bare GM addition that may be a
-        # plain name with spaces).
-        parts = re.split(r"[\t ]{2,}|\t", line_before_annotation, maxsplit=1)
-        slug_token = parts[0].strip()
-        body_text = parts[1].strip() if len(parts) > 1 else ""
-
-        # Slugify the slug token per the dedup-matching rule. A GM-typed
-        # plain name (e.g., "The Shadow") slugifies to "shadow"; an
-        # agent-rendered slug (e.g., "silas") slugifies to itself.
-        slug = slugify(slug_token)
-
-        if not slug:
-            # Defensive: the line had no slug content (shouldn't happen
-            # but skip rather than emit a bad entry).
+            # Unknown section heading — defensive skip.
             continue
 
-        entries.append(
-            ParsedRosterEntry(slug=slug, body=body_text, aliases=aliases)
-        )
     return entries
 
 
-def _strip_header_prefix(content: str) -> str:
-    """Return the entry block — everything after the contract prose.
+def _parse_existing_line(line: str) -> ParsedRosterEntry | None:
+    r"""Parse an `## Existing PCs` line.
 
-    The header is the fixed prose `SURVEY_PCS_HEADER` defined above. If
-    the file's content starts with that exact prefix (the agent wrote
-    it, the GM may have edited the entries below it but normally
-    doesn't touch the contract prose), strip it. If the prefix is not
-    an exact match (GM edited the contract prose, or the file is
-    malformed), fall back to a structural strip: drop the `# H1`, drop
-    any lines that look like contract prose (long lines containing
-    backticks, parentheses, or terminal punctuation), keep entry-shaped
-    lines.
+    Shape: `<slug>  — existing — \`pcs/<slug>.md\`[  — alias: <names>]`
+    The slug is the first whitespace-delimited token; the `existing —
+    \`pcs/...\`` marker is informational (the parser doesn't need it to
+    classify, since the section heading already did). Aliases come
+    from any `— alias:` suffix.
     """
-    if content.startswith(SURVEY_PCS_HEADER):
-        return content[len(SURVEY_PCS_HEADER):]
-
-    # Fallback: drop the `# H1` line and any prose paragraphs.
-    lines = content.splitlines(keepends=True)
-    body_start = 0
-    seen_blank_after_prose = False
-    saw_any_prose = False
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped:
-            if saw_any_prose:
-                # Mark the first blank after prose as the boundary.
-                seen_blank_after_prose = True
-                body_start = i + 1
-            else:
-                body_start = i + 1
-            continue
-        if stripped.startswith(_HEADER_PREFIX):
-            body_start = i + 1
-            continue
-        if _is_contract_prose_line(stripped):
-            saw_any_prose = True
-            seen_blank_after_prose = False
-            body_start = i + 1
-            continue
-        # First non-prose, non-header, non-blank line: this is the start
-        # of the entry block.
-        break
-    return "".join(lines[body_start:])
+    # Pull off any trailing `— alias: ...` suffix first.
+    aliases: list[str] = []
+    alias_match = _ALIAS_SUFFIX.search(line)
+    if alias_match:
+        alias_str = alias_match.group(1)
+        aliases = [a.strip() for a in alias_str.split(",") if a.strip()]
+        line = line[: alias_match.start()].rstrip(" —")
+    # Strip the `— existing — \`pcs/...\`` marker if present.
+    line = _EXISTING_MARKER_RE.sub("", line).strip()
+    # First whitespace-delimited token is the slug.
+    parts = line.split(None, 1)
+    if not parts:
+        return None
+    slug = slugify(parts[0])
+    if not slug:
+        return None
+    return ParsedRosterEntry(
+        slug=slug, body="", aliases=aliases, source="existing"
+    )
 
 
-def _is_contract_prose_line(line: str) -> bool:
-    """Heuristic: a contract prose line wraps English text.
+def _parse_gm_typed_line(line: str) -> ParsedRosterEntry | None:
+    """Parse a GM-typed line from the `## Add other PCs here` zone.
 
-    The reference's header contains backticks, parentheses, English
-    sentences. Entry lines don't.
+    The GM may type:
+      - a bare slug (`marisa`)
+      - a free-form name (`The Shadow` → slugifies to `shadow`)
+      - a slug with a one-line body separated by tab/double-space
+        (`marisa  Marisa Stoneforge, dwarven smith`)
+      - any of the above with a trailing `— alias: <name>` suffix
     """
-    # Backticks and parentheses appear only in contract prose, never in
-    # an entry line.
-    if "`" in line or "(" in line or ")" in line:
-        return True
-    # An entry line either contains the " — appears in N doc" annotation
-    # or is a short bare slug/name. Long prose lines (more than ~6
-    # tokens with no em-dash slug-prefix) are contract prose.
-    if "—" in line:
-        # If it's the agent-rendered entry shape, the first token is a
-        # slug. Otherwise it's contract prose using em-dash punctuation.
-        first = line.split()[0]
-        return not bool(re.fullmatch(r"[a-z0-9][a-z0-9\-]*", first))
-    tokens = line.split()
-    if len(tokens) > 6:
-        return True
-    return False
+    aliases: list[str] = []
+    alias_match = _ALIAS_SUFFIX.search(line)
+    if alias_match:
+        alias_str = alias_match.group(1)
+        aliases = [a.strip() for a in alias_str.split(",") if a.strip()]
+        line = line[: alias_match.start()].rstrip(" —")
+
+    # Split on tab or two-or-more spaces. The leading token is the
+    # slug-or-name; anything after is the body.
+    parts = re.split(r"[\t ]{2,}|\t", line, maxsplit=1)
+    slug_token = parts[0].strip()
+    body_text = parts[1].strip() if len(parts) > 1 else ""
+
+    slug = slugify(slug_token)
+    if not slug:
+        return None
+    return ParsedRosterEntry(
+        slug=slug, body=body_text, aliases=aliases, source="gm_typed"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -399,10 +404,18 @@ def _is_contract_prose_line(line: str) -> bool:
 
 @dataclass
 class StubPromotionResult:
-    """What happened during staging + promotion."""
+    """What happened during staging + promotion.
 
-    promoted: list[str] = field(default_factory=list)  # final paths
-    collisions: list[str] = field(default_factory=list)  # blocked slugs
+    `promoted` holds the final paths of newly-promoted stubs.
+    `collisions` holds slugs blocked by an existing `pcs/<slug>.md`.
+    `skipped_existing` holds the slugs of pre-seeded entries that
+    flowed through to the in-memory roster without staging anything
+    (the existing file is left untouched).
+    """
+
+    promoted: list[str] = field(default_factory=list)
+    collisions: list[str] = field(default_factory=list)
+    skipped_existing: list[str] = field(default_factory=list)
 
 
 def render_pc_stub(entry: ParsedRosterEntry) -> str:
@@ -412,20 +425,18 @@ def render_pc_stub(entry: ParsedRosterEntry) -> str:
       kind: pc
       aliases: [...]   (omitted entirely if none)
 
-    Body: H1 (canonical-name form of the slug, or GM-supplied name) plus
-    optional one-line description body if the GM enriched the annotation.
+    Body: H1 (canonical-name form of the slug, or GM-supplied name
+    parsed from the body) plus optional one-line description if the
+    GM enriched the line.
     """
     fm_lines = ["---", "kind: pc"]
     if entry.aliases:
-        # Inline list shape matches the example in the reference.
         fm_lines.append(f"aliases: [{', '.join(entry.aliases)}]")
     fm_lines.append("---")
     fm = "\n".join(fm_lines)
 
     # Canonical name from the slug: title-case each hyphen-separated
-    # token. (`silas` → `Silas`, `the-shadow` → `The Shadow`.) This is
-    # what the reference calls "the prose-readable form of the slug" for
-    # the default case where the GM didn't supply an explicit canonical.
+    # token. (`silas` → `Silas`, `the-shadow` → `The Shadow`.)
     h1 = " ".join(t.capitalize() for t in entry.slug.split("-"))
 
     body = ""
@@ -440,35 +451,47 @@ def stage_and_promote_stubs(
 ) -> StubPromotionResult:
     """Stage stubs at `.ttrpg-staging/pcs/<slug>.md` then promote.
 
-    Per pc-roster-proposal.md "Collision check before promotion":
-      - Stage every stub before promoting any.
-      - If any slug collides with an existing `pcs/<slug>.md`, STOP and
-        record the collision. Don't silently overwrite.
-      - On clean staging, promote each stub to `pcs/<slug>.md`, delete
-        the staged copy, and remove `.ttrpg-staging/pcs/` if it's empty.
+    Per pc-roster-proposal.md "Stub staging and promotion to
+    `pcs/<slug>.md`":
+      - Pre-seeded entries (source="existing") do **not** re-stage and
+        do **not** overwrite. They flow into the in-memory roster only.
+      - New entries (source="gm_typed" or, in H2, "pc_source") stage at
+        `.ttrpg-staging/pcs/<slug>.md`.
+      - If any new entry's slug collides with an existing
+        `pcs/<slug>.md`, STOP and record the collision. Don't silently
+        overwrite a GM-authored PC file.
+      - On clean staging, promote each new stub to `pcs/<slug>.md`,
+        delete the staged copy, and remove `.ttrpg-staging/pcs/` if
+        it's empty.
 
-    If the roster is empty, this is a no-op — no stubs to write, no
-    directories to create.
+    Empty roster (no entries at all) → no-op.
     """
     result = StubPromotionResult()
     if not entries:
         return result
 
+    # Partition entries by source. Existing entries skip staging.
+    new_entries = [e for e in entries if e.source != "existing"]
+    for entry in entries:
+        if entry.source == "existing":
+            result.skipped_existing.append(entry.slug)
+
+    if not new_entries:
+        return result
+
     staging_dir = campaign_root / ".ttrpg-staging" / "pcs"
     pcs_dir = campaign_root / "pcs"
 
-    # Stage every stub first.
+    # Stage every new stub first.
     staging_dir.mkdir(parents=True, exist_ok=True)
     staged_paths: list[Path] = []
-    for entry in entries:
+    for entry in new_entries:
         staged_path = staging_dir / f"{entry.slug}.md"
         staged_path.write_text(render_pc_stub(entry), encoding="utf-8")
         staged_paths.append(staged_path)
 
-    # Collision check: any slug whose live `pcs/<slug>.md` already
-    # exists blocks promotion. STOP — leave staged stubs in place so the
-    # GM can inspect them.
-    for entry in entries:
+    # Collision check.
+    for entry in new_entries:
         live_path = pcs_dir / f"{entry.slug}.md"
         if live_path.exists():
             result.collisions.append(entry.slug)
@@ -476,21 +499,19 @@ def stage_and_promote_stubs(
     if result.collisions:
         return result
 
-    # Promote each staged stub to `pcs/<slug>.md`, deleting the staged
-    # copy after each move.
+    # Promote.
     pcs_dir.mkdir(parents=True, exist_ok=True)
     for staged_path in staged_paths:
         live_path = pcs_dir / staged_path.name
-        live_path.write_text(staged_path.read_text(encoding="utf-8"), encoding="utf-8")
+        live_path.write_text(
+            staged_path.read_text(encoding="utf-8"), encoding="utf-8"
+        )
         staged_path.unlink()
         result.promoted.append(str(live_path.relative_to(campaign_root)))
 
-    # Remove `.ttrpg-staging/pcs/` if it's now empty.
     try:
         staging_dir.rmdir()
     except OSError:
-        # Not empty — leave it alone (the staging-pattern reference says
-        # other staging content may coexist).
         pass
 
     return result
@@ -499,6 +520,29 @@ def stage_and_promote_stubs(
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+
+def _write_pc_file(
+    campaign_root: Path,
+    slug: str,
+    canonical: str | None = None,
+    aliases: list[str] | None = None,
+    body: str = "",
+) -> Path:
+    """Helper to write a `pcs/<slug>.md` for the enumeration tests."""
+    pcs_dir = campaign_root / "pcs"
+    pcs_dir.mkdir(parents=True, exist_ok=True)
+    fm_lines = ["---", "kind: pc"]
+    if aliases:
+        fm_lines.append(f"aliases: [{', '.join(aliases)}]")
+    fm_lines.append("---")
+    h1 = canonical or slug.capitalize()
+    text = "\n".join(fm_lines) + f"\n\n# {h1}\n"
+    if body:
+        text += f"\n{body}\n"
+    path = pcs_dir / f"{slug}.md"
+    path.write_text(text, encoding="utf-8")
+    return path
 
 
 class TestSlugify:
@@ -514,171 +558,284 @@ class TestSlugify:
         assert slugify("Café  du   Monde!") == "cafe-du-monde"
 
 
-class TestClassifyCandidates:
-    """Aggregation and Likely-PC / Possible-NPC classification."""
+class TestEnumerateExistingPCs:
+    """The pre-seeding source for the refined mechanism."""
 
-    def test_multi_doc_actor_is_likely_pc(self) -> None:
-        sig = CandidateSignals(name="Silas", doc_count=5)
-        [c] = classify_candidates([sig])
-        assert c.classification == "Likely PC"
-        assert c.slug == "silas"
-        assert c.canonical_name == "Silas"
+    def test_empty_when_pcs_dir_missing(self, tmp_path: Path) -> None:
+        assert enumerate_existing_pcs(tmp_path) == []
 
-    def test_explicit_roster_hit_promotes_to_likely_pc_regardless_of_frequency(
-        self,
+    def test_empty_when_pcs_dir_present_but_empty(self, tmp_path: Path) -> None:
+        (tmp_path / "pcs").mkdir()
+        assert enumerate_existing_pcs(tmp_path) == []
+
+    def test_lists_one_existing_pc(self, tmp_path: Path) -> None:
+        _write_pc_file(tmp_path, "silas", canonical="Silas")
+        [pc] = enumerate_existing_pcs(tmp_path)
+        assert pc.slug == "silas"
+        assert pc.canonical_name == "Silas"
+        assert pc.aliases == []
+
+    def test_lists_multiple_existing_pcs_sorted_by_slug(
+        self, tmp_path: Path
     ) -> None:
-        # Even a once-mentioned candidate is a Likely PC if the agent
-        # caught them under an explicit roster heading.
-        sig = CandidateSignals(
-            name="Marisa", doc_count=1, explicit_roster_hit=True
-        )
-        [c] = classify_candidates([sig])
-        assert c.classification == "Likely PC"
+        _write_pc_file(tmp_path, "silas")
+        _write_pc_file(tmp_path, "rae")
+        _write_pc_file(tmp_path, "betha")
+        pcs = enumerate_existing_pcs(tmp_path)
+        assert [p.slug for p in pcs] == ["betha", "rae", "silas"]
 
-    def test_party_pronoun_proximity_is_likely_pc(self) -> None:
-        # "the party — Marisa entered..." even on a single doc.
-        sig = CandidateSignals(
-            name="Marisa", doc_count=1, party_pronoun_hit=True
+    def test_reads_aliases_from_frontmatter(self, tmp_path: Path) -> None:
+        _write_pc_file(
+            tmp_path, "helerel", canonical="Helerel", aliases=["Helly"]
         )
-        [c] = classify_candidates([sig])
-        assert c.classification == "Likely PC"
-
-    def test_single_doc_one_off_is_possible_npc(self) -> None:
-        sig = CandidateSignals(name="Maren", doc_count=1)
-        [c] = classify_candidates([sig])
-        assert c.classification == "Possible NPC"
-
-    def test_aliases_carry_through(self) -> None:
-        sig = CandidateSignals(
-            name="Helerel", doc_count=3, aliases=["Helly"]
-        )
-        [c] = classify_candidates([sig])
-        assert c.aliases == ["Helly"]
+        [pc] = enumerate_existing_pcs(tmp_path)
+        assert pc.aliases == ["Helly"]
 
 
 class TestRenderSurveyPcsMd:
-    """The `.ttrpg-staging/survey-pcs.md` shape."""
+    """The `.ttrpg-staging/survey-pcs.md` shape under the refined mechanism."""
 
     def test_header_is_present(self) -> None:
         rendered = render_survey_pcs_md([])
         assert rendered.startswith("# Survey: proposed PC roster")
 
-    def test_empty_roster_renders_empty_state_body(self) -> None:
+    def test_three_section_headings_are_present(self) -> None:
         rendered = render_survey_pcs_md([])
-        assert "(No PC candidates surfaced from the skim." in rendered
+        assert EXISTING_PCS_HEADING in rendered
+        assert AUTO_ADDED_HEADING in rendered
+        assert GM_ADDS_HEADING in rendered
 
-    def test_candidate_line_includes_slug_freq_and_classification(self) -> None:
-        candidates = [
-            ClassifiedCandidate(
-                slug="silas",
-                canonical_name="Silas",
-                doc_count=5,
-                classification="Likely PC",
-            )
+    def test_empty_existing_renders_empty_state_body(self) -> None:
+        rendered = render_survey_pcs_md([])
+        assert EXISTING_PCS_EMPTY_BODY in rendered
+
+    def test_existing_pcs_render_as_pre_seeded_lines(self) -> None:
+        existing = [
+            ExistingPC(slug="silas", canonical_name="Silas"),
+            ExistingPC(slug="rae", canonical_name="Rae"),
         ]
-        rendered = render_survey_pcs_md(candidates)
+        rendered = render_survey_pcs_md(existing)
+        # Each existing PC marked with "existing — `pcs/<slug>.md`".
         assert "silas" in rendered
-        assert "appears in 5 docs" in rendered
-        assert "Likely PC" in rendered
+        assert "existing — `pcs/silas.md`" in rendered
+        assert "existing — `pcs/rae.md`" in rendered
 
-    def test_alias_renders_as_em_dash_suffix(self) -> None:
-        candidates = [
-            ClassifiedCandidate(
+    def test_existing_pc_with_alias_renders_alias_suffix(self) -> None:
+        existing = [
+            ExistingPC(
                 slug="helerel",
                 canonical_name="Helerel",
-                doc_count=3,
-                classification="Likely PC",
                 aliases=["Helly"],
             )
         ]
-        rendered = render_survey_pcs_md(candidates)
+        rendered = render_survey_pcs_md(existing)
         assert "— alias: Helly" in rendered
 
-    def test_singular_doc_count_uses_singular_noun(self) -> None:
-        candidates = [
-            ClassifiedCandidate(
-                slug="maren",
-                canonical_name="Maren",
-                doc_count=1,
-                classification="Possible NPC",
-            )
-        ]
-        rendered = render_survey_pcs_md(candidates)
-        assert "appears in 1 doc" in rendered
+    def test_auto_added_section_is_placeholder(self) -> None:
+        # H1's contract: the section is reserved but empty until H2.
+        rendered = render_survey_pcs_md([])
+        assert AUTO_ADDED_PLACEHOLDER_BODY in rendered
+
+    def test_gm_adds_zone_has_instructional_body(self) -> None:
+        # The "Add other PCs here" zone is empty by default but
+        # signals the GM where to type.
+        rendered = render_survey_pcs_md([])
+        assert GM_ADDS_INSTRUCTIONAL_BODY in rendered
+
+
+class TestNoSkimBasedCandidateInference:
+    """Assert the negative: skim inference is no longer present.
+
+    Slice H1 explicitly drops the ADR-0018 skim-signal collection
+    (frequency-of-mention, explicit-roster-section scanning,
+    party-pronoun proximity, narrator-as-actor framing, "Likely PC" /
+    "Possible NPC" classification labels). These tests pin that those
+    mechanisms are absent from the reference and the staged file.
+    """
+
+    def test_no_classify_candidates_symbol_in_module(self) -> None:
+        # The ADR-0018 mechanism's central aggregator was
+        # `classify_candidates`. It's gone under ADR-0022.
+        import sys
+
+        mod = sys.modules[__name__]
+        assert not hasattr(mod, "classify_candidates"), (
+            "classify_candidates was the ADR-0018 skim-inference "
+            "aggregator. ADR-0022 drops it. If you're re-adding it, "
+            "you may be regressing the supersession."
+        )
+
+    def test_staged_file_does_not_carry_likely_pc_label(self) -> None:
+        # The "Likely PC" / "Possible NPC" classification labels were
+        # the user-visible surface of skim inference. They're gone.
+        rendered = render_survey_pcs_md(
+            [ExistingPC(slug="silas", canonical_name="Silas")]
+        )
+        assert "Likely PC" not in rendered
+        assert "Possible NPC" not in rendered
+
+    def test_staged_file_does_not_carry_frequency_annotations(self) -> None:
+        # The "appears in N docs" frequency annotation was the other
+        # user-visible surface of skim inference. Gone.
+        rendered = render_survey_pcs_md(
+            [ExistingPC(slug="silas", canonical_name="Silas")]
+        )
+        assert "appears in" not in rendered
+
+    def test_reference_prose_documents_no_skim_inference(
+        self, repo_root: Path
+    ) -> None:
+        # The reference's own prose must call out the drop explicitly,
+        # so a contributor reading the file sees the supersession
+        # rather than the v0.2 mechanism.
+        ref = repo_root / "references" / "pc-roster-proposal.md"
+        content = ref.read_text(encoding="utf-8")
+        # The reference must cite ADR-0022.
+        assert "0022-pc-roster-via-explicit-classification" in content, (
+            "references/pc-roster-proposal.md must cite ADR-0022 — "
+            "the supersession ADR. Without the citation, a contributor "
+            "reading the reference may not realize the v0.2 mechanism "
+            "was stepped back."
+        )
+        # The reference must NOT document the dropped heuristics as
+        # active mechanism. "Likely PC" and "Possible NPC" labels were
+        # ADR-0018's user-visible surface; they no longer appear.
+        assert "Likely PC" not in content, (
+            "references/pc-roster-proposal.md should not document "
+            "'Likely PC' classification — that was ADR-0018's "
+            "skim-inference mechanism, dropped under ADR-0022."
+        )
+        assert "Possible NPC" not in content, (
+            "references/pc-roster-proposal.md should not document "
+            "'Possible NPC' classification — that was ADR-0018's "
+            "skim-inference mechanism, dropped under ADR-0022."
+        )
 
 
 class TestParseSurveyPcsMd:
     """Round-trip the staged file back into surviving entries."""
 
-    def test_skips_header_and_empty_state(self) -> None:
-        empty = render_survey_pcs_md([])
-        assert parse_survey_pcs_md(empty) == []
+    def test_empty_roster_returns_no_entries(self) -> None:
+        rendered = render_survey_pcs_md([])
+        assert parse_survey_pcs_md(rendered) == []
 
-    def test_parses_agent_rendered_entry(self) -> None:
-        rendered = render_survey_pcs_md(
-            [
-                ClassifiedCandidate(
-                    slug="silas",
-                    canonical_name="Silas",
-                    doc_count=5,
-                    classification="Likely PC",
-                )
-            ]
-        )
-        [entry] = parse_survey_pcs_md(rendered)
-        assert entry.slug == "silas"
-        assert entry.aliases == []
+    def test_pre_seeded_entries_parse_as_existing_source(self) -> None:
+        existing = [
+            ExistingPC(slug="silas", canonical_name="Silas"),
+            ExistingPC(slug="rae", canonical_name="Rae"),
+        ]
+        rendered = render_survey_pcs_md(existing)
+        parsed = parse_survey_pcs_md(rendered)
+        assert [(e.slug, e.source) for e in parsed] == [
+            ("silas", "existing"),
+            ("rae", "existing"),
+        ]
 
-    def test_parses_alias_suffix(self) -> None:
-        rendered = render_survey_pcs_md(
-            [
-                ClassifiedCandidate(
-                    slug="helerel",
-                    canonical_name="Helerel",
-                    doc_count=3,
-                    classification="Likely PC",
-                    aliases=["Helly"],
-                )
-            ]
-        )
+    def test_pre_seeded_entry_with_alias_parses_alias(self) -> None:
+        existing = [
+            ExistingPC(
+                slug="helerel",
+                canonical_name="Helerel",
+                aliases=["Helly"],
+            )
+        ]
+        rendered = render_survey_pcs_md(existing)
         [entry] = parse_survey_pcs_md(rendered)
         assert entry.slug == "helerel"
         assert entry.aliases == ["Helly"]
+        assert entry.source == "existing"
 
-    def test_parses_multiple_comma_separated_aliases(self) -> None:
-        # Hand-crafted GM-edited line per the reference's "(multiple
-        # aliases comma-separated)" rule.
-        content = (
-            SURVEY_PCS_HEADER
-            + "rae — appears in 5 docs. Likely PC. — alias: Raelyn, Rae the Sharp\n"
+    def test_pre_seeded_entry_dropped_by_gm_does_not_appear(self) -> None:
+        # GM deleted the `silas` line from `## Existing PCs`. The
+        # parser surfaces only the surviving line.
+        existing = [
+            ExistingPC(slug="silas", canonical_name="Silas"),
+            ExistingPC(slug="rae", canonical_name="Rae"),
+        ]
+        rendered = render_survey_pcs_md(existing)
+        # Strip the silas line.
+        edited = "\n".join(
+            line for line in rendered.splitlines() if not line.startswith("silas")
         )
-        [entry] = parse_survey_pcs_md(content)
-        assert entry.slug == "rae"
-        assert entry.aliases == ["Raelyn", "Rae the Sharp"]
+        parsed = parse_survey_pcs_md(edited)
+        assert [e.slug for e in parsed] == ["rae"]
 
-    def test_parses_bare_gm_typed_slug_with_no_annotation(self) -> None:
-        # The GM hand-added a PC with just a slug, no annotation. The
-        # reference's GM-typed-adds rule: slugify and accept.
-        content = SURVEY_PCS_HEADER + "marisa\n"
-        [entry] = parse_survey_pcs_md(content)
+    def test_gm_typed_add_in_add_zone_parses_as_gm_typed(self) -> None:
+        # The reference's "GM-typed adds zone" — the GM appends entries
+        # below the instructional body line in the `## Add other PCs
+        # here` section.
+        rendered = render_survey_pcs_md([])
+        edited = rendered + "marisa\n"
+        [entry] = parse_survey_pcs_md(edited)
         assert entry.slug == "marisa"
+        assert entry.source == "gm_typed"
 
-    def test_slugifies_gm_typed_name_with_spaces(self) -> None:
-        # GM types "Marisa" or some other free-form name; the reference
-        # says "slugify the GM-supplied name per the dedup-matching rule
-        # before recording."
-        content = SURVEY_PCS_HEADER + "The Shadow\n"
-        [entry] = parse_survey_pcs_md(content)
+    def test_gm_typed_free_form_name_is_slugified(self) -> None:
+        # Per the dedup-matching rule: "The Shadow" → "shadow".
+        rendered = render_survey_pcs_md([])
+        edited = rendered + "The Shadow\n"
+        [entry] = parse_survey_pcs_md(edited)
         assert entry.slug == "shadow"
+        assert entry.source == "gm_typed"
 
-    def test_empty_roster_after_gm_deletion_returns_no_entries(self) -> None:
-        # GM emptied the roster — header survives, no entry lines.
-        content = SURVEY_PCS_HEADER + "\n"
-        assert parse_survey_pcs_md(content) == []
+    def test_gm_typed_with_body_parses_body(self) -> None:
+        rendered = render_survey_pcs_md([])
+        edited = rendered + "marisa\tdwarven smith, late addition\n"
+        [entry] = parse_survey_pcs_md(edited)
+        assert entry.slug == "marisa"
+        assert entry.body == "dwarven smith, late addition"
+
+    def test_gm_typed_with_alias_parses_alias(self) -> None:
+        rendered = render_survey_pcs_md([])
+        edited = rendered + "marisa — alias: Mari, Marisa Stoneforge\n"
+        [entry] = parse_survey_pcs_md(edited)
+        assert entry.slug == "marisa"
+        assert entry.aliases == ["Mari", "Marisa Stoneforge"]
+
+    def test_gm_adds_zone_preserved_across_staging_file_edits(
+        self,
+    ) -> None:
+        # Round-trip property: a rendered file with GM-typed adds in
+        # the zone parses back to the same set of entries. The zone is
+        # "preserved" in the sense that the section heading and the
+        # GM's lines below it survive parse-and-render.
+        existing = [ExistingPC(slug="silas", canonical_name="Silas")]
+        rendered = render_survey_pcs_md(existing)
+        edited = (
+            rendered
+            + "marisa\tlate addition\n"
+            + "the-shadow — alias: Veiled One\n"
+        )
+        parsed = parse_survey_pcs_md(edited)
+        assert [(e.slug, e.source) for e in parsed] == [
+            ("silas", "existing"),
+            ("marisa", "gm_typed"),
+            ("shadow", "gm_typed"),
+        ]
+
+    def test_pre_seeded_and_gm_typed_are_distinguishable(self) -> None:
+        # The source distinction is load-bearing: pre-seeded entries
+        # do not re-stage; GM-typed entries do.
+        existing = [ExistingPC(slug="silas", canonical_name="Silas")]
+        rendered = render_survey_pcs_md(existing)
+        edited = rendered + "marisa\n"
+        parsed = parse_survey_pcs_md(edited)
+        sources = {e.slug: e.source for e in parsed}
+        assert sources["silas"] == "existing"
+        assert sources["marisa"] == "gm_typed"
+
+    def test_auto_added_section_empty_in_h1(self) -> None:
+        # Slice H1 contract: the section is reserved but empty.
+        # Parsing must produce zero entries from this section.
+        existing = [ExistingPC(slug="silas", canonical_name="Silas")]
+        rendered = render_survey_pcs_md(existing)
+        parsed = parse_survey_pcs_md(rendered)
+        # Only the existing pre-seeded entry; no auto-added.
+        assert all(e.source != "pc_source" for e in parsed)
 
 
 class TestStageAndPromoteStubs:
-    """The Step 5a → 5b stub lifecycle."""
+    """The Step 5 stub lifecycle under the refined mechanism."""
 
     def test_empty_roster_is_a_no_op(self, tmp_path: Path) -> None:
         result = stage_and_promote_stubs([], tmp_path)
@@ -687,44 +844,92 @@ class TestStageAndPromoteStubs:
         assert not (tmp_path / ".ttrpg-staging").exists()
         assert not (tmp_path / "pcs").exists()
 
-    def test_promotes_stubs_when_no_collision(self, tmp_path: Path) -> None:
+    def test_pre_seeded_entries_do_not_restage(self, tmp_path: Path) -> None:
+        # The existing `pcs/silas.md` was pre-seeded; the staged
+        # roster surfaced it; the GM kept it. The promotion step must
+        # not touch the file on disk.
+        path = _write_pc_file(tmp_path, "silas", canonical="Silas")
+        original_content = path.read_text(encoding="utf-8")
+
         entries = [
-            ParsedRosterEntry(slug="silas"),
-            ParsedRosterEntry(slug="rae"),
+            ParsedRosterEntry(slug="silas", source="existing"),
+        ]
+        result = stage_and_promote_stubs(entries, tmp_path)
+
+        # Nothing promoted (no new stubs); existing surfaced as skipped.
+        assert result.promoted == []
+        assert result.collisions == []
+        assert "silas" in result.skipped_existing
+        # Existing file untouched.
+        assert path.read_text(encoding="utf-8") == original_content
+        # No staging directory left behind.
+        assert not (tmp_path / ".ttrpg-staging" / "pcs").exists()
+
+    def test_promotes_gm_typed_stubs_when_no_collision(
+        self, tmp_path: Path
+    ) -> None:
+        entries = [
+            ParsedRosterEntry(slug="marisa", source="gm_typed"),
+            ParsedRosterEntry(slug="rae", source="gm_typed"),
         ]
         result = stage_and_promote_stubs(entries, tmp_path)
         assert result.collisions == []
-        assert sorted(result.promoted) == ["pcs/rae.md", "pcs/silas.md"]
-        # Staged stubs deleted; staging dir gone if empty.
+        assert sorted(result.promoted) == ["pcs/marisa.md", "pcs/rae.md"]
         assert not (tmp_path / ".ttrpg-staging" / "pcs").exists()
-        # Live files present.
-        assert (tmp_path / "pcs" / "silas.md").is_file()
+        assert (tmp_path / "pcs" / "marisa.md").is_file()
         assert (tmp_path / "pcs" / "rae.md").is_file()
+
+    def test_mixed_existing_and_new_only_promotes_new(
+        self, tmp_path: Path
+    ) -> None:
+        # Existing PC pre-seeded; GM typed a new one. Only the new one
+        # stages and promotes; the existing file is untouched.
+        existing_path = _write_pc_file(
+            tmp_path, "silas", canonical="Silas", body="GM-authored."
+        )
+        original_existing = existing_path.read_text(encoding="utf-8")
+
+        entries = [
+            ParsedRosterEntry(slug="silas", source="existing"),
+            ParsedRosterEntry(slug="marisa", source="gm_typed"),
+        ]
+        result = stage_and_promote_stubs(entries, tmp_path)
+
+        assert result.promoted == ["pcs/marisa.md"]
+        assert result.skipped_existing == ["silas"]
+        assert result.collisions == []
+        # Existing PC body preserved verbatim.
+        assert existing_path.read_text(encoding="utf-8") == original_existing
+        # New stub written.
+        assert (tmp_path / "pcs" / "marisa.md").is_file()
 
     def test_stub_has_kind_pc_frontmatter(self, tmp_path: Path) -> None:
         stage_and_promote_stubs(
-            [ParsedRosterEntry(slug="silas")], tmp_path
+            [ParsedRosterEntry(slug="marisa", source="gm_typed")], tmp_path
         )
-        content = (tmp_path / "pcs" / "silas.md").read_text(encoding="utf-8")
-        # Frontmatter block.
+        content = (tmp_path / "pcs" / "marisa.md").read_text(encoding="utf-8")
         assert content.startswith("---\nkind: pc\n")
-        # H1 title-cased from the slug.
-        assert "# Silas" in content
+        assert "# Marisa" in content
 
     def test_stub_renders_aliases_when_present(self, tmp_path: Path) -> None:
         stage_and_promote_stubs(
-            [ParsedRosterEntry(slug="helerel", aliases=["Helly"])], tmp_path
+            [
+                ParsedRosterEntry(
+                    slug="helerel",
+                    aliases=["Helly"],
+                    source="gm_typed",
+                )
+            ],
+            tmp_path,
         )
         content = (tmp_path / "pcs" / "helerel.md").read_text(encoding="utf-8")
         assert "aliases: [Helly]" in content
 
     def test_stub_omits_aliases_key_when_none(self, tmp_path: Path) -> None:
-        # Per the reference: "If there are no aliases, omit the key
-        # entirely."
         stage_and_promote_stubs(
-            [ParsedRosterEntry(slug="silas")], tmp_path
+            [ParsedRosterEntry(slug="marisa", source="gm_typed")], tmp_path
         )
-        content = (tmp_path / "pcs" / "silas.md").read_text(encoding="utf-8")
+        content = (tmp_path / "pcs" / "marisa.md").read_text(encoding="utf-8")
         assert "aliases:" not in content
 
     def test_stub_body_includes_gm_one_line_description(
@@ -733,47 +938,48 @@ class TestStageAndPromoteStubs:
         stage_and_promote_stubs(
             [
                 ParsedRosterEntry(
-                    slug="silas",
-                    body="dwarven blacksmith turned reluctant adventurer",
+                    slug="marisa",
+                    body="dwarven smith, late addition",
+                    source="gm_typed",
                 )
             ],
             tmp_path,
         )
-        content = (tmp_path / "pcs" / "silas.md").read_text(encoding="utf-8")
-        assert "dwarven blacksmith turned reluctant adventurer" in content
+        content = (tmp_path / "pcs" / "marisa.md").read_text(encoding="utf-8")
+        assert "dwarven smith, late addition" in content
 
     def test_collision_with_existing_pcs_file_stops_promotion(
         self, tmp_path: Path
     ) -> None:
-        # Pre-existing PC file in the campaign repo. The reference says:
-        # "STOP and surface the collision."
-        pcs_dir = tmp_path / "pcs"
-        pcs_dir.mkdir()
-        existing = pcs_dir / "silas.md"
-        existing.write_text("---\nkind: pc\n---\n\n# Silas\n\nGM-authored.\n")
-        existing_content = existing.read_text(encoding="utf-8")
+        # GM typed a slug in the "Add other PCs here" zone that
+        # collides with an existing file. The collision check fires.
+        existing_path = _write_pc_file(
+            tmp_path, "silas", canonical="Silas", body="GM-authored."
+        )
+        original_existing = existing_path.read_text(encoding="utf-8")
 
         entries = [
-            ParsedRosterEntry(slug="silas"),
-            ParsedRosterEntry(slug="rae"),
+            ParsedRosterEntry(slug="silas", source="gm_typed"),
+            ParsedRosterEntry(slug="rae", source="gm_typed"),
         ]
         result = stage_and_promote_stubs(entries, tmp_path)
 
-        # Collision recorded; nothing promoted.
         assert "silas" in result.collisions
         assert result.promoted == []
         # Existing GM-authored file untouched.
-        assert existing.read_text(encoding="utf-8") == existing_content
+        assert existing_path.read_text(encoding="utf-8") == original_existing
         # `rae.md` was NOT promoted because the reference says "stage
-        # every stub before promoting any" — collision blocks the whole
-        # promotion. The staged stubs remain for GM inspection.
-        assert not (pcs_dir / "rae.md").exists()
-        assert (tmp_path / ".ttrpg-staging" / "pcs" / "silas.md").is_file()
+        # every stub before promoting any" — collision blocks the
+        # whole promotion. The staged stubs remain for GM inspection.
+        assert not (tmp_path / "pcs" / "rae.md").exists()
+        assert (
+            tmp_path / ".ttrpg-staging" / "pcs" / "silas.md"
+        ).is_file()
         assert (tmp_path / ".ttrpg-staging" / "pcs" / "rae.md").is_file()
 
 
 class TestReferenceFileExistsAndCitesADR:
-    """Spec-drift safety net: the reference itself must exist and cite ADR-0018."""
+    """Spec-drift safety net: the reference itself must exist and cite the ADRs."""
 
     def test_reference_file_exists(self, repo_root: Path) -> None:
         ref = repo_root / "references" / "pc-roster-proposal.md"
@@ -783,12 +989,59 @@ class TestReferenceFileExistsAndCitesADR:
             "in this test mirrors its prose. The file is missing."
         )
 
-    def test_reference_cites_adr_0018(self, repo_root: Path) -> None:
+    def test_reference_cites_adr_0022(self, repo_root: Path) -> None:
         ref = repo_root / "references" / "pc-roster-proposal.md"
         content = ref.read_text(encoding="utf-8")
+        assert "0022-pc-roster-via-explicit-classification" in content, (
+            "references/pc-roster-proposal.md must cite ADR-0022 — it is "
+            "the architectural decision the reference implements under v0.3."
+        )
+
+    def test_reference_still_cites_adr_0018_as_predecessor(
+        self, repo_root: Path
+    ) -> None:
+        ref = repo_root / "references" / "pc-roster-proposal.md"
+        content = ref.read_text(encoding="utf-8")
+        # ADR-0022's policy claims (Phase 2 deliverable status, dual-file
+        # batch, single-doc scope, etc.) are inherited from ADR-0018 by
+        # narrow supersession. The reference cites both so a reader
+        # tracing the lineage sees the full chain.
         assert "0018-pc-roster-as-survey-deliverable" in content, (
-            "references/pc-roster-proposal.md must cite ADR-0018 — it is "
-            "the architectural decision the reference implements."
+            "references/pc-roster-proposal.md must still cite ADR-0018 — "
+            "ADR-0022 narrowly supersedes its candidate-source layer; "
+            "the broader policy framing remains."
+        )
+
+    def test_adr_0022_exists(self, repo_root: Path) -> None:
+        adr = (
+            repo_root
+            / "docs"
+            / "adr"
+            / "0022-pc-roster-via-explicit-classification.md"
+        )
+        assert adr.is_file(), (
+            "ADR-0022 (PC roster via GM-explicit classification) is the "
+            "supersession of ADR-0018. It must exist and be cited from "
+            "the reference."
+        )
+
+    def test_adr_0018_has_superseded_status_line(
+        self, repo_root: Path
+    ) -> None:
+        adr = (
+            repo_root
+            / "docs"
+            / "adr"
+            / "0018-pc-roster-as-survey-deliverable.md"
+        )
+        content = adr.read_text(encoding="utf-8")
+        assert "superseded by" in content.lower(), (
+            "ADR-0018 must carry a `Status: superseded by ADR-0022` line "
+            "so contributors reading it see the supersession before the "
+            "v0.2 mechanism prose."
+        )
+        assert "0022" in content, (
+            "ADR-0018's supersession status must name ADR-0022 explicitly."
         )
 
     def test_ingest_skill_md_cites_reference(self, repo_root: Path) -> None:
@@ -796,5 +1049,5 @@ class TestReferenceFileExistsAndCitesADR:
         content = skill.read_text(encoding="utf-8")
         assert "references/pc-roster-proposal.md" in content, (
             "skills/ingest/SKILL.md must cite references/pc-roster-proposal.md "
-            "from Phase 2 Step 2.5 per slice B2 of the v0.3 modularization."
+            "per slice B2 of the v0.3 modularization."
         )
