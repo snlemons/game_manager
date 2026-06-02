@@ -629,13 +629,14 @@ Conventions:
 
 ### Response handling
 
-The agent classifies the GM's free-form answer into one of three Brief revision shapes, the same way Secret Push routes accept-shapes:
+The agent classifies the GM's free-form answer into one of four Brief revision shapes, the same way Secret Push routes accept-shapes:
 
 1. **Concrete forward-facing content.** The GM names a planned scene, an NPC reveal, an item drop, a piece of news. Two sub-cases:
    - **The content fits a known Brief section.** Route to that section. A planned Beat → add to "Beats to weave in" (with a `*(scope: GM focus)*` hint). A surprise NPC the party will meet → add to "NPCs the party may encounter" with a one-line stance note. A planned consequence the agent didn't surface → add to "Recent significant consequences." A new location → add to "Locations" (and apply the Step 4 sensory-detail write-back rule if the GM authored a sensory hook).
    - **The content is forward-planning the GM wants to remember but isn't section-bound.** Add a one-line nudge to the GM scratchpad: `- <GM's note, lightly tidied>.`
 2. **Direction for a section the agent already drafted.** The GM says "rewrite Opening Scene to start with the bell tolling" or "drop the goblin ambush — the party went the other way." Apply via Edit to the named section. For a drop, replace the bullet with `_None._` or remove it cleanly per the section's rendering rules.
-3. **"No, all covered" / "skip" / "nothing."** No revision. Loop exits to Step 4's approval ask (this is the last question by construction).
+3. **New-PC disclosure.** The GM names a PC joining this session who isn't already in `pcs/` — *"Maya's bringing Theron in tonight,"* *"new player tonight, her PC's Marisa Stoneforge,"* *"add a PC: Veshenna, elf ranger."* This is structurally distinct from a new-NPC disclosure (which is shape 1's "surprise NPC" path) because the agent's response is to **create the PC file**, not just add it to the Brief. See "New-PC disclosure handling" below for the full shape.
+4. **"No, all covered" / "skip" / "nothing."** No revision. Loop exits to Step 4's approval ask (this is the last question by construction).
 
 Per ADR-0015's no-re-prompting rule, a non-engagement reply (the GM addresses something else or moves on without answering) is treated as "all covered." The agent does not re-ping.
 
@@ -645,6 +646,29 @@ Per ADR-0015's no-re-prompting rule, a non-engagement reply (the GM addresses so
 - Name-the-priest → scratchpad nudge.
 
 Apply all revisions in one Edit batch (one or several Edit calls in sequence; the loop turn doesn't return to chat between them).
+
+### New-PC disclosure handling
+
+GM Focus Check is the prep-time surface for *"a PC is joining this session who isn't on the roster yet."* The phrasings GMs use vary, but the recognition cues are stable:
+
+- **Bringing-a-PC phrasings.** *"Maya's bringing Theron in tonight."* *"New player tonight, his PC's Korben."* *"Adding Sera to the party."*
+- **Explicit PC-introduce phrasings.** *"New PC: Veshenna, elf ranger."* *"Add a PC: Tarn, dwarf fighter."*
+- **PC-rejoin phrasings** when the named character isn't yet in `pcs/`. *"Lila's back tonight"* with no `pcs/lila.md` — read as new-to-the-roster regardless of whether she existed in fiction earlier; the GM can correct in Step 4 if Lila already had a different slug.
+
+Borderline phrasings the agent should **not** silently route to new-PC creation:
+
+- *"Maya's going to meet the party tonight."* — Maya could be a player whose PC needs naming, but the phrasing reads ambiguously. Treat as an NPC under shape 1 (surface as a question if uncertain — "Is Maya a new PC or an NPC the party meets?" — rather than guessing).
+- *"Theron's bringing a friend."* — when *Theron* is already in `pcs/`, the "friend" is unnamed and unscoped; defer to shape 1's NPC surfacing or to wrap-time per-doc discrimination.
+
+When the recognition fires:
+
+1. **Resolve the PC's canonical name and slug.** Use the name the GM stated; slugify per `dedup-matching.md`'s normalization rule. If the GM only stated a nickname (*"bringing Mari tonight"*) without a canonical name, ask one clarifying follow-up — *"Is `Mari` the canonical name, or a nickname for a longer name?"* — and use the answer. Do not invent a longer name.
+2. **Collision check against `pcs/<slug>.md`.** If the slug already exists in `pcs/`, ask the GM whether they meant the existing PC (in which case no new file is created; only the Brief revisions in step 4 apply) or a different one (in which case ask for a disambiguated slug). Do not silently overwrite.
+3. **Stage and promote a `pcs/<slug>.md` stub** per the canonical PC stub shape (`references/pc-roster-proposal.md` "Stub staging and promotion" — `kind: pc` frontmatter, optional `aliases:` if the GM gave a nickname, H1 from the canonical name, optional one-line body if the GM provided a role one-liner like *"elf ranger"*). The stub stages at `.ttrpg-staging/pcs/<slug>.md` and promotes immediately on the GM's confirm of the disclosure (this turn — not gated by the Brief's Step 4 approval, because the PC file is a roster fact the campaign owns independently of the Brief's content). If the Brief is later cancelled at Step 4, the `pcs/` file persists — the GM established the roster fact in chat regardless of whether the Brief landed.
+4. **Add the new PC to relevant Brief sections.** The active-PCs surface in the Brief varies by section: in "Last time" if the prior-session recap could plausibly reference them, in "Open threads" if any open Thread's `linked_pcs:` should be re-evaluated against the new roster (no automatic re-evaluation, but a scratchpad nudge to review is appropriate). The minimum revision is a scratchpad nudge: `- New PC this session: [[pcs/<slug>]] ([Canonical Name])<, brought by [player name]>.` plus any section-specific surfacings the GM names (*"and Theron should appear in the Locations section as already on his way to the temple"* → revise the Locations section).
+5. **Reference the new PC in chat.** *"Created `pcs/<slug>.md` (kind: pc) and added a scratchpad note. Theron is now in the roster — any other Brief sections you want to surface him in?"* This invites the GM to expand the Brief further without forcing it.
+
+The PC file's promotion is the load-bearing part. Brief revisions can be edited or undone by the GM in the staging file; the `pcs/<slug>.md` file is what makes Theron visible to subsequent `/wrap-session` and `/prep-session` runs as a confirmed PC.
 
 ### Worked example
 
@@ -670,6 +694,43 @@ Agent processes:
 Both via Edit against `.ttrpg-staging/brief-draft.md`. The agent does **not** also create `npcs/tessa.md` — that's a Reference-note CREATE the GM authors after the session if Tessa lands as a recurring NPC. The Brief is forward-planning prep; the Reference-note tree grows from `/wrap-session` notes.
 
 Loop exits to Step 4's approval ask.
+
+### Worked example: new-PC disclosure
+
+Campaign state: this is the last question of the loop; no prior questions accepted. `pcs/` contains `silas.md`, `rae.md`, `betha.md`. The Brief's active-PCs surfacing already references those three.
+
+Agent fires:
+
+> *"Anything you're planning this session that's not in the draft? (Side conversations, surprise NPC, a scene you've been waiting to land, anything from your head that isn't on the page.)"*
+
+GM replies: *"Maya's bringing Theron in tonight — half-orc warlock, his patron's the Reborn Flame Cult so this should get interesting."*
+
+Agent recognizes the new-PC disclosure (bringing-a-PC phrasing; *Theron* doesn't match any `pcs/<slug>.md`), processes:
+
+1. Canonical name: *Theron*. Slug: `theron`. No collision in `pcs/`.
+2. Stages `.ttrpg-staging/pcs/theron.md` per the PC stub shape:
+   ```yaml
+   ---
+   kind: pc
+   ---
+
+   # Theron
+
+   Half-orc warlock; patron is the Reborn Flame Cult.
+   ```
+   Promotes immediately to `pcs/theron.md`.
+3. Adds to the GM scratchpad via Edit on `.ttrpg-staging/brief-draft.md`:
+   ```markdown
+   - New PC this session: [[pcs/theron]] (Theron), brought by Maya. Patron tie to the Reborn Flame Cult — worth surfacing if the party engages the Cult arc.
+   ```
+
+Agent reports in chat: *"Created `pcs/theron.md` (kind: pc) with a one-liner from your description, and added a scratchpad note flagging the patron tie to the Cult arc. Any other Brief sections you want to surface Theron in — e.g., the active-PCs line in `Last time`, or `Open threads`?"*
+
+GM replies: *"Add him to Open threads — the patron should feel like a slow-burning question."*
+
+Agent adds a Thread surfacing or scratchpad nudge as direction-shape revision per response handling shape 2.
+
+Loop exits to Step 4's approval ask. If the GM cancels the Brief at Step 4, `pcs/theron.md` still persists — the roster fact survives the cancel because it was promoted at disclosure time, not at Brief approval.
 
 ## Format conventions for future categories
 

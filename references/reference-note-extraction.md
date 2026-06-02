@@ -97,7 +97,47 @@ Per [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md), the PC rost
 - **A named character matching no `pcs/<slug>.md` AND no `npcs/<slug>.md`** is the safety-net case (per [ADR-0018](../docs/adr/0018-pc-roster-as-survey-deliverable.md)): in `/ingest` Phase 3, the candidate routes to the Step 4a PC-vs-NPC ASK (see `skills/ingest/SKILL.md`); in `/wrap-session`, the candidate routes to Step 3 ambiguity clarification with the same prompt shape. The GM's answer ("PC" or "NPC") determines the file's final location, and `/ingest` records the answer as a carried-forward lesson so subsequent docs in the same run apply silently.
 - **The agent does not infer PC status from prose alone.** Frequency-of-mention and party-pronoun proximity are signals the Phase 2 survey uses to *propose* candidates, not to *commit* identities. Outside the survey, the agent always defers to the established roster + safety-net ASK shape.
 
-Reference-note extraction never writes to `pcs/`. PC files are created by the survey roster promotion (`/ingest` Phase 2 Step 5a) or by the safety-net ASK promotion (`/ingest` Phase 3 Step 4a, `/wrap-session` Step 3). The PC stub shape — `kind: pc` frontmatter, optional `aliases:`, H1, optional one-line body — is documented in `frontmatter-schemas.md` under "Reference note → Worked example: PC stub."
+Reference-note extraction never writes to `pcs/`. PC files are created by the survey roster promotion (`/ingest` Phase 2 Step 5a), by the safety-net ASK promotion (`/ingest` Phase 3 Step 4a, `/wrap-session` Step 3), or by `/prep-session`'s GM Focus Check new-PC disclosure handling (`references/prep-session-questions.md`, "New-PC disclosure handling"). The PC stub shape — `kind: pc` frontmatter, optional `aliases:`, H1, optional one-line body — is documented in `frontmatter-schemas.md` under "Reference note → Worked example: PC stub."
+
+## PC-actor narrative framing as wrap-time discriminator
+
+`/wrap-session` Pass 2 reads narrative prose the GM authored *during play* (the session's `notes.md`). The framing in that prose carries clearer PC-vs-NPC signal than the module-shaped or world-info-shaped prose `/ingest` reads, because the GM was at the table and the in-play voice naturally treats PCs as actors. The wrap-time discriminator leans on this: a named character narrated as the *actor* of party-shaped actions is a PC signal; a named character narrated as the *subject* (a person the party encountered, talked to, fought, helped) is an NPC signal.
+
+This **inverts** the ingest-time discriminator. At ingest time the agent does *not* infer PC identity from prose because module-shaped docs have weak PC signals (the GM hasn't decided who the players are, the doc treats every named character with equal prose weight, and the GM owns the explicit `PC source: <slug>` classification via [ADR-0023](../docs/adr/0023-pc-source-doc-ingestion.md)). At wrap time the GM is the table's narrator and the prose-side signal is reliable enough that the agent can route most candidates without asking.
+
+### PC-actor heuristic for Pass 2
+
+For each named character in `notes.md` whose name doesn't match any existing `pcs/<slug>.md` filename or `aliases:` entry AND doesn't match any existing `npcs/<slug>.md` either (i.e., the standard Reference-note dedup pass would propose a CREATE under `npcs/`), evaluate the prose framing:
+
+**PC-actor signals (route to `pcs/`):**
+
+- **Subject-of-party-action framing.** The character is narrated as the actor performing actions the GM phrases the same way as actions by established PCs: *"Theron drew his sword and charged."* *"Veshenna picked the lock while the others kept watch."* *"Korben rolled to disbelieve and saw through the illusion."* The verb is something a PC does in play (combat, exploration, mechanical decisions) and the GM is narrating the outcome from the player's seat.
+- **Party-pronoun grouping.** The character is named alongside the established PCs with shared party pronouns: *"the party (Silas, Rae, and Theron) approached the gate."* *"Theron and Rae searched the back room."* The grouping is the GM's signal that Theron sits in the same role-slot as Rae.
+- **Player-attribution shorthand.** The notes name a player when narrating an action: *"Maya described Theron's spell — chains of fire wrapping the cultist."* The player's name on the narrating side and the character's name on the in-fiction side is a strong PC signal.
+
+**NPC signals (route to `npcs/` — the default):**
+
+- **Subject-of-prep framing.** The character is named as someone the party encountered, talked to, fought, or learned about: *"The party met Maren at the docks."* *"Brother Aldric arrived at dawn with the healer."* *"The captain refused to talk."* The verbs land on the character; the actors are the party (or another NPC the GM is narrating).
+- **Role-tag framing.** The character is introduced by role first, name second: *"The blacksmith — call her Sera — sold them the daggers."* The role tag is how the GM treats NPCs as functional fixtures of the world.
+- **Stance-toward-party framing.** The character has a disposition or stance the GM is recording for future reference: *"Sera is now wary of the party."* *"The duke remained skeptical."* This is what NPCs do in notes; PCs don't have a stance toward themselves.
+
+**Default to NPC if framing is ambiguous.** A named character with weak or mixed signals (a one-line mention in a list, an action described from a distance with no clear subject framing, a name dropped in a quote that could be either) routes to NPC under Pass 2's default. The Step 3 ambiguity clarification then asks PC-or-NPC explicitly so the GM resolves the call. False-positive NPCs are cheap (the GM moves the staged file from `npcs/` to `pcs/` at Step 4); false-positive PCs are *not* cheap (they'd carve out a roster fact the GM didn't intend), so the default leans NPC.
+
+### Step 3 PC-or-NPC ASK shape (wrap time)
+
+When Pass 2's framing read produces an ambiguous candidate, route to Step 3 ambiguity clarification with the PC-or-NPC ASK shape documented in `skills/wrap-session/SKILL.md` Step 3. The phrasing template:
+
+> *"`<Name>` appears in this session's notes — narrated as an actor doing PC-actor things in some sentences and as a subject in others. PC or NPC?"*
+
+For framings the heuristic read as clearly PC-actor (multiple strong signals, no NPC signals), Pass 2 can route directly to `pcs/` *without* a Step 3 ASK — the wrap-time signal is reliable enough to skip the question in the clear-cut case. The GM corrects in the Step 4 proposed-wrap review by deleting the staged `pcs/<slug>.md` (rejecting outright) or by moving it to `npcs/<slug>.md` (the staging pattern's move-to-correct-directory affordance). The Step 4 surfacing is the second-chance reconciliation for confident-but-wrong PC routing.
+
+### Step 4 correction: moving the staged file
+
+The Step 4 proposed-wrap review (per `skills/wrap-session/SKILL.md` Step 4) shows the GM every staged file. If the agent staged `pcs/theron.md` and the GM realizes the framing was misleading (Theron was actually a PC-shaped NPC ally — the bard the party hired — not a player character), the GM moves the staged file: in their IDE, `.ttrpg-staging/wrap/pcs/theron.md` becomes `.ttrpg-staging/wrap/npcs/theron.md`. The Step 5 promotion reads the staged file from its current location and writes to the corresponding final path, so the move-in-staging is the move-on-promote.
+
+The inverse correction works the same way: the agent staged `npcs/marisa.md` based on a default-NPC read of ambiguous framing, the GM clarifies at Step 4 that Marisa is a new PC, and moves `.ttrpg-staging/wrap/npcs/marisa.md` to `.ttrpg-staging/wrap/pcs/marisa.md`. Step 5 promotes from `pcs/`.
+
+When the GM moves a staged file across kinds (npcs ↔ pcs), the agent does **not** auto-rewrite Beat `linked_pcs:` / `linked_npcs:` or Secret `belongs_to:` references that the wrap had drafted using the original kind. The Step 4 review summary should call out the cross-references so the GM knows what else to update — *"You moved `npcs/marisa.md` to `pcs/marisa.md`; the staged Beat `marisa-overheard-in-hall.md` has `linked_npcs: [marisa]`. Should I rewrite to `linked_pcs: [marisa]`?"* — and the agent applies the rewrite on confirm. Single-session scope: no carried-forward lessons (`/wrap-session` runs against one session).
 
 ## Alias detection at extraction time
 
