@@ -92,17 +92,23 @@ class TestManifestDoesNotDeclareSkills:
             "Code. (This was PR #78's mistake; #69 reverts and fixes.)"
         )
 
-    def test_skills_directory_has_three_skill_md_files(
+    def test_skills_directory_has_expected_skill_md_files(
         self,
         repo_root: Path,
     ) -> None:
-        """The three skills the manifest no longer declares must exist on disk.
+        """The skills the manifest no longer declares must exist on disk.
 
         Belt-and-suspenders for the auto-discovery contract: skills come
-        from the filesystem, not the manifest, so the three SKILL.md
-        files must be present at their conventional paths.
+        from the filesystem, not the manifest, so the SKILL.md files
+        must be present at their conventional paths. v0.3 slice F adds
+        `/init-adventure`; future v0.3 slices add `/init-campaign`.
         """
-        for skill_name in ("ingest", "prep-session", "wrap-session"):
+        for skill_name in (
+            "ingest",
+            "prep-session",
+            "wrap-session",
+            "init-adventure",
+        ):
             skill_path = repo_root / "skills" / skill_name / "SKILL.md"
             assert skill_path.is_file(), (
                 f"Expected skill file at {skill_path.relative_to(repo_root)} "
