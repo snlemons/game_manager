@@ -83,7 +83,7 @@ No bulk-rewrite, no schema-validation flag day, no breaking change.
 ## What this ADR does not commit to
 
 - **Renaming canonical post-creation** when a Secret reveals the real identity (Option D's merge-on-reveal). The clean answer is `git mv` + update `aliases:` + update `linked_npcs:` references across the tree, which is mechanical but not free. The agent surfaces the rename as an option at the `partially-revealed → revealed` prompt; the GM decides whether to perform it. A future ADR may automate the rename if dogfooding shows it's frequent enough.
-- **Alias propagation between Atlas and campaign.** Atlas is deferred ([ADR-0006](./0006-single-context-no-atlas-yet.md)); single-repo only.
+- **Alias propagation between Atlas and campaign.** Atlas is deferred ([ADR-0006](./0006-v0-1-is-ingest-plus-session-loop.md)); single-repo only.
 - **PC aliases / nicknames** (e.g., "Sera" as a nickname for "Seraphina"). The same `aliases:` field is available on PC Reference notes (the schema is at the Reference-note level, not NPC-specific); if PCs need richer treatment — disposition, distinct slugs per identity — file a follow-up. See [#57](https://github.com/snlemons/game_manager/issues/57).
 - **Cross-kind aliases** (a Location historically called by an NPC's name, or vice versa). Out of scope; dedup-matching's cross-kind handling continues to route those to ASK.
 
