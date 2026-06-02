@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -76,14 +77,14 @@ def _run_git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
 # ---------------------------------------------------------------------------
 
 
-# The seven templated paths the scaffolder is contracted to write into
+# The eight templated paths the scaffolder is contracted to write into
 # a campaign repo, in the **exact write order** specified by
 # `references/scaffolder.md` Step 2. Source paths are under
 # `templates/` (with `.template` suffix); destination paths are
 # relative to the campaign repo root.
 #
 # `.claude/settings.json` is FIRST so its `permissions.allow` rules
-# are in effect for the remaining six writes — the one-prompt
+# are in effect for the remaining seven writes — the one-prompt
 # property the scaffolder reference guarantees. Slice A (#81) pinned
 # this ordering with `TestWriteOrder` in `test_ingest_scaffolding.py`.
 #
@@ -91,17 +92,38 @@ def _run_git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
 # per ADR-0021. The file is committed to version control even though
 # it is GM-authored thereafter — the deny entries in
 # `.claude/settings.json` block agent edits at the permission layer.
+#
+# `.claude/hooks/style-aware-write-gate.sh` was added in issue #121
+# per ADR-0021's mechanism-layer amendment. The hook is a PreToolUse
+# backstop for the CLAUDE.md style-Read directive (workaround for
+# Claude Code #23478, where path-scoped auto-load doesn't fire on
+# Write). The file is committed and the scaffolder marks it executable
+# at write time.
 EXPECTED_SCAFFOLDED_FILES: list[tuple[str, str]] = [
     (".claude/settings.json.template", ".claude/settings.json"),
     ("CLAUDE.md.template", "CLAUDE.md"),
     (".claude/rules/sessions.md.template", ".claude/rules/sessions.md"),
     (".claude/rules/adventures.md.template", ".claude/rules/adventures.md"),
     (".claude/rules/style.md.template", ".claude/rules/style.md"),
+    (
+        ".claude/hooks/style-aware-write-gate.sh.template",
+        ".claude/hooks/style-aware-write-gate.sh",
+    ),
     ("campaign.md.template", "campaign.md"),
     (".gitignore.template", ".gitignore"),
 ]
 
-# The six paths actually staged into the initial commit. This is the
+# Destination paths the scaffolder is contracted to mark executable
+# after writing. Per `references/scaffolder.md` Step 2, the hook script
+# is conventionally executable even though its registered invocation
+# goes through `bash <path>`; setting the bit at scaffold time keeps
+# the file ready for direct invocation should a future change drop the
+# `bash` prefix from the settings registration.
+EXPECTED_EXECUTABLE_FILES: tuple[str, ...] = (
+    ".claude/hooks/style-aware-write-gate.sh",
+)
+
+# The seven paths actually staged into the initial commit. This is the
 # scaffolded set minus `.claude/settings.json`, which is gitignored from
 # the start because it carries machine-local absolute paths (see issue
 # #62 and `skills/ingest/SKILL.md` Phase 1 Step 3). The file is still
@@ -261,6 +283,19 @@ def scaffold_campaign(
             campaign_path=target,
         )
         dst.write_text(substituted, encoding="utf-8")
+        if dest_rel in EXPECTED_EXECUTABLE_FILES:
+            # `chmod +x` for owner/group/other — matches what a fresh
+            # `chmod +x` invocation produces, modulo umask. The hook
+            # script is invoked via `bash <path>` so the bit is not
+            # strictly required, but the spec sets it for forward
+            # compatibility with a future direct invocation.
+            current = dst.stat().st_mode
+            dst.chmod(
+                current
+                | stat.S_IXUSR
+                | stat.S_IXGRP
+                | stat.S_IXOTH
+            )
         if write_order_sink is not None:
             write_order_sink.append(dest_rel)
 
@@ -274,12 +309,19 @@ def scaffold_campaign(
     # follow-up); per ADR-0021 the file is committed so the GM's voice
     # rides in version control. Agent edits against it are blocked at
     # the permissions layer by the deny entries in `.claude/settings.json`.
+    #
+    # `.claude/hooks/style-aware-write-gate.sh` was added in issue #121
+    # per ADR-0021's mechanism-layer amendment. The hook is the
+    # PreToolUse backstop for the CLAUDE.md style-Read directive — it
+    # ships in version control alongside the settings template that
+    # registers it.
     _run_git(
         "add",
         "CLAUDE.md",
         ".claude/rules/sessions.md",
         ".claude/rules/adventures.md",
         ".claude/rules/style.md",
+        ".claude/hooks/style-aware-write-gate.sh",
         "campaign.md",
         ".gitignore",
         cwd=target,

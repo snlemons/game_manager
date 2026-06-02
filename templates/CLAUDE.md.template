@@ -63,7 +63,9 @@ Do not invent alternative link syntaxes. `[[wiki link]]` is the convention.
 
 ## Writing style and voice
 
-This campaign carries a GM-authored writing-style guide at [`.claude/rules/style.md`](./.claude/rules/style.md). It steers the prose voice of any artifact the agent drafts under `sessions/`, `adventures/`, `npcs/`, `pcs/`, `locations/`, `factions/`, `items/`, `threads/`, `consequences/`, `beats/`, `secrets/` — Briefs, Logs, Reference-note bodies, Adventure descriptions, lifecycle-object prose. The file's `paths:` frontmatter auto-loads it when the agent opens any matching artifact; you don't need to ask the agent to consult it.
+This campaign carries a GM-authored writing-style guide at [`.claude/rules/style.md`](./.claude/rules/style.md). It steers the prose voice of any artifact the agent drafts under `sessions/`, `adventures/`, `npcs/`, `pcs/`, `locations/`, `factions/`, `items/`, `threads/`, `consequences/`, `beats/`, `secrets/`, and `.ttrpg-staging/` — Briefs, Logs, Reference-note bodies, Adventure descriptions, lifecycle-object prose.
+
+**Agents working in this directory**: before drafting any prose body for files under the directories above, Read `.claude/rules/style.md` if it exists and apply its constraints throughout the drafting session. One Read early covers all subsequent drafting; re-Read if compaction may have dropped the content. (Claude Code's path-scoped auto-load is unreliable on the Write tool — [#23478](https://github.com/anthropics/claude-code/issues/23478) — so explicit Read is the durable mechanism.)
 
 The file is **GM-authored, not agent-written**. The scaffolder ships a stub with placeholder sections (formality, tense, vocabulary, PC referencing, narrative voice); fill in the sections that matter, leave or delete the rest. Keep it tight — roughly 50 to 200 lines, prose with examples rather than rule lists.
 

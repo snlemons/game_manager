@@ -56,5 +56,18 @@
       "Write(/{{CAMPAIGN_PATH}}/.claude/rules/style.md)",
       "MultiEdit(/{{CAMPAIGN_PATH}}/.claude/rules/style.md)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/hooks/style-aware-write-gate.sh"
+          }
+        ]
+      }
+    ]
   }
 }
