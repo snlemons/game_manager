@@ -487,6 +487,7 @@ class TestBeatSchema:
             "set-piece",
             "clue",
             "escalation",
+            "puzzle",
             # Open-enum: any string value passes — `gm-aside` is a
             # plausible future kind, but the test doesn't depend on it
             # ever being added.
