@@ -4,38 +4,6 @@ A Claude Code skills plugin for TTRPG GMs. Helps you organize a campaign, prep s
 
 The plugin is the workflow surface (`/ingest`, `/prep-session`, `/wrap-session`). Each of your campaigns is its own git repo, scaffolded by `/ingest`. See [`CONTEXT.md`](./CONTEXT.md) for the domain glossary the plugin uses and [`docs/adr/`](./docs/adr/) for the architectural decisions.
 
-## What v0.1 ships
-
-v0.1 is the ingest workflow plus the full session loop:
-
-- **`/ingest`** — scaffold a fresh campaign repo, then ingest existing markdown notes via a survey phase + a per-doc extraction loop with cross-doc dedup and carried-forward GM lessons, then regenerate the campaign overview.
-- **`/prep-session`** — create a session directory and draft a structured pre-session Brief from current campaign state (active Adventures, open Threads, recent Consequences, pending Beats filtered by relevance, NPCs likely to appear).
-- **`/wrap-session`** — read the session's in-play notes, draft the Log, propose new Threads / Consequences / Reference notes / Beat updates / Adventure status changes for GM approval, and regenerate `campaign.md`.
-
-All three skills share a `references/` directory at the plugin root holding the canonical specs for dedup matching, frontmatter schemas, the `campaign.md` composer, the staging-file review pattern, and the settings-path preflight ([#14](https://github.com/snlemons/game_manager/issues/14)). Skills do their reads and writes against a campaign-local `.claude/settings.json` scaffolded at `/ingest` time with absolute paths baked into the permission rules ([#21](https://github.com/snlemons/game_manager/issues/21) for the moved-campaign preflight).
-
-## What v0.2 adds
-
-v0.2 ships a richer prep workflow and a new lifecycle object:
-
-- **Secret** as a new multi-container lifecycle object ([ADR-0014](./docs/adr/0014-secrets-as-multi-container-lifecycle-objects.md)) — facts the party might not know yet but could learn. One file per Secret in `secrets/<slug>.md`. Frontmatter `belongs_to` is an unordered set of non-ephemeral container paths (Adventure / NPC / PC / Location / Faction / Item) with ≥1 required. Three-state status (`hidden | partially-revealed | revealed`). Containers maintain symmetric `## Secrets` sections wiki-linking back; the agent keeps the symmetry on every Secret write and surfaces drift as a lint case.
-- **Beat `kind:` discriminator** ([ADR-0014](./docs/adr/0014-secrets-as-multi-container-lifecycle-objects.md)) — optional open-enum field on Beats; starter values `news | handout | character-moment | set-piece | clue | escalation`. `kind: clue` Beats pair with `linked_secrets:` to drive Secret revelation tracking.
-- **`/prep-session` conversational refinement loop** ([ADR-0015](./docs/adr/0015-conversational-refinement-loop-in-prep-session.md)) — Step 3.5 wraps the existing draft → review flow in a multi-turn dialogue. Seven question categories (Coverage Check, Tiering Check, Thread Decay, Decision Request, Secret Push, Escalation Prep, GM Focus Check) fire by documented rules in `references/prep-session-questions.md`; the agent revises the staged Brief via Edit so each turn shows as a native IDE diff. Verbal skip exits the loop without writing extra revisions.
-- **Brief shape changes** — new `## Opening Scene` section (empty by default; populated via Decision Request if the GM asks); `## Locations` reshapes to 3–5 entries with one sensory detail each; sensory details authored in dialogue write back to the relevant Location Reference note (Alexandrian "recycle and reincorporate").
-- **`/wrap-session` and `/ingest` adoption** — extract proposed new Secrets from in-play notes (wrap-session) and module docs (ingest), classify proposed Beats by `kind:`, auto-flip Secret status `hidden → partially-revealed` on Clue delivery, prompt the GM for `partially-revealed → revealed` transitions.
-
-Runtime helpers (`lib/`) were explored and rolled back before ship — v0.2 stays pure-skill at runtime, matching v0.1's pattern. Reference Python in `tests/` mirrors the deterministic algorithms (frontmatter validation, dedup, Secret enumeration, bidirectional link maintenance) for spec-drift detection. Runtime promotion stays tracked under [#24](https://github.com/snlemons/game_manager/issues/24).
-
-## Roadmap
-
-Rough cross-version horizon. Scope shifts based on dogfooding; per-version PRDs in GitHub Issues are the source of truth for committed work.
-
-- **v0.1** *(shipped 2026-05-30)* — ingest workflow + session loop. Three skills (`/ingest`, `/prep-session`, `/wrap-session`).
-- **v0.2** *(shipped 2026-05-31)* — Secret architecture + conversational prep loop. New `Secret` lifecycle object with multi-container ownership and bidirectional linking; Beat `kind:` discriminator with `linked_secrets:`; `/prep-session` Step 3.5 conversational refinement loop with 7 rule-based question categories; Brief Opening Scene section + reshaped Locations with sensory write-back. See [PRD #31](https://github.com/snlemons/game_manager/issues/31) for the full scope.
-- **v0.3** *(planned)* — bootstrapping skills + first explicit modularization pass. `/init-campaign` for net-new campaigns (dual-mode: from existing docs or guided from scratch); `/init-adventure` for net-new adventures (in-campaign, or standalone where the standalone case scaffolds a campaign-shaped one-shot repo); `/ingest` shrinks to extraction-only against existing campaigns. Scaffolder, extraction pipeline, and conversational-refinement-loop become shared `references/` consumed by multiple skills. PC backstory ingestion via GM-explicit doc classification; `.claude/rules/style.md` GM-authored style guide stub; Beat `kind: puzzle` enum extension; `campaign.md` gains a `## Party` section.
-- **Post-v0.3 arcs, in rough order** *(not committed)* — bigger-than-session prep (mid-campaign planning beyond a single session); Q&A about the campaign (brainstorming, planning, live-session lookups); Atlas + canonical setting info (shared cross-campaign repos with campaign-local override semantics). Continuity catching is a cross-cutting property surfaced by many skills via shared references, not a destination skill.
-- **Trigger-gated parked items** — context-management for large campaigns ([#11](https://github.com/snlemons/game_manager/issues/11)), runtime `lib/` helper promotion ([#24](https://github.com/snlemons/game_manager/issues/24); explored and rolled back during v0.2 design), pre-approval stage for large entity batches ([#27](https://github.com/snlemons/game_manager/issues/27)), mechanics Reference-note kind ([#55](https://github.com/snlemons/game_manager/issues/55); interim section-in-Location pattern continues).
-
 ## Install
 
 The plugin ships a canonical `.claude-plugin/plugin.json` manifest, so the same repo supports both install paths Claude Code offers:
@@ -150,6 +118,16 @@ The design is built on top of years of community work by TTRPG GMs refining thei
 Where this plugin departs from these sources, the relevant ADR in [`docs/adr/`](./docs/adr/) records why — most notably per-file Reference notes ([ADR-0003](./docs/adr/0003-per-file-reference-notes.md)) instead of Shea's single-page NPC dossier, done to support `[[wiki link]]` resolution and backlinks while preserving the anti-form-friction principle in what the agent defaults to writing.
 
 The original design brief is in [`DESIGN_NOTES.md`](./DESIGN_NOTES.md), which lists the priority reading order for the source material.
+
+## Roadmap
+
+Rough cross-version horizon. Scope shifts based on dogfooding; per-version PRDs in GitHub Issues are the source of truth for committed work.
+
+- **v0.1** *(shipped 2026-05-30)* — ingest workflow + session loop. Three skills (`/ingest`, `/prep-session`, `/wrap-session`).
+- **v0.2** *(shipped 2026-05-31)* — Secret architecture + conversational prep loop. New `Secret` lifecycle object with multi-container ownership and bidirectional linking; Beat `kind:` discriminator with `linked_secrets:`; `/prep-session` Step 3.5 conversational refinement loop with 7 rule-based question categories; Brief Opening Scene section + reshaped Locations with sensory write-back. See [PRD #31](https://github.com/snlemons/game_manager/issues/31) for the full scope.
+- **v0.3** *(planned)* — bootstrapping skills + first explicit modularization pass. `/init-campaign` for net-new campaigns (dual-mode: from existing docs or guided from scratch); `/init-adventure` for net-new adventures (in-campaign, or standalone where the standalone case scaffolds a campaign-shaped one-shot repo); `/ingest` shrinks to extraction-only against existing campaigns. Scaffolder, extraction pipeline, and conversational-refinement-loop become shared `references/` consumed by multiple skills. PC backstory ingestion via GM-explicit doc classification; `.claude/rules/style.md` GM-authored style guide stub; Beat `kind: puzzle` enum extension; `campaign.md` gains a `## Party` section.
+- **Post-v0.3 arcs, in rough order** *(not committed)* — bigger-than-session prep (mid-campaign planning beyond a single session); Q&A about the campaign (brainstorming, planning, live-session lookups); Atlas + canonical setting info (shared cross-campaign repos with campaign-local override semantics). Continuity catching is a cross-cutting property surfaced by many skills via shared references, not a destination skill.
+- **Trigger-gated parked items** — context-management for large campaigns ([#11](https://github.com/snlemons/game_manager/issues/11)), runtime `lib/` helper promotion ([#24](https://github.com/snlemons/game_manager/issues/24); explored and rolled back during v0.2 design), pre-approval stage for large entity batches ([#27](https://github.com/snlemons/game_manager/issues/27)), mechanics Reference-note kind ([#55](https://github.com/snlemons/game_manager/issues/55); interim section-in-Location pattern continues).
 
 ## License
 
