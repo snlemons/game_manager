@@ -2,7 +2,7 @@
 
 A Claude Code skills plugin for TTRPG GMs. Helps you organize a campaign, prep sessions, and track continuity, with your campaign data living in a GM-owned git repo on disk.
 
-The plugin is the workflow surface (`/ingest`, `/prep-session`, `/wrap-session`). Each of your campaigns is its own git repo, scaffolded by `/ingest`. See [`CONTEXT.md`](./CONTEXT.md) for the domain glossary the plugin uses and [`docs/adr/`](./docs/adr/) for the architectural decisions.
+The plugin is the workflow surface (`/init-campaign`, `/init-adventure`, `/ingest`, `/prep-session`, `/wrap-session`). Each of your campaigns is its own git repo, scaffolded by `/init-campaign`. See [`CONTEXT.md`](./CONTEXT.md) for the domain glossary the plugin uses and [`docs/adr/`](./docs/adr/) for the architectural decisions.
 
 ## Install
 
@@ -28,7 +28,7 @@ git clone https://github.com/snlemons/game_manager.git ~/.claude/skills/ttrpg-gm
 
 Claude Code auto-discovers the plugin as `ttrpg-gm@skills-dir`. Updates flow via `git pull` in `~/.claude/skills/ttrpg-gm/`. This mode is convenient if you want to hack on the plugin yourself — the working tree is your install.
 
-Either way, the three slash commands (`/ingest`, `/prep-session`, `/wrap-session`) resolve globally in Claude Code — you can invoke them from any working directory. The plugin's internal cross-references use relative markdown paths so both install modes resolve correctly.
+Either way, the five slash commands (`/init-campaign`, `/init-adventure`, `/ingest`, `/prep-session`, `/wrap-session`) resolve globally in Claude Code — you can invoke them from any working directory. The plugin's internal cross-references use relative markdown paths so both install modes resolve correctly.
 
 ## First run
 
@@ -63,6 +63,8 @@ Then it runs `git init` and commits those files as the campaign repo's first com
 
 | Command | What it does |
 |---|---|
+| `/init-campaign` | Bootstrap a brand-new campaign repo. Dual-mode: guided from scratch (collect name + system, elicit a pitch via a conversational refinement loop, optionally register a PC roster, optionally hand off to `/init-adventure` for a first Adventure), or from existing markdown notes (scaffold, then run the shared extraction pipeline). The scaffolding front door for new campaigns. |
+| `/init-adventure` | Author a net-new Adventure from scratch, walking through premise, hook, locations, NPCs, secrets and clues, set-pieces, and escalations. Two modes: in-campaign (adds `adventures/<slug>/` to an existing scaffolded campaign) or standalone (scaffolds a campaign-shaped one-shot repo). |
 | `/ingest` | Ingest existing markdown notes into an already-scaffolded campaign repo, extracting structured Reference notes, Adventures, Threads, Consequences, Beats, and Secrets via a survey + per-doc extraction loop with cross-doc dedup and carried-forward GM lessons. Hard-stops on unscaffolded directories — use `/init-campaign` to start a new campaign. |
 | `/prep-session` | Create a session directory and draft a structured pre-session Brief from current campaign state (active Adventures, open Threads, recent Consequences, relevance-filtered Beats, NPCs likely to appear). |
 | `/wrap-session` | Read the session's in-play notes, draft the Log, propose new Threads / Consequences / Reference notes / Beat updates / Adventure status changes for GM approval, and regenerate `campaign.md`. |
@@ -74,6 +76,8 @@ ttrpg-gm/                              # plugin repo root
 ├── .claude-plugin/
 │   └── plugin.json                    # plugin manifest (name, version, author)
 ├── skills/
+│   ├── init-campaign/SKILL.md         # /init-campaign workflow
+│   ├── init-adventure/SKILL.md        # /init-adventure workflow
 │   ├── ingest/SKILL.md                # /ingest workflow
 │   ├── prep-session/SKILL.md          # /prep-session workflow
 │   └── wrap-session/SKILL.md          # /wrap-session workflow
