@@ -6,17 +6,18 @@ The plugin is the workflow surface (`/init-campaign`, `/init-adventure`, `/inges
 
 ## Install
 
-The plugin ships a canonical `.claude-plugin/plugin.json` manifest, so the same repo supports both install paths Claude Code offers:
+The repo doubles as a single-plugin marketplace: `.claude-plugin/marketplace.json` lists the `ttrpg-gm` plugin, and `.claude-plugin/plugin.json` is the plugin manifest. So the same repo supports both install paths Claude Code offers:
 
 ### Marketplace install (recommended)
 
-From inside a Claude Code session, run:
+From inside a Claude Code session, register the marketplace, then install the plugin:
 
 ```
-/plugin install https://github.com/snlemons/game_manager
+/plugin marketplace add snlemons/game_manager
+/plugin install ttrpg-gm@game-manager
 ```
 
-Claude Code clones the plugin into its plugin cache (`~/.claude/plugins/cache/`) and registers it automatically. Updates flow via the same `/plugin` command set; versioning is git tags.
+Claude Code clones the repo into its plugin cache (`~/.claude/plugins/cache/`) and registers the plugin. Updates flow via the same `/plugin` command set (`/plugin marketplace update game-manager`); versioning is git tags.
 
 ### Local-development install
 

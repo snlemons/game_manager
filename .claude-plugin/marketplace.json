@@ -1,0 +1,14 @@
+{
+  "name": "game-manager",
+  "owner": {
+    "name": "Sofia Lemons"
+  },
+  "description": "Marketplace serving the ttrpg-gm plugin for TTRPG GMs.",
+  "plugins": [
+    {
+      "name": "ttrpg-gm",
+      "source": "./",
+      "description": "TTRPG GM workflow plugin: /init-campaign, /init-adventure, /ingest, /prep-session, /wrap-session."
+    }
+  ]
+}
